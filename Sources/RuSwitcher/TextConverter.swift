@@ -67,6 +67,11 @@ private struct CaretPrefix: Sendable {
     let caretLocation: Int
 }
 
+private struct PhysicalReplacementStroke: Sendable {
+    let keyCode: UInt16
+    let shift: Bool
+}
+
 /// Конвертация текста между раскладками
 @MainActor
 final class TextConverter {
@@ -196,6 +201,7 @@ final class TextConverter {
         expected: String,
         replacement: String,
         focus: FocusedElementIdentity,
+        targetLayoutID: String? = nil,
         expectedCaretLocation: Int? = nil,
         isCurrent: @escaping @MainActor @Sendable () -> Bool,
         completion: @escaping (ManualSuffixReplacementOutcome) -> Void
@@ -213,6 +219,7 @@ final class TextConverter {
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
+                targetLayoutID: targetLayoutID,
                 expectedCaretLocation: expectedCaretLocation,
                 isCurrent: isCurrent,
                 completion: completion
@@ -225,6 +232,7 @@ final class TextConverter {
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
+                targetLayoutID: targetLayoutID,
                 expectedCaretLocation: expectedCaretLocation,
                 isCurrent: isCurrent,
                 completion: completion
@@ -237,6 +245,7 @@ final class TextConverter {
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
+                targetLayoutID: targetLayoutID,
                 expectedCaretLocation: expectedCaretLocation,
                 isCurrent: isCurrent,
                 completion: completion
@@ -256,6 +265,7 @@ final class TextConverter {
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
+                targetLayoutID: targetLayoutID,
                 expectedCaretLocation: expectedCaretLocation,
                 isCurrent: isCurrent,
                 completion: completion
@@ -275,6 +285,7 @@ final class TextConverter {
             expected: expected,
             replacement: replacement,
             focus: focus,
+            targetLayoutID: targetLayoutID,
             expectedCaretLocation: expectedCaretLocation,
             isCurrent: isCurrent,
             completion: completion
@@ -286,6 +297,7 @@ final class TextConverter {
         expected: String,
         replacement: String,
         focus: FocusedElementIdentity,
+        targetLayoutID: String?,
         expectedCaretLocation: Int?,
         isCurrent: @escaping @MainActor @Sendable () -> Bool,
         completion: SuffixCompletionBox
@@ -299,6 +311,7 @@ final class TextConverter {
                     expected: expected,
                     replacement: replacement,
                     focus: focus,
+                    targetLayoutID: targetLayoutID,
                     expectedCaretLocation: expectedCaretLocation,
                     isCurrent: isCurrent,
                     completion: completion
@@ -325,6 +338,7 @@ final class TextConverter {
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
+                targetLayoutID: targetLayoutID,
                 expectedCaretLocation: expectedCaretLocation,
                 isCurrent: isCurrent,
                 completion: completion
@@ -338,13 +352,15 @@ final class TextConverter {
         }
     }
 
-    /// Backspace + Unicode for hosts that cannot select-and-replace safely.
-    /// Only posts after the expected suffix is still under the caret when AX
-    /// can read it; pure TTY (AX unavailable) still posts using grapheme count.
+    /// Keyboard replacement for hosts that cannot select-and-replace through AX.
+    /// AX-blind hosts select the exact suffix with Shift+Left, then type physical
+    /// keys in the target layout. A dropped insertion leaves a selection instead
+    /// of destructively deleting text before the token.
     private func replaceFocusedSuffixViaKeyboardDeletion(
         expected: String,
         replacement: String,
         focus: FocusedElementIdentity,
+        targetLayoutID: String?,
         expectedCaretLocation: Int?,
         isCurrent: @escaping @MainActor @Sendable () -> Bool,
         completion: SuffixCompletionBox
@@ -361,15 +377,21 @@ final class TextConverter {
             expectedCaretLocation: expectedCaretLocation,
             timeoutMilliseconds: 50
         )
+        let forceGlobalEventStream = CommandLine.arguments.contains("--force-global-event-stream")
+        let delivery: KeyboardEventDelivery
         switch probe {
         case .mismatch:
             isConverting = false
             completion.callback(.failed)
             return
-        case .match, .unchanged, .unavailable:
-            break
+        case .match, .unchanged:
+            delivery = forceGlobalEventStream ? .globalEventStream : .targetedProcess
+        case .unavailable:
+            // Some custom editors do not expose AX text but do receive marked
+            // HID-stream events. Targeted CGEvents are silently ignored there.
+            delivery = .globalEventStream
         }
-        // Re-check freshness right before the destructive Backspace burst.
+        // Re-check freshness after the AX probe and before posting any edit.
         // The probe above is itself an AX round-trip (up to 50 ms); when it
         // returns .unavailable there is no content confirmation at all, so
         // this recheck — not AX — is the only thing standing between "safe"
@@ -381,36 +403,132 @@ final class TextConverter {
             return
         }
 
-        // Prefer grapheme count for Backspace keys; utf16 length can over-delete
-        // on some composed sequences, but EN/RU layout tokens are BMP.
-        let backspaceCount = max(expected.count, expected.utf16.count)
-        guard backspaceCount > 0,
-              let source = makeSource() else {
+        let replacementSpanCount = expected.count
+        guard replacementSpanCount > 0 else {
             isConverting = false
             completion.callback(.failed)
             return
         }
-        source.setLocalEventsFilterDuringSuppressionState(
-            [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents],
-            state: .eventSuppressionStateSuppressionInterval
-        )
-        for _ in 0..<backspaceCount {
-            guard let down = CGEvent(keyboardEventSource: source, virtualKey: KC.backspace, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: source, virtualKey: KC.backspace, keyDown: false)
-            else {
+        if delivery == .globalEventStream {
+            guard let targetLayoutID,
+                  let strokes = physicalReplacementStrokes(
+                    for: replacement,
+                    targetLayoutID: targetLayoutID
+                  ),
+                  !strokes.isEmpty else {
                 isConverting = false
                 completion.callback(.failed)
                 return
             }
-            down.postToPid(pid_t(focus.processID))
-            up.postToPid(pid_t(focus.processID))
+            let originalLayoutID = LayoutSwitcher.currentLayoutID()
+            LayoutSwitcher.switchTo(layoutID: targetLayoutID)
+            // Give the target application one run-loop turn to observe the
+            // input-source change before posting physical key codes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [weak self] in
+                self?.waitForPhysicalReplacementLayout(
+                    targetLayoutID: targetLayoutID,
+                    originalLayoutID: originalLayoutID,
+                    replacementSpanCount: replacementSpanCount,
+                    replacement: replacement,
+                    strokes: strokes,
+                    focus: focus,
+                    isCurrent: isCurrent,
+                    attempt: 0,
+                    completion: completion
+                )
+            }
+            return
         }
-        guard postUnicodeText(replacement, to: focus.processID) else {
+
+        // AX-readable hosts keep the established targeted Unicode path.
+        let plan = EventReplacementPlan(
+            backspaceCount: max(expected.count, expected.utf16.count),
+            replacementText: replacement
+        )
+        guard post(plan, to: focus.processID, delivery: delivery) else {
             isConverting = false
             completion.callback(.failed)
             return
         }
         rslog("manual_keyboard_deletion_posted")
+        verifyPostedSuffixReplacement(
+            replacement: replacement,
+            focus: focus,
+            isCurrent: isCurrent,
+            completion: completion
+        )
+    }
+
+    private func waitForPhysicalReplacementLayout(
+        targetLayoutID: String,
+        originalLayoutID: String,
+        replacementSpanCount: Int,
+        replacement: String,
+        strokes: [PhysicalReplacementStroke],
+        focus: FocusedElementIdentity,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool,
+        attempt: Int,
+        completion: SuffixCompletionBox
+    ) {
+        guard isCurrent(),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
+            restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
+            isConverting = false
+            completion.callback(.failed)
+            return
+        }
+        guard LayoutSwitcher.currentLayoutID() == targetLayoutID else {
+            guard attempt < 20 else {
+                restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
+                isConverting = false
+                completion.callback(.failed)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.003) { [weak self] in
+                self?.waitForPhysicalReplacementLayout(
+                    targetLayoutID: targetLayoutID,
+                    originalLayoutID: originalLayoutID,
+                    replacementSpanCount: replacementSpanCount,
+                    replacement: replacement,
+                    strokes: strokes,
+                    focus: focus,
+                    isCurrent: isCurrent,
+                    attempt: attempt + 1,
+                    completion: completion
+                )
+            }
+            return
+        }
+        guard postPhysicalReplacement(
+            replacementSpanCount: replacementSpanCount,
+            strokes: strokes,
+            to: focus.processID
+        ) else {
+            restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
+            isConverting = false
+            completion.callback(.failed)
+            return
+        }
+        rslog("manual_global_physical_selection_posted")
+        verifyPostedSuffixReplacement(
+            replacement: replacement,
+            focus: focus,
+            isCurrent: isCurrent,
+            completion: completion
+        )
+    }
+
+    private func restoreLayoutAfterAbortedPhysicalReplacement(_ layoutID: String) {
+        guard !layoutID.isEmpty, LayoutSwitcher.currentLayoutID() != layoutID else { return }
+        LayoutSwitcher.switchTo(layoutID: layoutID)
+    }
+
+    private func verifyPostedSuffixReplacement(
+        replacement: String,
+        focus: FocusedElementIdentity,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool,
+        completion: SuffixCompletionBox
+    ) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self else { return }
             guard isCurrent(),
@@ -419,7 +537,7 @@ final class TextConverter {
                 completion.callback(.failed)
                 return
             }
-            if self.focusedSuffixMatches(
+            if !replacement.isEmpty, self.focusedSuffixMatches(
                 replacement,
                 focus: focus,
                 timeoutMilliseconds: 40
@@ -1076,14 +1194,18 @@ final class TextConverter {
         isConverting = false
     }
 
-    nonisolated private func postKey(keyCode: UInt16, to processID: Int32) -> Bool {
+    nonisolated private func postKey(
+        keyCode: UInt16,
+        to processID: Int32,
+        delivery: KeyboardEventDelivery = .targetedProcess
+    ) -> Bool {
         guard let source = makeSource(),
               let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
             return false
         }
-        down.postToPid(pid_t(processID))
-        up.postToPid(pid_t(processID))
+        deliver(down, to: processID, via: delivery)
+        deliver(up, to: processID, via: delivery)
         return true
     }
 
@@ -1121,7 +1243,11 @@ final class TextConverter {
         return true
     }
 
-    nonisolated private func postUnicodeText(_ text: String, to processID: Int32) -> Bool {
+    nonisolated private func postUnicodeText(
+        _ text: String,
+        to processID: Int32,
+        delivery: KeyboardEventDelivery = .targetedProcess
+    ) -> Bool {
         guard let source = makeSource(),
               let down = CGEvent(
                 keyboardEventSource: source,
@@ -1141,22 +1267,120 @@ final class TextConverter {
                 unicodeString: buffer.baseAddress
             )
         }
-        down.postToPid(pid_t(processID))
-        up.postToPid(pid_t(processID))
+        deliver(down, to: processID, via: delivery)
+        deliver(up, to: processID, via: delivery)
         return true
     }
 
-    nonisolated private func replacementEvents(for plan: EventReplacementPlan) -> [CGEvent]? {
-        guard let source = makeSource() else { return nil }
-        // Independent HID state for each key prevents some hosts from coalescing
-        // rapid identical Backspaces into a single deletion (first char left over).
-        source.setLocalEventsFilterDuringSuppressionState(
-            [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents],
-            state: .eventSuppressionStateSuppressionInterval
-        )
+    private func physicalReplacementStrokes(
+        for text: String,
+        targetLayoutID: String
+    ) -> [PhysicalReplacementStroke]? {
+        guard !text.isEmpty,
+              let layout = LayoutSwitcher.installedLayouts().first(where: {
+                LayoutSwitcher.sourceID($0) == targetLayoutID
+              }) else { return nil }
+        var strokes: [PhysicalReplacementStroke] = []
+        for character in text {
+            switch character {
+            case " ":
+                strokes.append(PhysicalReplacementStroke(keyCode: KC.space, shift: false))
+            case "\t":
+                strokes.append(PhysicalReplacementStroke(keyCode: KC.tab, shift: false))
+            case "\n":
+                strokes.append(PhysicalReplacementStroke(keyCode: KC.enter, shift: false))
+            default:
+                guard let physicalKeys = DynamicKeyMapping.physicalKeys(
+                    for: character,
+                    layout: layout
+                ) else { return nil }
+                strokes.append(contentsOf: physicalKeys.map {
+                    PhysicalReplacementStroke(keyCode: $0.keyCode, shift: $0.shift)
+                })
+            }
+        }
+        return strokes
+    }
+
+    private func postPhysicalReplacement(
+        replacementSpanCount: Int,
+        strokes: [PhysicalReplacementStroke],
+        to processID: Int32
+    ) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processID,
+              var events = selectionEvents(count: replacementSpanCount) else { return false }
+        events.reserveCapacity(events.count + strokes.count * 2)
+        for stroke in strokes {
+            guard let source = makeSource(),
+                  let down = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: stroke.keyCode,
+                    keyDown: true
+                  ),
+                  let up = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: stroke.keyCode,
+                    keyDown: false
+                  ) else { return false }
+            let flags: CGEventFlags = stroke.shift ? .maskShift : []
+            down.flags = flags
+            up.flags = flags
+            events.append(down)
+            events.append(up)
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processID else {
+            return false
+        }
+        for event in events {
+            deliver(event, to: processID, via: .globalEventStream)
+        }
+        return true
+    }
+
+    nonisolated private func selectionEvents(count: Int) -> [CGEvent]? {
+        guard count > 0 else { return nil }
         var events: [CGEvent] = []
-        events.reserveCapacity(plan.backspaceCount * 2 + 2)
-        for _ in 0..<plan.backspaceCount {
+        events.reserveCapacity(count * 2)
+        for _ in 0..<count {
+            guard let source = makeSource(),
+                  let down = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: KC.left,
+                    keyDown: true
+                  ),
+                  let up = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: KC.left,
+                    keyDown: false
+                  ) else { return nil }
+            down.flags = .maskShift
+            up.flags = .maskShift
+            events.append(down)
+            events.append(up)
+        }
+        return events
+    }
+
+    /// Global delivery is used only after AX explicitly reports that the text
+    /// surface is unavailable. The source marker keeps our own event tap from
+    /// treating this replacement as fresh user typing.
+    nonisolated private func deliver(
+        _ event: CGEvent,
+        to processID: Int32,
+        via delivery: KeyboardEventDelivery
+    ) {
+        switch delivery {
+        case .targetedProcess:
+            event.postToPid(pid_t(processID))
+        case .globalEventStream:
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    nonisolated private func backspaceEvents(count: Int) -> [CGEvent]? {
+        var events: [CGEvent] = []
+        events.reserveCapacity(count * 2)
+        for _ in 0..<count {
             // A genuinely separate source per Backspace pair, not just the
             // suppression filter: GPU terminals (Ghostty) coalesce identical
             // key events from one source posted back-to-back, eating the first
@@ -1169,6 +1393,17 @@ final class TextConverter {
             events.append(down)
             events.append(up)
         }
+        return events
+    }
+
+    nonisolated private func replacementEvents(for plan: EventReplacementPlan) -> [CGEvent]? {
+        guard let source = makeSource(),
+              var events = backspaceEvents(count: plan.backspaceCount) else { return nil }
+        source.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
+        events.reserveCapacity(events.count + 2)
         guard !plan.replacementText.isEmpty,
               let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
@@ -1633,10 +1868,18 @@ final class TextConverter {
 }
 
 extension TextConverter: KeyboardEventPosting {
-    func post(_ plan: EventReplacementPlan, to processID: Int32) -> Bool {
+    func post(
+        _ plan: EventReplacementPlan,
+        to processID: Int32,
+        delivery: KeyboardEventDelivery
+    ) -> Bool {
+        if delivery == .globalEventStream,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != processID {
+            return false
+        }
         guard let events = replacementEvents(for: plan) else { return false }
         for event in events {
-            event.postToPid(pid_t(processID))
+            deliver(event, to: processID, via: delivery)
         }
         for character in plan.replayText {
             let keyCode: UInt16
@@ -1646,7 +1889,7 @@ extension TextConverter: KeyboardEventPosting {
             case "\t": keyCode = KC.tab
             default: continue
             }
-            guard postKey(keyCode: keyCode, to: processID) else { return false }
+            guard postKey(keyCode: keyCode, to: processID, delivery: delivery) else { return false }
         }
         return true
     }

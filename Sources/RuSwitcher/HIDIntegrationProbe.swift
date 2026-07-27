@@ -48,28 +48,34 @@ private struct HIDProbeScenario {
     let name: String
     let phases: [Phase]
     let manualLearningSource: String?
+    let learningRuleSource: String?
     let trailingTriggerCount: Int
     let selectedToggleSource: String?
     let autoConvertEnabled: Bool
     let navigationRoundTripBeforeTrigger: Bool
+    let acceptTrailingManualCorrection: Bool
 
     init(
         name: String,
         phases: [Phase],
         manualLearningSource: String? = nil,
+        learningRuleSource: String? = nil,
         triggerAfterTyping: Bool = false,
         trailingTriggerCount: Int? = nil,
         selectedToggleSource: String? = nil,
         autoConvertEnabled: Bool = true,
-        navigationRoundTripBeforeTrigger: Bool = false
+        navigationRoundTripBeforeTrigger: Bool = false,
+        acceptTrailingManualCorrection: Bool = false
     ) {
         self.name = name
         self.phases = phases
         self.manualLearningSource = manualLearningSource
+        self.learningRuleSource = learningRuleSource ?? manualLearningSource
         self.trailingTriggerCount = trailingTriggerCount ?? (triggerAfterTyping ? 1 : 0)
         self.selectedToggleSource = selectedToggleSource
         self.autoConvertEnabled = autoConvertEnabled
         self.navigationRoundTripBeforeTrigger = navigationRoundTripBeforeTrigger
+        self.acceptTrailingManualCorrection = acceptTrailingManualCorrection
     }
 
     static func named(_ name: String) -> HIDProbeScenario? {
@@ -144,6 +150,32 @@ private struct HIDProbeScenario {
                 phases: [Phase(sourceLanguage: "en", typedText: "here ")],
                 trailingTriggerCount: 4,
                 autoConvertEnabled: false
+            )
+        case "manual-ax-unavailable-current-word-toggle-cycle":
+            // There is deliberately no trailing Space here. This catches hosts
+            // which apply Backspace immediately but need one harmless keyboard
+            // event after a Unicode payload before committing it.
+            return HIDProbeScenario(
+                name: name,
+                phases: [Phase(sourceLanguage: "en", typedText: "here")],
+                trailingTriggerCount: 4,
+                autoConvertEnabled: false
+            )
+        case "manual-ax-unavailable-long-word-toggle-cycle":
+            return HIDProbeScenario(
+                name: name,
+                phases: [Phase(sourceLanguage: "en", typedText: "ghbdtncnde.")],
+                trailingTriggerCount: 2,
+                autoConvertEnabled: false
+            )
+        case "manual-ax-unavailable-learning":
+            return HIDProbeScenario(
+                name: name,
+                phases: [Phase(sourceLanguage: "ru", typedText: "лкуф")],
+                learningRuleSource: "лкуф",
+                trailingTriggerCount: 1,
+                autoConvertEnabled: false,
+                acceptTrailingManualCorrection: true
             )
         case "manual-selection-toggle-cycle":
             return HIDProbeScenario(
@@ -604,10 +636,36 @@ private final class HIDProbeDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func beginTrailingToggleCycle() {
+        if scenario.acceptTrailingManualCorrection {
+            runAcceptedManualToggle()
+            return
+        }
         runManualToggleCycle(
             remaining: scenario.trailingTriggerCount,
             reselectText: false
         )
+    }
+
+    private func runAcceptedManualToggle() {
+        postDoubleShift { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                guard let self,
+                      let source = CGEventSource(stateID: .hidSystemState) else {
+                    self?.finish(text: "<event-source-unavailable>")
+                    return
+                }
+                self.manualTrace.append(self.textView.string)
+                self.manualSelectionLengthTrace.append(self.textView.selectedRange().length)
+                source.userData = 0x52535445
+                self.postNavigationKey(49, source: source) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        guard let self else { return }
+                        self.manualObservedText = self.textView.string
+                        self.finish(text: self.textView.string)
+                    }
+                }
+            }
+        }
     }
 
     private func postNavigationRoundTrip(completion: @escaping () -> Void) {
@@ -709,7 +767,7 @@ private final class HIDProbeDelegate: NSObject, NSApplicationDelegate {
             configuredLayoutIDs: configuredLayoutIDs,
             observedLayoutIDs: observedLayoutIDs,
             syntheticKeyTrace: syntheticKeyTrace,
-            learningConfirmed: scenario.manualLearningSource.map { source in
+            learningConfirmed: scenario.learningRuleSource.map { source in
                 SettingsManager.shared.isAdaptiveConfirmed(
                     original: source,
                     converted: KeyMapping.convert(source),

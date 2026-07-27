@@ -30,6 +30,14 @@ public enum ReplacementOutcome: Equatable, Sendable {
     case failed(ReplacementFailure)
 }
 
+/// Delivery is selected from the preflight result, not from an application's
+/// bundle ID. AX-readable editors get targeted events; editors with no AX text
+/// receive the same marked events through the active HID stream.
+public enum KeyboardEventDelivery: Equatable, Sendable {
+    case targetedProcess
+    case globalEventStream
+}
+
 public enum ReplacementTiming {
     /// The event callback must stay bounded even when the target application's
     /// Accessibility implementation is slow. Tree traversal runs during warm-up.
@@ -91,7 +99,11 @@ public protocol SelectedTextReplacing: AnyObject {
 
 @MainActor
 public protocol KeyboardEventPosting: AnyObject {
-    func post(_ plan: EventReplacementPlan, to processID: Int32) -> Bool
+    func post(
+        _ plan: EventReplacementPlan,
+        to processID: Int32,
+        delivery: KeyboardEventDelivery
+    ) -> Bool
 }
 
 @MainActor
@@ -160,7 +172,14 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
             transaction: transaction,
             deliveredKeyCount: request.deliveredKeyCount
         )
-        guard poster.post(plan, to: transaction.focus.processID) else {
+        let delivery: KeyboardEventDelivery = preflight == .unavailable
+            ? .globalEventStream
+            : .targetedProcess
+        guard poster.post(
+            plan,
+            to: transaction.focus.processID,
+            delivery: delivery
+        ) else {
             return .failed(.eventPostFailed)
         }
 

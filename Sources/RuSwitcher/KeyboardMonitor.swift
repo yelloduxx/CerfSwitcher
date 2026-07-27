@@ -129,6 +129,12 @@ final class KeyboardMonitor: @unchecked Sendable {
     /// Immediate editing of the last automatic correction is a local negative
     /// learning signal. Repeated signals make the rule persistent.
     var onCorrectionEdited: (() -> Void)?
+    /// A real printable/boundary event after an unverified manual post is an
+    /// acceptance signal. Synthetic RuSwitcher events never reach this callback.
+    var onUserContinuedAfterConversion: (() -> Void)?
+    /// Backspace, Undo, or another explicit trigger can reject a provisional
+    /// manual correction before it becomes a learned global rule.
+    var onManualConversionRejected: (() -> Void)?
     var onEditingInvalidated: (() -> Void)?
     /// Fired after frontmost process changes so AX can be warmed for the new app.
     var onFrontmostProcessChanged: ((pid_t) -> Void)?
@@ -518,7 +524,16 @@ final class KeyboardMonitor: @unchecked Sendable {
             // Локальный аналог этого guard — ниже, на ветке модификаторов (PR #13).
             let modifiers = flags.intersection([.maskCommand, .maskControl, .maskAlternate])
             if !modifiers.isEmpty { fullReset(invalidated: true); onEditingInvalidated?(); return false }
-            if let ch = char { return handleForwardedChar(ch, proxy: proxy) }
+            if let ch = char {
+                if hadRecentCorrection {
+                    if ch == "\u{8}" || ch == "\u{7f}" {
+                        onManualConversionRejected?()
+                    } else {
+                        onUserContinuedAfterConversion?()
+                    }
+                }
+                return handleForwardedChar(ch, proxy: proxy)
+            }
             return false
         }
 
@@ -535,6 +550,7 @@ final class KeyboardMonitor: @unchecked Sendable {
 
         // A Space event whose actual payload is a space is a token boundary.
         if spaceDisposition == .boundary {
+            if hadRecentCorrection { onUserContinuedAfterConversion?() }
             if currentWordLength > 0 {
                 wordBeforeBoundaryLength = currentWordLength
                 boundaryCount = 1
@@ -552,6 +568,7 @@ final class KeyboardMonitor: @unchecked Sendable {
         // validated target PID. Passing the original event through can let it overtake
         // targeted Backspaces and corrupt the following line.
         if keyCode == KC.enter || keyCode == KC.tab {
+            if hadRecentCorrection { onUserContinuedAfterConversion?() }
             var handling = TokenHandlingResult.passThrough
             if currentWordLength > 0 {
                 wordBeforeBoundaryLength = currentWordLength
@@ -584,6 +601,7 @@ final class KeyboardMonitor: @unchecked Sendable {
         // Modified deletion changes an unknown number of characters in the target
         // editor. Treating it as one Backspace is the classic stale-buffer bug.
         if keyCode == KC.backspace || keyCode == KC.deleteForward {
+            if hadRecentCorrection { onManualConversionRejected?() }
             if !modifiers.isEmpty || keyCode == KC.deleteForward {
                 inputSession.handle(.modifiedDeletion)
                 wordBeforeBoundaryLength = 0
@@ -613,6 +631,12 @@ final class KeyboardMonitor: @unchecked Sendable {
                 event = .navigation
             }
             if event == .undo, hadRecentCorrection { onCorrectionEdited?() }
+            if event == .undo, hadRecentCorrection { onManualConversionRejected?() }
+            if event == .clipboardCommand,
+               hadRecentCorrection,
+               [KC.letterV, KC.letterX].contains(keyCode) {
+                onManualConversionRejected?()
+            }
             inputSession.handle(event)
             wordBeforeBoundaryLength = 0
             boundaryCount = 0
@@ -622,6 +646,7 @@ final class KeyboardMonitor: @unchecked Sendable {
         }
 
         if KeyMapping.keycodeToEN[keyCode] != nil {
+            if hadRecentCorrection { onUserContinuedAfterConversion?() }
             inputSession.append(TypedKey(
                 keyCode: keyCode,
                 shift: flags.contains(.maskShift),

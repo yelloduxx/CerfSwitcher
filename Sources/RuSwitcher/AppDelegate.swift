@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var badgeCache: [String: NSImage] = [:]  // монохромные плашки, чтобы не перерисовывать 2с-опросом
     func applicationDidFinishLaunching(_ notification: Notification) {
         SettingsManager.shared.migrateAdaptiveRulesIfNeeded()
+        sanitizeAdaptiveRules()
         if languageModel != nil {
             rslog("engine_v3_available")
         } else {
@@ -58,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// and replacement path without update checks, onboarding, or login-item UI.
     func startHIDProbeMonitoring() {
         SettingsManager.shared.migrateAdaptiveRulesIfNeeded()
+        sanitizeAdaptiveRules()
         setupStatusItem()
         setupSettingsCallbacks()
         startMonitoring(offerSetup: false)
@@ -108,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var lastAutoConverted: AutoLearningEvent?
     private var sessionNegativePairs: Set<String> = []
+    private var deferredManualLearning = DeferredManualLearningGate()
     private(set) var postedAutomaticReplacementCount = 0
     private(set) var verifiedAutomaticReplacementCount = 0
 
@@ -143,6 +146,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             converted: last.converted
         )
         rslog("learning_positive")
+    }
+
+    private func manualLearningIsEligible(
+        original: String,
+        converted: String,
+        logFailure: Bool
+    ) -> Bool {
+        guard ManualLearningPolicy.shouldPersist(
+            original: original,
+            converted: converted,
+            model: languageModel
+        ) else {
+            if logFailure { rslog("learning_reverse_skipped") }
+            return false
+        }
+        guard SmartTokenizer.kind(of: original) == .lexical,
+              SmartTokenizer.kind(of: converted) == .lexical else {
+            if logFailure { rslog("learning_nonlexical_skipped") }
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func persistManualLearning(
+        original: String,
+        converted: String,
+        frontID: String?
+    ) -> Bool {
+        guard manualLearningIsEligible(
+            original: original,
+            converted: converted,
+            logFailure: true
+        ) else {
+            lastAutoConverted = nil
+            return false
+        }
+        SettingsManager.shared.recordAdaptiveConfirmed(
+            original: original,
+            converted: converted,
+            appBundleID: frontID
+        )
+        sessionNegativePairs.remove(learningKey(
+            original: original,
+            converted: converted,
+            appBundleID: frontID
+        ))
+        lastAutoConverted = AutoLearningEvent(
+            original: original,
+            converted: converted,
+            appBundleID: frontID,
+            at: Date()
+        )
+        rslog("learning_confirmed")
+        return true
+    }
+
+    private func stageDeferredManualLearning(frontID: String?) {
+        guard let pair = textConverter.lastLearningPair,
+              manualLearningIsEligible(
+                original: pair.original,
+                converted: pair.converted,
+                logFailure: true
+              ) else {
+            lastAutoConverted = nil
+            return
+        }
+        let generation = deferredManualLearning.stage(DeferredManualLearningCandidate(
+            original: pair.original,
+            converted: pair.converted,
+            appBundleID: frontID
+        ))
+        lastAutoConverted = nil
+        rslog("learning_pending")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.acceptDeferredManualLearning(expectedGeneration: generation)
+        }
+    }
+
+    private func acceptDeferredManualLearning(expectedGeneration: UInt64? = nil) {
+        guard let candidate = deferredManualLearning.accept(
+            expectedGeneration: expectedGeneration
+        ) else { return }
+        _ = persistManualLearning(
+            original: candidate.original,
+            converted: candidate.converted,
+            frontID: candidate.appBundleID
+        )
+    }
+
+    private func cancelDeferredManualLearning() {
+        if deferredManualLearning.hasPendingCandidate {
+            rslog("learning_pending_cancelled")
+        }
+        deferredManualLearning.cancel()
     }
 
     private func startPerAppLayout() {
@@ -318,6 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             onAltTap: { [weak self] in
                 guard let self else { return }
                 guard SettingsManager.shared.autoSwitchEnabled else { return }
+                self.cancelDeferredManualLearning()
                 if AutoSwitchPolicy.shouldDeferToRemoteClient {
                     // Удалёнка: текст конвертит офисный инстанс по реальным проброшенным символам
                     // (Fix №6). А здесь меняем СВОЮ раскладку — чтобы дальнейший ввод пошёл уже
@@ -357,6 +456,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         keyboardMonitor.onCorrectionEdited = { [weak self] in
             self?.learnFromUndo()
+        }
+        keyboardMonitor.onUserContinuedAfterConversion = { [weak self] in
+            DispatchQueue.main.async {
+                self?.acceptDeferredManualLearning()
+            }
+        }
+        keyboardMonitor.onManualConversionRejected = { [weak self] in
+            self?.cancelDeferredManualLearning()
         }
         keyboardMonitor.onEditingInvalidated = { [weak self] in
             self?.textConverter.clearState()
@@ -532,6 +639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             expected: transaction.expectedOriginalSuffix,
             replacement: transaction.insertedText,
             focus: snapshot.focus,
+            targetLayoutID: targetLayoutID,
             isCurrent: { [weak self] in
                 self?.keyboardMonitor.isStagedCompletionCurrent(
                     expectedSequence: stagedSequence
@@ -564,6 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     targetLayoutID: targetLayoutID,
                     allowLearning: false
                 )
+                self.stageDeferredManualLearning(frontID: frontID)
             case .failed:
                 self.textConverter.cancelPendingReconversion()
                 self.keyboardMonitor.invalidateStagedCompletion(expectedSequence: stagedSequence)
@@ -600,6 +709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             expected: reconversion.current,
             replacement: reconversion.replacement,
             focus: snapshot.focus,
+            targetLayoutID: reconversion.targetLayoutID,
             isCurrent: { [weak self] in
                 self?.keyboardMonitor.isStagedCompletionCurrent(
                     expectedSequence: stagedSequence
@@ -629,12 +739,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.keyboardMonitor.finishUnverifiedPostedConversion(
                     expectedSequence: stagedSequence
                 )
-                // Same reasoning as the buffered path: unverified here means AX
-                // could not read back, not that the post failed or was wrong.
                 self.finishManualReconversion(
                     reconversion,
                     transaction: transaction,
-                    allowLearning: true
+                    allowLearning: false
                 )
             case .failed:
                 self.textConverter.cancelPendingReconversion()
@@ -679,6 +787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             expected: transaction.expectedOriginalSuffix,
             replacement: transaction.insertedText,
             focus: resolvedFocus,
+            targetLayoutID: conversion.targetLayoutID,
             expectedCaretLocation: conversion.caretLocation,
             isCurrent: { [weak self] in
                 self?.keyboardMonitor.isStagedCompletionCurrent(
@@ -710,13 +819,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.keyboardMonitor.finishUnverifiedPostedConversion(
                     expectedSequence: stagedSequence
                 )
-                // Same reasoning as the buffered path: unverified here means AX
-                // could not read back, not that the post failed or was wrong.
                 self.finishManualConversion(
                     frontID: frontID,
                     targetLayoutID: conversion.targetLayoutID,
-                    allowLearning: true
+                    allowLearning: false
                 )
+                self.stageDeferredManualLearning(frontID: frontID)
             case .failed:
                 self.textConverter.cancelPendingReconversion()
                 self.keyboardMonitor.invalidateStagedCompletion(expectedSequence: stagedSequence)
@@ -764,26 +872,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lastAutoConverted = nil
             return
         }
-        if SmartTokenizer.kind(of: pair.original) == .lexical,
-           SmartTokenizer.kind(of: pair.converted) == .lexical {
-            SettingsManager.shared.recordAdaptiveConfirmed(
-                original: pair.original,
-                converted: pair.converted,
-                appBundleID: frontID
-            )
-            sessionNegativePairs.remove(learningKey(
-                original: pair.original,
-                converted: pair.converted,
-                appBundleID: frontID
-            ))
-            rslog("learning_confirmed")
-        }
-        lastAutoConverted = AutoLearningEvent(
+        _ = persistManualLearning(
             original: pair.original,
             converted: pair.converted,
-            appBundleID: frontID,
-            at: Date()
+            frontID: frontID
         )
+    }
+
+    private func sanitizeAdaptiveRules() {
+        let removed = SettingsManager.shared.removeAdaptiveConfirmedPairs {
+            [languageModel] original, converted in
+            ManualLearningPolicy.isLikelyReverseConversion(
+                original: original,
+                converted: converted,
+                model: languageModel
+            )
+        }
+        if removed > 0 {
+            rslog("learning_reverse_rules_removed")
+        }
     }
 
     /// Smart auto-conversion runs synchronously while the active event tap owns the
@@ -874,11 +981,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 integrity: snapshot.integrity,
                 policy: policy,
                 adaptiveBias: { original, converted in
-                    let persisted = SettingsManager.shared.adaptiveBias(
+                    let persisted = ManualLearningPolicy.isLikelyReverseConversion(
                         original: original,
                         converted: converted,
-                        appBundleID: frontID
-                    )
+                        model: self.languageModel
+                    ) ? 0 : SettingsManager.shared.adaptiveBias(
+                            original: original,
+                            converted: converted,
+                            appBundleID: frontID
+                        )
                     let sessionPenalty = self.sessionNegativePairs.contains(self.learningKey(
                         original: original,
                         converted: converted,
@@ -887,11 +998,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return persisted + sessionPenalty
                 },
                 isConfirmed: { original, converted in
-                    SettingsManager.shared.isAdaptiveConfirmed(
+                    !ManualLearningPolicy.isLikelyReverseConversion(
                         original: original,
                         converted: converted,
-                        appBundleID: frontID
-                    )
+                        model: self.languageModel
+                    ) && SettingsManager.shared.isAdaptiveConfirmed(
+                            original: original,
+                            converted: converted,
+                            appBundleID: frontID
+                        )
                 },
                 model: languageModel
             )

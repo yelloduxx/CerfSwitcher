@@ -203,6 +203,28 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         )
     }
 
+    /// Removes a rejected global confirmation together with its application
+    /// exceptions. The runtime language model supplies the predicate, keeping
+    /// this storage layer independent of individual reported words.
+    @discardableResult
+    public mutating func removeConfirmedPairs(
+        where shouldRemove: (_ original: String, _ converted: String) -> Bool
+    ) -> Int {
+        let separator = "\u{1f}"
+        let rejected = Set(rules.compactMap { rule -> String? in
+            guard rule.appBundleID == nil,
+                  rule.confirmed,
+                  shouldRemove(rule.original, rule.converted) else { return nil }
+            return rule.original + separator + rule.converted
+        })
+        guard !rejected.isEmpty else { return 0 }
+        let previousCount = rules.count
+        rules.removeAll { rule in
+            rejected.contains(rule.original + separator + rule.converted)
+        }
+        return previousCount - rules.count
+    }
+
     /// Merges a portable backup without multiplying counters when the same file is
     /// imported more than once.
     public mutating func merge(_ imported: AdaptiveRuleBook) {

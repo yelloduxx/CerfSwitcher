@@ -15,18 +15,19 @@ installed build changes.
 - Primary repository: `yelloduxx/RuSwitcher`; the production branch is `main`.
   `rashn/RuSwitcher` is the author's upstream repository, not a release source
   for this fork.
-- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **120**:
+- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **126**:
   - Bundle: `RuSwitcherPro.app` → `/Applications/RuSwitcherPro.app`
   - Bundle ID: `com.ruswitcher.pro` · Executable: `RuSwitcherPro` · Dev tag: `pro`
   - Logs: `~/Library/Logs/RuSwitcherPro/ruswitcher-pro.log` via
     `ProductIdentity.logFilePath` (Settings and rslog must match)
   - Lineage: Lab 105 conversion core + AX 106–108 safety + runtime
     `ManualHostPolicy` capability detection + keyboard-deletion manual path for
-    external hosts (build 118+) rebranded from the Claude comparison line.
+    external hosts (build 118+) + non-destructive physical selection and
+    deferred manual learning for AX-blind hosts (builds 125–126).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
   - Installed executable SHA-256:
-    `a97d07752242c8880cf83cc3404a1385182b17518a65baebb3d00b22666fb0e6`.
+    `5a63855896093e075932d8893a386c58f2a698809832faab490240b706e8b5fb`.
 - Verify the installed binary hash and PID after every local replacement; do
   not infer the running build from `version.json` alone.
 - Changing `ProductIdentity.bundleIdentifier` requires re-granting Accessibility
@@ -223,24 +224,27 @@ Failure must leave selection and layout unchanged.
 A real, user-made **selection** is converted through Accessibility
 (`readSelection` → `kAXSelectedText`), because that write replaces a genuine
 selection reliably. **Current-/previous-word** conversion (no selection) is
-different: in an **external** host it goes straight to the keyboard path
-(Backspace + Unicode to the target PID), the same mechanism the automatic
-converter uses. Programmatically selecting the suffix via `kAXSelectedTextRange`
-and then writing `kAXSelectedText` inserts instead of replacing in
+different: in an **external** host it goes straight to a keyboard path.
+Programmatically selecting the suffix via `kAXSelectedTextRange` and then
+writing `kAXSelectedText` inserts instead of replacing in
 Chromium/Electron (Claude desktop, VS Code) and terminals — it leaves the
 original word and duplicates text, and `recoverInsertedReplacement` cannot heal
-it because the collapse write uses the same broken AX primitive. The keyboard
-path is gated by an AX suffix probe plus the `isCurrent()`/frontmost recheck
-before deleting. Only the in-process `NSTextView` host still uses the AX
-suffix write (tested, AppKit-main-thread-sensitive, and known-good there).
+it because the collapse write uses the same broken AX primitive. AX-readable
+external hosts use the established targeted replacement. AX-blind hosts select
+the exact suffix with marked Shift+Left and type physical target-layout keys
+over that selection, so a dropped insertion cannot first erase the word. Only
+the in-process `NSTextView` host uses the AX suffix write (tested,
+AppKit-main-thread-sensitive, and known-good there).
 
 Manual current/previous-word conversion is a forced physical-layout toggle; it
 does not ask the decoder whether either spelling is correct. It replaces the
 exact suffix before the caret atomically through Accessibility when available.
-The non-AX fallback never posts Backspace. A read-back verified edit may learn;
-a fallback edit is
-`postedUnverified` and never learns. Repeated double Shift toggles the remembered
-pair, also immediately after an automatic conversion.
+The non-AX fallback never posts Backspace. A read-back verified edit learns
+immediately. A `postedUnverified` explicit manual edit stages a provisional
+learning pair: the next ordinary input or a 1.2-second grace period confirms it,
+while Backspace/Delete, Undo, Cut/Paste, or another double Shift cancels it.
+Repeated double Shift toggles the remembered pair, also immediately after an
+automatic conversion.
 
 For an in-process `NSTextView` host, selected-text AX mutation must run on the
 main thread. Calling `AXUIElementSetAttributeValue` for a local AppKit element

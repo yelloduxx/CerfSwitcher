@@ -36,6 +36,29 @@ final class AdaptiveRuleBookTests: XCTestCase {
         XCTAssertFalse(book.isConfirmed(original: "а", converted: "f", appBundleID: nil))
     }
 
+    func testRejectedGlobalPairRemovalAlsoRemovesItsApplicationExceptions() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "привет", converted: "ghbdtn")
+        book.recordNegative(
+            original: "привет",
+            converted: "ghbdtn",
+            appBundleID: "chat.one"
+        )
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+
+        let removed = book.removeConfirmedPairs { original, converted in
+            original == "привет" && converted == "ghbdtn"
+        }
+
+        XCTAssertEqual(removed, 2)
+        XCTAssertFalse(book.rules.contains { $0.original == "привет" })
+        XCTAssertTrue(book.isConfirmed(
+            original: "ghbdtn",
+            converted: "привет",
+            appBundleID: "chat.one"
+        ))
+    }
+
     func testLegacySchemaRemovesUnsafeSingleCharacterRules() throws {
         let json = #"{"modelVersion":6,"rules":[{"original":"а","converted":"f","appBundleID":null,"positiveCount":22,"negativeCount":0,"confirmed":true,"lastUsed":800000000},{"original":"b","converted":"и","appBundleID":null,"positiveCount":40,"negativeCount":0,"confirmed":true,"lastUsed":800000000},{"original":"ghbdtn","converted":"привет","appBundleID":null,"positiveCount":2,"negativeCount":0,"confirmed":true,"lastUsed":800000000}]}"#
         let decoder = JSONDecoder()

@@ -329,6 +329,18 @@ final class SettingsManager: @unchecked Sendable {
         adaptiveRuleBook = adaptiveRuleBook
     }
 
+    @discardableResult
+    func removeAdaptiveConfirmedPairs(
+        where shouldRemove: (_ original: String, _ converted: String) -> Bool
+    ) -> Int {
+        var book = adaptiveRuleBook
+        let removed = book.removeConfirmedPairs(where: shouldRemove)
+        if removed > 0 {
+            adaptiveRuleBook = book
+        }
+        return removed
+    }
+
     func clearAdaptiveRules() {
         defaults.removeObject(forKey: Keys.adaptiveRules)
     }

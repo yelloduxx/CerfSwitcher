@@ -578,6 +578,19 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.reason, .confirmedByUser)
     }
 
+    func testConfirmedOOVEnglishBrandPairOverridesAbstention() {
+        let result = evaluate(
+            "лкуф",
+            converted: "krea",
+            current: "ru",
+            target: "en",
+            confirmed: true
+        )
+        XCTAssertEqual(result.decision.candidate.replacement, "krea")
+        XCTAssertEqual(result.decision.verdict, .switchToConverted)
+        XCTAssertEqual(result.decision.reason, .confirmedByUser)
+    }
+
     func testConfirmedPairOverridesPriorNegativeBias() {
         let result = evaluate("cegthcgbyf", confirmed: true, adaptiveBias: -20)
         XCTAssertEqual(result.decision.verdict, .switchToConverted)

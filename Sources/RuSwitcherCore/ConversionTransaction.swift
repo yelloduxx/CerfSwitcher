@@ -103,13 +103,27 @@ public struct EventReplacementPlan: Equatable, Sendable {
 
     public var insertedText: String { replacementText + replayText }
 
+    /// Reuses the production event transport for an explicit/manual
+    /// replacement, where there may be no token boundary to replay.
+    public init(
+        backspaceCount: Int,
+        replacementText: String,
+        replayText: String = ""
+    ) {
+        self.backspaceCount = max(0, backspaceCount)
+        self.replacementText = replacementText
+        self.replayText = replayText
+    }
+
     public init(transaction: ConversionTransaction, deliveredKeyCount: Int) {
         // Prefer the larger of physical keys and the preflight suffix length so a
         // single dropped backspace or key/text length skew cannot leave the first
         // wrong-layout character in the editor ("g" + "привет").
         let suffixUnits = transaction.expectedOriginalSuffix.utf16.count
-        backspaceCount = max(0, max(deliveredKeyCount, suffixUnits))
-        replacementText = transaction.replacement
-        replayText = transaction.boundary.replayText
+        self.init(
+            backspaceCount: max(deliveredKeyCount, suffixUnits),
+            replacementText: transaction.replacement,
+            replayText: transaction.boundary.replayText
+        )
     }
 }

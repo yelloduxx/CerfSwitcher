@@ -14,6 +14,7 @@ final class ReplacementCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(initial, .postedUnverified)
         XCTAssertEqual(poster.plans.count, 1)
+        XCTAssertEqual(poster.deliveries, [.targetedProcess])
         XCTAssertTrue(completions.isEmpty)
         XCTAssertEqual(
             reader.validationDeadlines,
@@ -74,6 +75,7 @@ final class ReplacementCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(outcome, .postedUnverified)
         XCTAssertEqual(poster.plans.count, 1)
+        XCTAssertEqual(poster.deliveries, [.globalEventStream])
         // Unavailable read-back keeps the edit unverified; it never "upgrades".
         reader.complete(.unavailable)
         XCTAssertEqual(completion, .postedUnverified)
@@ -168,11 +170,17 @@ private final class Reader: FocusedTextContextReading {
 private final class Poster: KeyboardEventPosting {
     let result: Bool
     var plans: [EventReplacementPlan] = []
+    var deliveries: [KeyboardEventDelivery] = []
 
     init(result: Bool) { self.result = result }
 
-    func post(_ plan: EventReplacementPlan, to processID: Int32) -> Bool {
+    func post(
+        _ plan: EventReplacementPlan,
+        to processID: Int32,
+        delivery: KeyboardEventDelivery
+    ) -> Bool {
         plans.append(plan)
+        deliveries.append(delivery)
         return result
     }
 }

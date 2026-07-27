@@ -85,6 +85,18 @@ final class ConversionTransactionTests: XCTestCase {
         XCTAssertEqual(plan.backspaceCount, 6)
     }
 
+    func testExplicitManualPlanHasNoImplicitBoundary() {
+        let plan = EventReplacementPlan(
+            backspaceCount: 11,
+            replacementText: "приветствую"
+        )
+
+        XCTAssertEqual(plan.backspaceCount, 11)
+        XCTAssertEqual(plan.replacementText, "приветствую")
+        XCTAssertEqual(plan.replayText, "")
+        XCTAssertEqual(plan.insertedText, "приветствую")
+    }
+
     func testExecutionGateRejectsOnlyCommittedDuplicate() {
         let transaction = ConversionTransaction(
             original: "ghbdtn",
