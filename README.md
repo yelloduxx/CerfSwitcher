@@ -14,6 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/RuSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
+  <img src="https://img.shields.io/badge/current-4.0.0%20(126)-brightgreen?style=flat-square" alt="Current build 126">
 </p>
 
 <p align="center">
@@ -24,7 +25,9 @@
 
 ## English
 
-Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and RuSwitcher Pro converts the last word in place, without copy-paste. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested primarily for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
+Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and RuSwitcher Pro converts the last word in place. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
+
+The current `main` build is **4.0.0 (126)**. It uses Smart Engine V3 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
 
 ### How it works
 
@@ -34,7 +37,7 @@ Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** an
 | Tap **Shift** twice again | Reverse conversion (toggle back) |
 | Select text, tap **Shift** twice | Selected text is converted |
 
-The default is double Shift. The trigger is configurable — **Option**, **Command**, **Control** or **Shift** (left or right side, single or double-tap), or a **two-key combo** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) for the Windows-style Alt+Shift feel. A real selection always has priority. Without a selection, RuSwitcher Pro can recover the exact word before the caret after navigation or a focus change, then verify the replacement before committing it.
+The default is double Shift. The trigger is configurable — **Option**, **Command**, **Control** or **Shift** (left or right side, single or double-tap), or a **two-key combo** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) for the Windows-style Alt+Shift feel. A real selection always has priority. Without a selection, RuSwitcher Pro converts the current or just-completed buffered word. After navigation or a focus change it can recover the exact word before the caret only when that text field exposes readable Accessibility text.
 
 ### Automatic conversion
 
@@ -48,7 +51,13 @@ Russian spelling evidence uses an offline-expanded LibreOffice Hunspell dictiona
 
 The input state is revision-based: Backspace updates the current physical token, while word deletion, navigation, Cut/Paste/Undo, mouse clicks and focus changes invalidate stale state. Before an automatic replacement RuSwitcher Pro performs a read-only Accessibility check when the target supports it, then posts one ordered replacement transaction. This prevents stale selection, duplicate insertion and deletion at the wrong caret.
 
-Undoing an automatic correction or immediately editing it teaches RuSwitcher Pro locally; manually converted pairs become explicit global confirmations. One-character pairs are deliberately not persisted, so an accidental correction cannot make ordinary `а` or `и` change everywhere. Learned word pairs and their counters can be exported to a versioned JSON backup and merged back through **Settings → Advanced**. Reimporting the same file is safe and does not duplicate rules. Learned state can also be reset there. The explicit **Always convert** and **Never convert** lists remain hard overrides.
+Undoing an automatic correction or immediately editing it provides local negative feedback; a successful manual conversion creates an explicit global confirmation. One-character pairs are deliberately not persisted, so an accidental correction cannot make ordinary `а` or `и` change everywhere. In an AX-blind field, an unverified manual correction is held provisionally: the next ordinary keystroke or a 1.2-second grace period confirms it, while Backspace, Delete, Undo, Cut/Paste or another double Shift cancels it. Learned word pairs and their counters can be exported to a versioned JSON backup and merged back through **Settings → Advanced**. Reimporting the same file is safe and does not duplicate rules. Learned state can also be reset there. The explicit **Always convert** and **Never convert** lists remain hard overrides.
+
+#### Apps without readable Accessibility text
+
+Some terminals and Chromium/Electron editors do not expose the text before the caret. Manual double Shift still converts a freshly typed buffered word without destructive Backspace: RuSwitcher Pro selects the exact suffix with marked Shift+Left events and types the opposite-layout physical keys over that selection. It cannot recover an arbitrary old word after navigation or a focus change if the host exposes no text.
+
+Automatic conversion in such hosts is available through **Settings → Auto-conversion → Also in apps without Accessibility** and is off by default. This mode cannot verify the text by read-back, so it relies on the current focus and input revision. Keep terminals or other sensitive tools in the application exception list unless you deliberately accept that trade-off. Password managers and secure-input fields remain blocked.
 
 **Three exception lists** let you tune it (Settings → Auto-conversion):
 - **Apps** — where auto-conversion stays off (terminals, IDEs and password managers are pre-filled; password managers can't be removed).
@@ -75,7 +84,7 @@ After you switch layout, RuSwitcher Pro can briefly show the layout flag **right
 - **Layout flag at the cursor (beta)** — briefly show the layout flag next to the text cursor right after a switch.
 - **Monochrome menu-bar icon (optional)** *(new in 2.6.1)* — a system-style `РУ/EN` badge instead of the colored flag; adapts to light/dark automatically. Off by default.
 - **Universal binary** — runs natively on both Apple Silicon and Intel Macs.
-- **Clipboard-free normal path** — automatic conversion and the usual manual path type the replacement directly. A rare selected-text fallback preserves pasteboard types and restores the previous contents only while it still owns them.
+- **Clipboard-free normal path** — automatic conversion and current/previous-word manual conversion type the replacement directly. A selected-text fallback may briefly use the pasteboard when AX cannot read the selection; it preserves all types and restores the old contents only while RuSwitcher Pro still owns the temporary value.
 - **Smart word detection** — converts the last typed word, including punctuation, or the word immediately before the caret after navigation.
 - **Selected text** — select any text and tap the trigger to convert it in place.
 - **Tap again to undo** — reverse conversion if you changed your mind.
@@ -93,12 +102,13 @@ DMG or Homebrew release. Build it from source:
 
 ```bash
 git clone https://github.com/yelloduxx/RuSwitcher.git
-cd RuSwitcher Pro
-SIGN_ID="RuSwitcher Local Code Signing" bash build_app.sh
+cd RuSwitcher
+SIGN_ID="<your code-signing identity>" bash build_app.sh
 ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
+open "/Applications/RuSwitcherPro.app"
 ```
 
-Requires macOS 13+, Xcode Command Line Tools and a code-signing identity.
+Requires macOS 13+, Xcode Command Line Tools and a trusted code-signing identity. Local project builds use the reusable `RuSwitcher Local Code Signing` identity. The build script creates a universal `arm64`/`x86_64` bundle, verifies its signature and stops if Gatekeeper rejects it.
 
 ### Permissions
 
@@ -113,13 +123,14 @@ The app adds itself to the permission lists automatically — you only need to f
 
 - An active `CGEventTap` for ordered automatic replacement; synthetic events are marked and ignored by the state machine.
 - `UCKeyTranslate` (Carbon) for dynamic character mapping between any layout pair.
-- `CGEvent.keyboardSetUnicodeString` to type the converted text directly — no clipboard, no pasteboard side effects.
+- Targeted `CGEvent` transactions for automatic replacement and physical target-layout key events for AX-blind manual conversion.
+- `CGEvent.keyboardSetUnicodeString` for direct replacement text where appropriate — no clipboard in the normal word-conversion path.
 - `CGEventSource.userData` marker to filter the app's own simulated events.
 - A memory-mapped, versioned local RU/EN language model generated from pinned Google Books n-gram frequency data.
 - A Core ML V4 research package under `Experimental/V4`; it is absent from the normal package graph and production application.
 - Read-only `AXUIElement` range probes for focus and suffix validation; selected-text conversion uses AX first and preserves every pasteboard type in its fallback.
 - `SMAppService` for login item management.
-- No hardcoded layout tables — works with any installed layouts.
+- Dynamic Carbon translation for configured manual-layout pairs; the production V3 decoder and language model are intentionally EN↔RU-specific.
 
 ### Simulation and quality testing
 
@@ -137,6 +148,12 @@ python3 scripts/run_mixed_layout_event_stream_suite.py corpus.tsv --jobs 8
 
 This catches decoder, stale-state, punctuation and duplicate-transaction errors and applies explicit false-positive/recall gates. Native CGEvent/AX delivery still requires the separate visible host or an isolated macOS user/VM. V4 is tested only with `swift test --package-path Experimental/V4`.
 
+Last audited build-126 checks:
+
+- **183 tests:** 182 passed, 1 intentionally skipped, 0 failed.
+- **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,945 exact (99.2541%); all 443 failures were safe misses, with zero false or wrong replacements.
+- **Native manual-learning probe:** an unknown pair was confirmed after double Shift with no pasteboard change, duplicate input, layout mismatch or boundary timeout.
+
 RuSwitcher Pro contains no usage-statistics reporter or endpoint.
 
 ### Settings
@@ -144,7 +161,7 @@ RuSwitcher Pro contains no usage-statistics reporter or endpoint.
 Access via the menu bar icon → **Settings** (⌘,).
 
 - **General** — conversion trigger (single key or combo), per-app layout memory, launch at login, interface language, layout pair.
-- **Auto-conversion** — automatic conversion, **Remote Desktop mode (beta)**, and the three exception lists (apps, never-convert, always-convert).
+- **Auto-conversion** — automatic conversion, optional AX-blind-host mode, **Remote Desktop mode (beta)**, and the three exception lists (apps, never-convert, always-convert).
 - **About** — version, donate, contact, check updates.
 - **Advanced** — Smart Engine/model version, learned-word export/import/reset, debug logging and log management.
 
@@ -165,7 +182,9 @@ If you find RuSwitcher Pro useful:
 
 ## Русский
 
-Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и RuSwitcher Pro сконвертирует последнее слово прямо у каретки, без копипасты. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия прежде всего настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
+Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и RuSwitcher Pro сконвертирует последнее слово прямо у каретки. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
+
+Текущая версия в `main` — **4.0.0 (build 126)**. В приложении работает только продакшен-движок Smart Engine V3. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
 
 ### Как работает
 
@@ -175,7 +194,7 @@ If you find RuSwitcher Pro useful:
 | Нажать **Shift** два раза повторно | Обратная конвертация (переключение назад) |
 | Выделить текст, нажать **Shift** два раза | Выделенный текст сконвертирован |
 
-По умолчанию используется двойной Shift. Триггер настраивается — **Option**, **Command**, **Control** или **Shift** (левый или правый, одиночный или двойной тап), либо **комбо из двух клавиш** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) — в стиле привычного Alt+Shift. Настоящее выделение всегда имеет приоритет. Без выделения RuSwitcher Pro умеет после навигации или смены фокуса найти точное слово перед кареткой и проверить замену перед применением.
+По умолчанию используется двойной Shift. Триггер настраивается — **Option**, **Command**, **Control** или **Shift** (левый или правый, одиночный или двойной тап), либо **комбо из двух клавиш** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) — в стиле привычного Alt+Shift. Настоящее выделение всегда имеет приоритет. Без выделения RuSwitcher Pro конвертирует текущее или только что завершённое слово из внутреннего буфера. После навигации или смены фокуса точное слово перед кареткой можно восстановить только в поле, которое отдаёт читаемый текст через Accessibility.
 
 ### Автоматическая конверсия
 
@@ -189,7 +208,13 @@ RuSwitcher Pro умеет исправлять раскладку **автома
 
 Состояние ввода теперь ревизионное: обычный Backspace удаляет физическую клавишу из текущего токена, а удаление слова, навигация, Cut/Paste/Undo, клик и смена поля инвалидируют устаревший снимок. Перед автоматической заменой выполняется read-only AX-проверка, если поле её поддерживает, после чего вся замена отправляется одной упорядоченной транзакцией. Это защищает от выделения вместо замены, дублирования и удаления текста не у той каретки.
 
-Отмена автоматического исправления или немедленное редактирование обучает RuSwitcher Pro локально; ручное исправление становится глобально подтверждённой парой. Односимвольные пары намеренно не сохраняются, поэтому случайная коррекция не заставит обычные `а` или `и` меняться во всех программах. Выученные пары можно экспортировать, импортировать или сбросить в **Настройки → Дополнительно**. Явные списки **«Всегда конвертировать»** и **«Никогда не конвертировать»** остаются жёсткими правилами.
+Отмена автоматического исправления или немедленное редактирование даёт локальный отрицательный сигнал; успешное ручное исправление становится глобально подтверждённой парой. Односимвольные пары намеренно не сохраняются, поэтому случайная коррекция не заставит обычные `а` или `и` меняться во всех программах. В AX-слепом поле неподтверждённое ручное исправление сначала хранится как временное: следующая обычная клавиша или пауза 1,2 секунды подтверждает его, а Backspace, Delete, Undo, Cut/Paste или ещё один двойной Shift отменяет обучение. Выученные пары можно экспортировать, импортировать или сбросить в **Настройки → Дополнительно**. Явные списки **«Всегда конвертировать»** и **«Никогда не конвертировать»** остаются жёсткими правилами.
+
+#### Приложения без читаемого Accessibility-текста
+
+Некоторые терминалы и редакторы на Chromium/Electron не отдают программе текст перед кареткой. Двойной Shift всё равно меняет свежее слово из внутреннего буфера без разрушительного Backspace: RuSwitcher Pro выделяет точный хвост помеченными событиями Shift+Left и печатает поверх выделения физические клавиши целевой раскладки. Но произвольное старое слово после клика, навигации или смены окна в таком поле восстановить нельзя.
+
+Автоконверсию для таких приложений можно отдельно включить: **Настройки → Автоконверсия → Также в приложениях без Accessibility**. По умолчанию этот режим выключен. Без read-back программа опирается только на актуальность фокуса и ревизии ввода, поэтому терминалы и другие чувствительные приложения лучше оставить в списке исключений, если этот компромисс вам не нужен. Менеджеры паролей и secure-input поля блокируются всегда.
 
 **Три списка исключений** для тонкой настройки (Настройки → Автоконверсия):
 - **Приложения** — где авто-конверсия выключена (терминалы, IDE, менеджеры паролей уже в списке; менеджеры паролей удалить нельзя).
@@ -216,7 +241,7 @@ RuSwitcher Pro работает через **Apple Screen Sharing**. Печат�
 - **Флаг у курсора (бета)** — ненадолго показывает флаг раскладки у текстового курсора сразу после переключения.
 - **Монохромная иконка в меню-баре (опционально)** *(новое в 2.6.1)* — системная плашка `РУ/EN` вместо цветного флага, сама подстраивается под светлую/тёмную тему. По умолчанию выключена.
 - **Universal-сборка** — нативно на Apple Silicon и Intel.
-- **Обычный путь без буфера обмена** — автоконверсия и обычная ручная замена печатают текст напрямую. Редкий fallback для выделения сохраняет типы pasteboard и восстанавливает прежнее содержимое, только пока оно принадлежит RuSwitcher Pro.
+- **Обычный путь без буфера обмена** — автоконверсия и ручная замена текущего/предыдущего слова печатают текст напрямую. Fallback для выделенного текста может кратко использовать pasteboard, если AX не умеет прочитать выделение; он сохраняет все типы и восстанавливает прежнее содержимое, только пока временные данные принадлежат RuSwitcher Pro.
 - **Умное определение слова** — конвертирует последнее набранное слово со знаками препинания или слово непосредственно перед кареткой после навигации.
 - **Выделенный текст** — выделите любой текст и нажмите триггер для конвертации на месте.
 - **Повторное нажатие — отмена** — обратная конвертация, если передумали.
@@ -234,12 +259,13 @@ RuSwitcher Pro работает через **Apple Screen Sharing**. Печат�
 
 ```bash
 git clone https://github.com/yelloduxx/RuSwitcher.git
-cd RuSwitcher Pro
-SIGN_ID="RuSwitcher Local Code Signing" bash build_app.sh
+cd RuSwitcher
+SIGN_ID="<ваша identity для подписи кода>" bash build_app.sh
 ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
+open "/Applications/RuSwitcherPro.app"
 ```
 
-Требуются macOS 13+, Xcode Command Line Tools и identity для подписи кода.
+Требуются macOS 13+, Xcode Command Line Tools и доверенная identity для подписи кода. Локальные сборки проекта подписываются многоразовой `RuSwitcher Local Code Signing`. Скрипт создаёт universal-бандл `arm64`/`x86_64`, проверяет подпись и останавливается, если Gatekeeper отклоняет приложение.
 
 ### Разрешения
 
@@ -254,13 +280,14 @@ ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
 
 - Активный `CGEventTap` для упорядоченной автоматической замены; синтетические события помечаются и не попадают обратно в state machine.
 - `UCKeyTranslate` (Carbon) для динамического маппинга символов между любой парой раскладок.
-- `CGEvent.keyboardSetUnicodeString` для прямой печати конвертированного текста — без буфера обмена и побочных эффектов с pasteboard.
+- Адресные `CGEvent`-транзакции для автозамены и физические клавиши целевой раскладки для ручной конверсии в AX-слепых полях.
+- `CGEvent.keyboardSetUnicodeString` для прямой вставки текста там, где это уместно — обычная конверсия слова не использует буфер обмена.
 - Маркер `CGEventSource.userData` для фильтрации собственных симулированных событий.
 - Версионированная memory-mapped RU/EN-модель, воспроизводимо собранная из закреплённой версии частотных Google Books n-gram data.
 - Исследовательская Core ML-модель V4 находится в отдельном пакете `Experimental/V4`; её нет в обычном графе сборки и production-приложении.
 - Read-only `AXUIElement` range probes для проверки фокуса и хвоста перед кареткой; ручная замена выделения сначала использует AX, а fallback сохраняет все типы pasteboard.
 - `SMAppService` для управления автозапуском.
-- Без захардкоженных таблиц — работает с любыми установленными раскладками.
+- Динамический Carbon-маппинг для выбранной пары ручных раскладок; продакшен-декодер и языковая модель V3 намеренно специализированы на EN↔RU.
 
 ### Симуляция и проверка качества
 
@@ -272,6 +299,12 @@ swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 
 `--input fixtures.jsonl` принимает тесты слов, `--phrase-input phrases.jsonl` — последовательные смешанные фразы, а `--phrase-results results.jsonl` сохраняет полный пошаговый отчёт. `scripts/run_headless_typing_simulator.sh` дополнительно проводит непрерывный поток физических клавиш через `InputSession`, V3 и транзакции замены без окна и перехвата фокуса. Он ловит ошибки decoder, stale state, пунктуации и повторных транзакций. Настоящую доставку CGEvent/AX всё равно можно проверить только видимым host-приложением либо в отдельной macOS-сессии/VM. V4 проверяется отдельно командой `swift test --package-path Experimental/V4`.
 
+Последняя проверка build 126:
+
+- **183 теста:** 182 пройдено, 1 намеренно пропущен, 0 ошибок.
+- **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 945 точных результатов (99,2541%); оставшиеся 443 случая — безопасные пропуски, без единой ложной или неправильной замены.
+- **Нативный тест обучения:** неизвестная пара подтвердилась после двойного Shift без изменения pasteboard, дублирования ввода, ошибки раскладки или таймаута границы.
+
 В приложении нет reporter или endpoint для статистики использования.
 
 ### Настройки
@@ -279,7 +312,7 @@ swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 Доступ через иконку в строке меню → **Настройки** (⌘,).
 
 - **Общие** — триггер конвертации (одна клавиша или комбо), память раскладки по приложению, автозапуск, язык интерфейса, пара раскладок.
-- **Автоконверсия** — автоматическая конверсия, **Режим удалённого стола (бета)** и три списка исключений (приложения, never-convert, always-convert).
+- **Автоконверсия** — автоматическая конверсия, отдельный режим для AX-слепых приложений, **Режим удалённого стола (бета)** и три списка исключений (приложения, never-convert, always-convert).
 - **О программе** — версия, донат, контакт, проверка обновлений.
 - **Дополнительно** — версия Smart Engine/модели, экспорт/импорт/сброс выученных слов, режим отладки и управление логами.
 
