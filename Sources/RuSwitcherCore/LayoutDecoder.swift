@@ -246,7 +246,10 @@ public enum LayoutDecoder {
         let currentCanonical = LanguageCode.canonical(currentLanguage)
         let targetCanonical = LanguageCode.canonical(targetLanguage)
         let targetKnownForShape = model.wordLogProbability(converted, language: targetCanonical)
-        let targetExtendedEnglish = targetCanonical == "en" && model.isExtendedEnglishWord(converted)
+        let targetEnglishTier = targetCanonical == "en"
+            ? model.englishSpellingTier(converted)
+            : nil
+        let targetExtendedEnglish = targetEnglishTier != nil
         let targetExtendedRussian = targetCanonical == "ru" && model.isExtendedRussianWord(converted)
 
         if integrity != .clean {
@@ -315,11 +318,16 @@ public enum LayoutDecoder {
         )
         let characterAdvantage = model.characterLogProbability(converted, language: targetCanonical)
             - model.characterLogProbability(literal, language: currentCanonical)
-        let strongExtendedEnglishTarget = currentCanonical == "ru"
-            && targetExtendedEnglish
+        let extendedEnglishTargetBase = currentCanonical == "ru"
+            && targetCanonical == "en"
+            && targetEnglishTier != nil
             && converted.count >= 4
             && sourceKnown == nil
+            && !sourceExtendedRussian
+        let strongExtendedEnglishTarget = extendedEnglishTargetBase
             && characterAdvantage >= model.thresholds.englishTargetCharacterAdvantage
+        let rankedExtendedEnglishTarget = extendedEnglishTargetBase
+            && (model.metadata.formatVersion >= 2 || strongExtendedEnglishTarget)
         let strongExtendedRussianTarget = currentCanonical == "en"
             && targetExtendedRussian
             && sourceKnown == nil
@@ -383,10 +391,14 @@ public enum LayoutDecoder {
            characterAdvantage >= model.thresholds.russianOOVEnglishLong {
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
         }
-        if strongExtendedEnglishTarget {
-            // A stale Russian context should not suppress an exact English
-            // spelling when the physical Cyrillic form is clearly implausible.
+        if let tier = targetEnglishTier, rankedExtendedEnglishTarget {
+            // Strong character evidence keeps the exact V3 scoring path. Ranked
+            // SCOWL evidence extends that path only for weaker spellings.
+            let recovery = strongExtendedEnglishTarget
+                ? model.thresholds.englishTargetStrongCharacterContextRecovery
+                : Self.englishTargetContextRecovery(tier, thresholds: model.thresholds)
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
+                * recovery
         }
         if frequentEnglishTargetBeatsWeakSource {
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
@@ -405,8 +417,14 @@ public enum LayoutDecoder {
         if targetKnown != nil {
             convertedScore += 3.0
             evidence.append(.frequent)
-        } else if strongExtendedEnglishTarget {
-            convertedScore += 3.0
+        } else if let tier = targetEnglishTier, rankedExtendedEnglishTarget {
+            if strongExtendedEnglishTarget {
+                convertedScore += model.thresholds.englishTargetStrongCharacterBonus
+            } else {
+                convertedScore += Self.englishTargetDictionaryBonus(tier, thresholds: model.thresholds)
+                convertedScore += min(3, max(-3, characterAdvantage))
+                    * model.thresholds.englishTargetCharacterWeight
+            }
             evidence.append(.englishTargetDictionary)
         } else if strongExtendedRussianTarget {
             convertedScore += 3.0
@@ -433,7 +451,7 @@ public enum LayoutDecoder {
         if targetHint.map({ LanguageCode.canonical($0) == targetCanonical }) == true { convertedScore += 1.2 }
         if candidate.kind == .trailingPunctuation || candidate.kind == .wrappingPunctuation {
             let coreHasLexicalEvidence = targetKnown != nil
-                || strongExtendedEnglishTarget
+                || rankedExtendedEnglishTarget
                 || strongExtendedRussianTarget
                 || FrequentWordLexicon.contains(converted, language: targetCanonical)
             if coreHasLexicalEvidence {
@@ -484,7 +502,7 @@ public enum LayoutDecoder {
             }
         }
         if currentCanonical == "ru", targetCanonical == "en",
-           sourceKnown == nil, targetKnown == nil, !strongExtendedEnglishTarget {
+           sourceKnown == nil, targetKnown == nil, !rankedExtendedEnglishTarget {
             // Unknown English words can still be clear layout mistakes (афиду →
             // fable). Permit them only when the character model has a strong
             // advantage and the recent language state is not distinctly Russian.
@@ -499,16 +517,20 @@ public enum LayoutDecoder {
 
         let margin = convertedScore - literalScore
         let hasLexicalEvidence = targetKnown != nil
-            || strongExtendedEnglishTarget
+            || rankedExtendedEnglishTarget
             || strongExtendedRussianTarget
             || compound != nil
             || strongScriptMismatch
-        let verdict: LayoutVerdict = margin >= threshold && hasLexicalEvidence ? .switchToConverted : (sourceKnown != nil ? .keep : .undecided)
+        let verdict: LayoutVerdict = margin >= threshold && hasLexicalEvidence
+            ? .switchToConverted
+            : (sourceKnown != nil || sourceExtendedRussian ? .keep : .undecided)
+        if verdict == .undecided { evidence.append(.abstained) }
         let reason: AutoConvertDecisionReason
         if verdict == .switchToConverted {
             if compound != nil && targetKnown == nil { reason = .compound }
             else if evidence.contains(.phraseContext) { reason = .phraseContext }
-            else if targetKnown != nil || strongExtendedEnglishTarget || strongExtendedRussianTarget {
+            else if rankedExtendedEnglishTarget { reason = .dictionary }
+            else if targetKnown != nil || strongExtendedRussianTarget {
                 reason = converted.count <= 3 ? .frequentShort : .frequentWord
             }
             else { reason = .characterModel }
@@ -533,6 +555,28 @@ public enum LayoutDecoder {
         let character = 13.0 + model.characterLogProbability(word, language: language)
         guard let known else { return character }
         return character + 7.5 + known * 0.55
+    }
+
+    private static func englishTargetDictionaryBonus(
+        _ tier: EnglishSpellingTier,
+        thresholds: LanguageModelThresholds
+    ) -> Double {
+        switch tier {
+        case .common: thresholds.englishTargetCommonBonus
+        case .standard: thresholds.englishTargetStandardBonus
+        case .rare: thresholds.englishTargetRareBonus
+        }
+    }
+
+    private static func englishTargetContextRecovery(
+        _ tier: EnglishSpellingTier,
+        thresholds: LanguageModelThresholds
+    ) -> Double {
+        switch tier {
+        case .common: thresholds.englishTargetCommonContextRecovery
+        case .standard: thresholds.englishTargetStandardContextRecovery
+        case .rare: thresholds.englishTargetRareContextRecovery
+        }
     }
 
     private static func fixed(

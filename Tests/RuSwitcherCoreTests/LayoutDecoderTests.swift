@@ -473,6 +473,12 @@ final class LayoutDecoderTests: XCTestCase {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
         russianBelief.observe(language: "ru")
+        let characterAdvantage = model.characterLogProbability("loosen", language: "en")
+            - model.characterLogProbability("дщщыут", language: "ru")
+        XCTAssertGreaterThanOrEqual(
+            characterAdvantage,
+            model.thresholds.englishTargetCharacterAdvantage
+        )
         let result = evaluate(
             "дщщыут",
             current: "ru",
@@ -489,6 +495,66 @@ final class LayoutDecoderTests: XCTestCase {
             "margin=\(result.confidenceMargin) threshold=\(result.threshold) evidence=\(result.evidence)"
         )
         XCTAssertTrue(result.evidence.contains(.englishTargetDictionary))
+    }
+
+    func testCommonEnglishTargetUsesRankContextAndCharactersTogether() {
+        let intended = "fahrenheit"
+        let mistyped = KeyMapping.convert(intended)
+        let characterAdvantage = model.characterLogProbability(intended, language: "en")
+            - model.characterLogProbability(mistyped, language: "ru")
+        XCTAssertEqual(mistyped, "афркутруше")
+        XCTAssertEqual(model.englishSpellingTier(intended), .common)
+        XCTAssertLessThan(characterAdvantage, model.thresholds.englishTargetCharacterAdvantage)
+        XCTAssertFalse(model.isExtendedRussianWord(mistyped))
+
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        for (context, belief) in [
+            ([], LanguageBelief.neutral),
+            (["the", "temperature", "is"], LanguageBelief.neutral),
+            (["температура", "по", "шкале"], russianBelief),
+        ] {
+            let result = evaluate(
+                mistyped,
+                current: "ru",
+                target: "en",
+                context: context,
+                belief: belief
+            )
+            XCTAssertEqual(result.decision.candidate.replacement, intended, "context=\(context)")
+            XCTAssertEqual(
+                result.decision.verdict,
+                .switchToConverted,
+                "context=\(context) margin=\(result.confidenceMargin) threshold=\(result.threshold)"
+            )
+            XCTAssertTrue(result.evidence.contains(.englishTargetDictionary), "context=\(context)")
+            XCTAssertEqual(result.decision.reason, .dictionary, "context=\(context)")
+        }
+    }
+
+    func testRankedEnglishTargetKeepsPhysicalPunctuation() {
+        for intended in ["fahrenheit,", "fahrenheit."] {
+            let mistyped = KeyMapping.convert(intended)
+            let result = evaluate(
+                mistyped,
+                current: "ru",
+                target: "en",
+                context: ["the", "temperature", "is"]
+            )
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, mistyped)
+            XCTAssertEqual(result.decision.candidate.replacement, intended, mistyped)
+            XCTAssertTrue(result.evidence.contains(.englishTargetDictionary), mistyped)
+        }
+    }
+
+    func testCorrectRussianSourceStillBlocksRankedEnglishCollision() {
+        for word in model.trainingWords(language: "ru") {
+            let english = KeyMapping.convert(word)
+            guard english.count >= 4, model.englishSpellingTier(english) != nil else { continue }
+            let result = evaluate(word, current: "ru", target: "en")
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, "\(word) -> \(english)")
+        }
     }
 
     func testKnownRussianLiteralWinsOverExtendedEnglishCollision() {

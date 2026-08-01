@@ -3,19 +3,34 @@
   "seed": 20260710,
   "bootstrapSource": {
     "path": "Sources/RuSwitcherCore/Resources/language-model-v1.bin",
-    "sha256": "954cd3d86fae11dc6e82d099996406a4259c7f1148f67fbfa5d445ef45deb347",
+    "sha256": "1189ee8a6379053aecd51dd70d5a076451ba7081ebe26bef0072d14c81001fce",
     "license": "CC BY 3.0",
     "upstream": "https://github.com/orgtre/google-books-ngram-frequency",
     "revision": "e20471c15a758be3362b16d07870b34df4f7ccc3"
   },
   "englishSourceLexicon": {
-    "name": "English Speller Database / SCOWL level 60",
+    "name": "English Speller Database / SCOWL confidence tiers 35, 50 and 60",
     "upstream": "https://github.com/en-wl/wordlist",
     "revision": "7e99edab8e32f9f9ea2b15f249ca8d4d67237410",
     "tag": "rel-2026.02.25",
-    "parameters": "word-list 60 A,B,Z 1 --deaccent; lowercase; ASCII words length >= 3",
-    "archive": "scripts/data/scowl60-en.txt.gz",
-    "archiveSHA256": "a15fcf72ca0cb6dbb83420513e0cd6e5d60755635a4bad5f51609c6b279385d5",
+    "parameters": "word-list SIZE A,B,Z 1 --deaccent for SIZE=35,50,60; lowercase; ASCII words length >= 3; tiers common=35, standard=50, rare=60",
+    "archives": [
+      {
+        "size": 35,
+        "path": "scripts/data/scowl35-en.txt.gz",
+        "sha256": "a59fe828189542017f393554410e9b8c61823d020884ffe758e1087bf80c76ac"
+      },
+      {
+        "size": 50,
+        "path": "scripts/data/scowl50-en.txt.gz",
+        "sha256": "1aadd22d60bc6c157961693de34ee406375b974f72486c10ba2230d8907898c9"
+      },
+      {
+        "size": 60,
+        "path": "scripts/data/scowl60-en.txt.gz",
+        "sha256": "a15fcf72ca0cb6dbb83420513e0cd6e5d60755635a4bad5f51609c6b279385d5"
+      }
+    ],
     "licenseNotice": "scripts/data/SCOWL_COPYRIGHT.txt"
   },
   "russianSpellingLexicon": {

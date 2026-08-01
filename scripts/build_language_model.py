@@ -9,6 +9,7 @@ downloads data.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import gzip
 import hashlib
@@ -48,6 +49,10 @@ SECTION = {
     "ru_extended": 13,
 }
 
+SCOWL_COMMON_ARCHIVE = Path("scripts/data/scowl35-en.txt.gz")
+SCOWL_COMMON_ARCHIVE_SHA256 = "a59fe828189542017f393554410e9b8c61823d020884ffe758e1087bf80c76ac"
+SCOWL_STANDARD_ARCHIVE = Path("scripts/data/scowl50-en.txt.gz")
+SCOWL_STANDARD_ARCHIVE_SHA256 = "1aadd22d60bc6c157961693de34ee406375b974f72486c10ba2230d8907898c9"
 SCOWL_ARCHIVE = Path("scripts/data/scowl60-en.txt.gz")
 SCOWL_ARCHIVE_SHA256 = "a15fcf72ca0cb6dbb83420513e0cd6e5d60755635a4bad5f51609c6b279385d5"
 RU_HUNSPELL_ARCHIVE = Path("scripts/data/ru_RU.dic.gz")
@@ -121,16 +126,39 @@ def read_words(path: Path, language: str, curated: list[str]) -> dict[str, float
     return {word: round(math.log(freq / peak), 6) for word, freq in frequencies.items()}
 
 
-def read_extended_english(path: Path, frequent: dict[str, float]) -> list[str]:
-    if sha256(path) != SCOWL_ARCHIVE_SHA256:
+def read_scowl_words(path: Path, expected_sha256: str) -> set[str]:
+    if sha256(path) != expected_sha256:
         raise RuntimeError(f"SHA-256 mismatch for {path}")
     with gzip.open(path, "rt", encoding="utf-8") as handle:
-        words = {
+        return {
             word.strip().lower()
             for word in handle
             if is_language_word(word.strip().lower(), "en") and len(word.strip()) >= 3
         }
-    return sorted(words.difference(frequent))
+
+
+def read_extended_english(
+    common_path: Path,
+    standard_path: Path,
+    rare_path: Path,
+    frequent: dict[str, float],
+) -> dict[str, int]:
+    common = read_scowl_words(common_path, SCOWL_COMMON_ARCHIVE_SHA256)
+    standard = read_scowl_words(standard_path, SCOWL_STANDARD_ARCHIVE_SHA256)
+    rare = read_scowl_words(rare_path, SCOWL_ARCHIVE_SHA256)
+    if not common <= standard or not standard <= rare:
+        raise RuntimeError("SCOWL confidence tiers are not nested")
+
+    # 3/2/1 match EnglishSpellingTier in Swift. Frequent Google Books words
+    # stay in their ranked section and do not need duplicate spelling entries.
+    tiers: dict[str, int] = {}
+    for word in rare.difference(frequent):
+        tiers[word] = 1
+    for word in standard.difference(frequent):
+        tiers[word] = 2
+    for word in common.difference(frequent):
+        tiers[word] = 3
+    return dict(sorted(tiers.items()))
 
 
 def read_russian_affixes(path: Path) -> dict[str, list[tuple[str, str, re.Pattern[str]]]]:
@@ -224,6 +252,14 @@ def json_bytes(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def ranked_english_section(words: dict[str, int]) -> dict[str, object]:
+    ordered = sorted(words)
+    return {
+        "words": ordered,
+        "tiers": base64.b64encode(bytes(words[word] for word in ordered)).decode("ascii"),
+    }
+
+
 def fnv1a64(data: bytes) -> int:
     value = 0xCBF29CE484222325
     for byte in data:
@@ -235,7 +271,7 @@ def fnv1a64(data: bytes) -> int:
 def write_model(output: Path, sections: list[tuple[int, bytes]]) -> None:
     payload = b"".join(data for _, data in sections)
     directory_size = len(sections) * 12
-    header = struct.pack("<4sHHIQ", b"RSLM", 1, len(sections), len(payload), fnv1a64(payload))
+    header = struct.pack("<4sHHIQ", b"RSLM", 2, len(sections), len(payload), fnv1a64(payload))
     offset = 0
     directory = bytearray()
     for kind, data in sections:
@@ -250,6 +286,8 @@ def main() -> None:
     parser.add_argument("--source-dir", type=Path)
     parser.add_argument("--cache-dir", type=Path, default=Path(".build/language-model-source"))
     parser.add_argument("--output", type=Path, default=Path("Sources/RuSwitcherCore/Resources/language-model-v1.bin"))
+    parser.add_argument("--english-common-wordlist", type=Path, default=SCOWL_COMMON_ARCHIVE)
+    parser.add_argument("--english-standard-wordlist", type=Path, default=SCOWL_STANDARD_ARCHIVE)
     parser.add_argument("--english-wordlist", type=Path, default=SCOWL_ARCHIVE)
     parser.add_argument("--russian-dictionary", type=Path, default=RU_HUNSPELL_ARCHIVE)
     parser.add_argument("--russian-affixes", type=Path, default=RU_HUNSPELL_AFFIXES)
@@ -258,11 +296,16 @@ def main() -> None:
     paths = {key: source_path(key, args.source_dir, args.cache_dir) for key in SOURCES}
     ru_words = read_words(paths["ngrams/1grams_russian.csv"], "ru", CURATED_RU)
     en_words = read_words(paths["ngrams/1grams_english.csv"], "en", CURATED_EN)
-    en_extended = read_extended_english(args.english_wordlist, en_words)
+    en_extended = read_extended_english(
+        args.english_common_wordlist,
+        args.english_standard_wordlist,
+        args.english_wordlist,
+        en_words,
+    )
     ru_extended = russian_hunspell_forms(args.russian_dictionary, args.russian_affixes)
     metadata = {
-        "formatVersion": 1,
-        "modelVersion": "2026.07-v4-ru-hunspell4",
+        "formatVersion": 2,
+        "modelVersion": "2026.08-v3.1-ranked-en3",
         "source": "orgtre/google-books-ngram-frequency",
         "sourceRevision": REVISION,
         "license": "CC BY 3.0",
@@ -270,6 +313,9 @@ def main() -> None:
             "ru": len(ru_words),
             "en": len(en_words),
             "enExtended": len(en_extended),
+            "enExtendedCommon": sum(tier == 3 for tier in en_extended.values()),
+            "enExtendedStandard": sum(tier == 2 for tier in en_extended.values()),
+            "enExtendedRare": sum(tier == 1 for tier in en_extended.values()),
             "ruExtended": len(ru_extended),
         },
     }
@@ -283,6 +329,15 @@ def main() -> None:
         "englishSourceCharacterFloor": -12.0,
         "englishSourcePlausibleBonus": 2.4,
         "englishTargetCharacterAdvantage": 2.2,
+        "englishTargetCommonBonus": 3.1,
+        "englishTargetStandardBonus": 2.5,
+        "englishTargetRareBonus": 1.8,
+        "englishTargetCharacterWeight": 0.35,
+        "englishTargetStrongCharacterBonus": 3.0,
+        "englishTargetCommonContextRecovery": 1.0,
+        "englishTargetStandardContextRecovery": 0.7,
+        "englishTargetRareContextRecovery": 0.35,
+        "englishTargetStrongCharacterContextRecovery": 1.0,
         "compoundBonus": 4.8,
         "confirmedBonus": 20.0,
     }
@@ -298,7 +353,7 @@ def main() -> None:
         "en_trigrams": read_phrases(paths["ngrams/3grams_english.csv"], "en", 3),
         "productive": PRODUCTIVE_RU + ["-" + suffix for suffix in PRODUCTIVE_RU_SUFFIXES],
         "thresholds": thresholds,
-        "en_extended": en_extended,
+        "en_extended": ranked_english_section(en_extended),
         "ru_extended": bloom_bytes(ru_extended),
     }
     write_model(args.output, [

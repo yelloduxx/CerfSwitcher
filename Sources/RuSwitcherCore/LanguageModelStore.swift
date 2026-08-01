@@ -19,8 +19,97 @@ public struct LanguageModelThresholds: Codable, Equatable, Sendable {
     public let englishSourceCharacterFloor: Double
     public let englishSourcePlausibleBonus: Double
     public let englishTargetCharacterAdvantage: Double
+    public let englishTargetCommonBonus: Double
+    public let englishTargetStandardBonus: Double
+    public let englishTargetRareBonus: Double
+    public let englishTargetCharacterWeight: Double
+    public let englishTargetStrongCharacterBonus: Double
+    public let englishTargetCommonContextRecovery: Double
+    public let englishTargetStandardContextRecovery: Double
+    public let englishTargetRareContextRecovery: Double
+    public let englishTargetStrongCharacterContextRecovery: Double
     public let compoundBonus: Double
     public let confirmedBonus: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case short, russianContext, neutral, englishContext
+        case russianOOVNeutral, russianOOVEnglishLong
+        case englishSourceCharacterFloor, englishSourcePlausibleBonus
+        case englishTargetCharacterAdvantage
+        case englishTargetCommonBonus, englishTargetStandardBonus
+        case englishTargetRareBonus, englishTargetCharacterWeight
+        case englishTargetStrongCharacterBonus
+        case englishTargetCommonContextRecovery
+        case englishTargetStandardContextRecovery
+        case englishTargetRareContextRecovery
+        case englishTargetStrongCharacterContextRecovery
+        case compoundBonus, confirmedBonus
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        short = try values.decode(Double.self, forKey: .short)
+        russianContext = try values.decode(Double.self, forKey: .russianContext)
+        neutral = try values.decode(Double.self, forKey: .neutral)
+        englishContext = try values.decode(Double.self, forKey: .englishContext)
+        russianOOVNeutral = try values.decode(Double.self, forKey: .russianOOVNeutral)
+        russianOOVEnglishLong = try values.decode(Double.self, forKey: .russianOOVEnglishLong)
+        englishSourceCharacterFloor = try values.decode(Double.self, forKey: .englishSourceCharacterFloor)
+        englishSourcePlausibleBonus = try values.decode(Double.self, forKey: .englishSourcePlausibleBonus)
+        englishTargetCharacterAdvantage = try values.decode(Double.self, forKey: .englishTargetCharacterAdvantage)
+        // Model-format 1 had a flat SCOWL set. Defaults keep old artifacts
+        // readable while format 2 stores calibrated tier weights explicitly.
+        englishTargetCommonBonus = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetCommonBonus
+        ) ?? 3.1
+        englishTargetStandardBonus = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetStandardBonus
+        ) ?? 2.5
+        englishTargetRareBonus = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetRareBonus
+        ) ?? 1.8
+        englishTargetCharacterWeight = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetCharacterWeight
+        ) ?? 0.35
+        englishTargetStrongCharacterBonus = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetStrongCharacterBonus
+        ) ?? 3.0
+        englishTargetCommonContextRecovery = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetCommonContextRecovery
+        ) ?? 1.0
+        englishTargetStandardContextRecovery = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetStandardContextRecovery
+        ) ?? 0.7
+        englishTargetRareContextRecovery = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetRareContextRecovery
+        ) ?? 0.35
+        englishTargetStrongCharacterContextRecovery = try values.decodeIfPresent(
+            Double.self,
+            forKey: .englishTargetStrongCharacterContextRecovery
+        ) ?? 1.0
+        compoundBonus = try values.decode(Double.self, forKey: .compoundBonus)
+        confirmedBonus = try values.decode(Double.self, forKey: .confirmedBonus)
+    }
+}
+
+/// SCOWL sizes are confidence tiers, not word-specific overrides. Higher tiers
+/// contain progressively more common spellings from the same pinned source.
+public enum EnglishSpellingTier: Int, Codable, Comparable, Sendable {
+    case rare = 1       // SCOWL 60 only
+    case standard = 2   // SCOWL 50
+    case common = 3     // SCOWL 35
+
+    public static func < (lhs: EnglishSpellingTier, rhs: EnglishSpellingTier) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
 }
 
 public enum LanguageModelError: Error, Equatable {
@@ -34,8 +123,13 @@ public enum LanguageModelError: Error, Equatable {
 }
 
 /// Immutable, memory-mapped model. JSON is used only inside individually
-/// checksummed binary sections; runtime lookups use native dictionaries.
+/// checksummed binary sections; large spelling tiers use compact sorted vectors.
 public final class LanguageModelStore: @unchecked Sendable {
+    private struct RankedEnglishSpellingSection: Decodable {
+        let words: [String]
+        let tiers: Data
+    }
+
     private enum Section: UInt16, CaseIterable {
         case metadata = 1
         case ruWords = 2
@@ -68,7 +162,8 @@ public final class LanguageModelStore: @unchecked Sendable {
     public let thresholds: LanguageModelThresholds
     public let productiveRussianParts: Set<String>
     public let productiveRussianSuffixes: Set<String>
-    private let extendedEnglishWords: Set<String>
+    private let extendedEnglishWords: [String]
+    private let extendedEnglishTiers: Data
     private let extendedRussianWords: RussianSpellingBloom
 
     private let words: [String: [String: Double]]
@@ -87,7 +182,9 @@ public final class LanguageModelStore: @unchecked Sendable {
             throw LanguageModelError.invalidHeader
         }
         let version = Int(Self.readUInt16(data, at: 4))
-        guard version == 1 else { throw LanguageModelError.unsupportedVersion(version) }
+        guard version == 1 || version == 2 else {
+            throw LanguageModelError.unsupportedVersion(version)
+        }
         let count = Int(Self.readUInt16(data, at: 6))
         let payloadLength = Int(Self.readUInt32(data, at: 8))
         let checksum = Self.readUInt64(data, at: 12)
@@ -143,7 +240,23 @@ public final class LanguageModelStore: @unchecked Sendable {
             "ru": try decode([String: Double].self, section: .ruTrigrams),
             "en": try decode([String: Double].self, section: .enTrigrams),
         ]
-        extendedEnglishWords = Set(try decode([String].self, section: .extendedEnglish))
+        if version >= 2 {
+            let ranked = try decode(RankedEnglishSpellingSection.self, section: .extendedEnglish)
+            guard ranked.words.count == ranked.tiers.count,
+                  zip(ranked.words, ranked.words.dropFirst()).allSatisfy({ $0.0 < $0.1 }),
+                  ranked.tiers.allSatisfy({ EnglishSpellingTier(rawValue: Int($0)) != nil })
+            else {
+                throw LanguageModelError.invalidSection(Int(Section.extendedEnglish.rawValue))
+            }
+            extendedEnglishWords = ranked.words
+            extendedEnglishTiers = ranked.tiers
+        } else {
+            extendedEnglishWords = try decode([String].self, section: .extendedEnglish).sorted()
+            extendedEnglishTiers = Data(
+                repeating: UInt8(EnglishSpellingTier.standard.rawValue),
+                count: extendedEnglishWords.count
+            )
+        }
         guard let russianBloomData = sectionData[.extendedRussian] else {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
@@ -155,11 +268,40 @@ public final class LanguageModelStore: @unchecked Sendable {
     }
 
     public func isExtendedEnglishWord(_ word: String) -> Bool {
-        extendedEnglishWords.contains(Self.normalize(word))
+        englishSpellingTier(word) != nil
+    }
+
+    public func englishSpellingTier(_ word: String) -> EnglishSpellingTier? {
+        let normalized = Self.normalize(word)
+        var lowerBound = 0
+        var upperBound = extendedEnglishWords.count
+        while lowerBound < upperBound {
+            let middle = lowerBound + (upperBound - lowerBound) / 2
+            if extendedEnglishWords[middle] < normalized {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        guard lowerBound < extendedEnglishWords.count,
+              extendedEnglishWords[lowerBound] == normalized else { return nil }
+        return EnglishSpellingTier(rawValue: Int(extendedEnglishTiers[lowerBound]))
     }
 
     public func trainingExtendedEnglishWords(limit: Int? = nil) -> [String] {
-        let values = extendedEnglishWords.sorted()
+        guard let limit else { return extendedEnglishWords }
+        return Array(extendedEnglishWords.prefix(max(0, limit)))
+    }
+
+    public func trainingExtendedEnglishWords(
+        minimumTier: EnglishSpellingTier,
+        limit: Int? = nil
+    ) -> [String] {
+        let values = extendedEnglishWords.indices.compactMap { index in
+            Int(extendedEnglishTiers[index]) >= minimumTier.rawValue
+                ? extendedEnglishWords[index]
+                : nil
+        }
         guard let limit else { return values }
         return Array(values.prefix(max(0, limit)))
     }

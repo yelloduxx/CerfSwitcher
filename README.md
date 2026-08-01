@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/RuSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
-  <img src="https://img.shields.io/badge/current-4.0.0%20(126)-brightgreen?style=flat-square" alt="Current build 126">
+  <img src="https://img.shields.io/badge/current-4.0.0%20(128)-brightgreen?style=flat-square" alt="Current build 128">
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and RuSwitcher Pro converts the last word in place. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
 
-The current `main` build is **4.0.0 (126)**. It uses Smart Engine V3 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
+The current `main` build is **4.0.0 (128)**. It uses Smart Engine V3.1 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
 
 ### How it works
 
@@ -45,7 +45,7 @@ RuSwitcher Pro can also fix the layout **automatically as you type**, with no ke
 
 It handles common short words (`b` → `и`, `z` → `я`), long words such as `ghbdtncnde.` → `приветствую`, trailing punctuation (`ghbdtn,` → `привет,`) and unknown compounds such as `cegthcgbyf` → `суперспина` (`супер` + `спина`). Corrections happen only after Space, Enter or Tab, never halfway through a word; punctuation remains part of the token until that boundary so repeated marks cannot be corrupted by a mid-sequence layout switch. To avoid dangerous false fixes it skips words with digits / URLs / email-like text, single uppercase Latin letters (`plan B`), ALL-CAPS acronyms, camelCase / mixed-script code identifiers, terminals / IDEs / password managers, and password fields.
 
-For Latin input, an English-first source gate protects frequent words and a separate 80,000+ form ESDB/SCOWL spelling lexicon before considering RU conversion. Words outside both dictionaries are classified by English character probability: plausible English OOV forms get a keep bias, while English-unlikely physical-key strings may switch when the Russian hypothesis has stronger lexical, character or contextual evidence. For RU→EN, the same spelling lexicon confirms a target only when the Cyrillic source is unknown, the word has at least four letters and the English character model wins by a calibrated margin.
+For Latin input, an English-first source gate protects frequent words and a separate 80,000+ form ESDB/SCOWL spelling lexicon before considering RU conversion. Words outside both dictionaries are classified by English character probability: plausible English OOV forms get a keep bias, while English-unlikely physical-key strings may switch when the Russian hypothesis has stronger lexical, character or contextual evidence. For RU→EN, V3.1 ranks exact English spellings by reproducible SCOWL common/standard/rare tiers and combines that rank with character plausibility and phrase context. It converts only when the Cyrillic source is unknown and the candidate has at least four letters; a valid Russian source, code-like text and other hard blockers still win. This fixes whole classes of real English words that the former single character threshold missed, without per-word overrides.
 
 Russian spelling evidence uses an offline-expanded LibreOffice Hunspell dictionary represented by a compact 4 MB Bloom filter with more than one million inflected forms. It confirms words such as verb imperatives without adding per-word exceptions and protects valid Russian source forms. When both physical interpretations are real words (`туче`/`next`), RuSwitcher Pro keeps the literal text unless explicit learning provides stronger evidence.
 
@@ -126,7 +126,7 @@ The app adds itself to the permission lists automatically — you only need to f
 - Targeted `CGEvent` transactions for automatic replacement and physical target-layout key events for AX-blind manual conversion.
 - `CGEvent.keyboardSetUnicodeString` for direct replacement text where appropriate — no clipboard in the normal word-conversion path.
 - `CGEventSource.userData` marker to filter the app's own simulated events.
-- A memory-mapped, versioned local RU/EN language model generated from pinned Google Books n-gram frequency data.
+- A memory-mapped, versioned local RU/EN language model generated from pinned Google Books n-gram frequency data and reproducible SCOWL 35/50/60 spelling tiers.
 - A Core ML V4 research package under `Experimental/V4`; it is absent from the normal package graph and production application.
 - Read-only `AXUIElement` range probes for focus and suffix validation; selected-text conversion uses AX first and preserves every pasteboard type in its fallback.
 - `SMAppService` for login item management.
@@ -148,11 +148,12 @@ python3 scripts/run_mixed_layout_event_stream_suite.py corpus.tsv --jobs 8
 
 This catches decoder, stale-state, punctuation and duplicate-transaction errors and applies explicit false-positive/recall gates. Native CGEvent/AX delivery still requires the separate visible host or an isolated macOS user/VM. V4 is tested only with `swift test --package-path Experimental/V4`.
 
-Last audited build-126 checks:
+Last audited build-128 checks:
 
-- **183 tests:** 182 passed, 1 intentionally skipped, 0 failed.
-- **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,945 exact (99.2541%); all 443 failures were safe misses, with zero false or wrong replacements.
-- **Native manual-learning probe:** an unknown pair was confirmed after double Shift with no pasteboard change, duplicate input, layout mismatch or boundary timeout.
+- **186 tests:** 185 passed, 1 intentionally skipped, 0 failed.
+- **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,938 exact (99.2423%); all 450 failures were safe misses, with zero false or wrong replacements and zero duplicate transactions. A clean build-126 checkout produces the same 450 misses.
+- **New ranked-English gates:** at least 90% held-out recall in every SCOWL tier, plus zero false replacements across 50,000 frequent correct tokens, 50,000 extended English spellings and more than 3,000 generated Russian OOV forms.
+- **Native delivery note:** the build-128 fixture was deliberately reported as blocked, not passed, when macOS would not grant its test window focus. Signature, installed hash and the normal application's active event tap were verified separately.
 
 RuSwitcher Pro contains no usage-statistics reporter or endpoint.
 
@@ -184,7 +185,7 @@ If you find RuSwitcher Pro useful:
 
 Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и RuSwitcher Pro сконвертирует последнее слово прямо у каретки. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
 
-Текущая версия в `main` — **4.0.0 (build 126)**. В приложении работает только продакшен-движок Smart Engine V3. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
+Текущая версия в `main` — **4.0.0 (build 128)**. В приложении работает только продакшен-движок Smart Engine V3.1. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
 
 ### Как работает
 
@@ -202,7 +203,7 @@ RuSwitcher Pro умеет исправлять раскладку **автома
 
 Теперь авто-конверсия обрабатывает частые короткие слова (`b` → `и`, `z` → `я`), длинные слова вроде `ghbdtncnde.` → `приветствую`, пунктуацию в конце (`ghbdtn,` → `привет,`) и неизвестные слитные слова вроде `cegthcgbyf` → `суперспина` (`супер` + `спина`). Исправление выполняется только после Space, Enter или Tab, но не посреди слова; пунктуация остаётся частью токена до этой границы, поэтому многоточие и повторные знаки не повреждаются переключением раскладки. Защищены цифры, URL/email, одиночные заглавные латинские буквы (`plan B`), ALL-CAPS, camelCase, смешанные идентификаторы, терминалы, IDE, менеджеры паролей и защищённые поля.
 
-Для латинского ввода сначала работает English-first защита: частотный словарь и отдельный орфографический ESDB/SCOWL-слой более чем из 80 тысяч дополнительных форм. Точное английское слово остаётся неизменным; незнакомая, но похожая на английскую форма получает keep-bias. Переключение разрешается, когда исходная строка на английскую не похожа, а русская гипотеза сильнее по словарю, символьной модели или контексту. Для RU→EN тот же словарь подтверждает кандидат только тогда, когда исходная кириллическая форма неизвестна, слово не короче четырёх букв, а английская символьная модель выигрывает с калиброванным запасом.
+Для латинского ввода сначала работает English-first защита: частотный словарь и отдельный орфографический ESDB/SCOWL-слой более чем из 80 тысяч дополнительных форм. Точное английское слово остаётся неизменным; незнакомая, но похожая на английскую форма получает keep-bias. Переключение разрешается, когда исходная строка на английскую не похожа, а русская гипотеза сильнее по словарю, символьной модели или контексту. Для RU→EN V3.1 делит точные английские формы на воспроизводимые уровни SCOWL common/standard/rare и совместно учитывает этот ранг, символьную правдоподобность и контекст фразы. Исходная кириллическая форма должна быть неизвестной, а кандидат — не короче четырёх букв; настоящее русское слово, код и остальные жёсткие блокировки всё равно имеют приоритет. Поэтому исправляется целый класс пропущенных английских слов, а не отдельные примеры из хардкода.
 
 Русские словоформы проверяются по офлайн-развёрнутому Hunspell-словарю LibreOffice, упакованному в компактный Bloom-фильтр размером 4 МБ и содержащему более миллиона форм. Он распознаёт, в частности, глагольные формы без исключений для отдельных слов и защищает корректные русские слова. Если обе интерпретации реальны (`туче`/`next`), RuSwitcher Pro оставляет исходный текст, пока персональное обучение не даст более сильное основание.
 
@@ -283,7 +284,7 @@ open "/Applications/RuSwitcherPro.app"
 - Адресные `CGEvent`-транзакции для автозамены и физические клавиши целевой раскладки для ручной конверсии в AX-слепых полях.
 - `CGEvent.keyboardSetUnicodeString` для прямой вставки текста там, где это уместно — обычная конверсия слова не использует буфер обмена.
 - Маркер `CGEventSource.userData` для фильтрации собственных симулированных событий.
-- Версионированная memory-mapped RU/EN-модель, воспроизводимо собранная из закреплённой версии частотных Google Books n-gram data.
+- Версионированная memory-mapped RU/EN-модель, воспроизводимо собранная из закреплённых Google Books n-gram data и уровней словаря SCOWL 35/50/60.
 - Исследовательская Core ML-модель V4 находится в отдельном пакете `Experimental/V4`; её нет в обычном графе сборки и production-приложении.
 - Read-only `AXUIElement` range probes для проверки фокуса и хвоста перед кареткой; ручная замена выделения сначала использует AX, а fallback сохраняет все типы pasteboard.
 - `SMAppService` для управления автозапуском.
@@ -299,11 +300,12 @@ swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 
 `--input fixtures.jsonl` принимает тесты слов, `--phrase-input phrases.jsonl` — последовательные смешанные фразы, а `--phrase-results results.jsonl` сохраняет полный пошаговый отчёт. `scripts/run_headless_typing_simulator.sh` дополнительно проводит непрерывный поток физических клавиш через `InputSession`, V3 и транзакции замены без окна и перехвата фокуса. Он ловит ошибки decoder, stale state, пунктуации и повторных транзакций. Настоящую доставку CGEvent/AX всё равно можно проверить только видимым host-приложением либо в отдельной macOS-сессии/VM. V4 проверяется отдельно командой `swift test --package-path Experimental/V4`.
 
-Последняя проверка build 126:
+Последняя проверка build 128:
 
-- **183 теста:** 182 пройдено, 1 намеренно пропущен, 0 ошибок.
-- **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 945 точных результатов (99,2541%); оставшиеся 443 случая — безопасные пропуски, без единой ложной или неправильной замены.
-- **Нативный тест обучения:** неизвестная пара подтвердилась после двойного Shift без изменения pasteboard, дублирования ввода, ошибки раскладки или таймаута границы.
+- **186 тестов:** 185 пройдено, 1 намеренно пропущен, 0 ошибок.
+- **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 938 точных результатов (99,2423%); оставшиеся 450 случаев — безопасные пропуски, без ложных или неправильных замен и без повторных транзакций. Чистая сборка build 126 даёт те же 450 пропусков.
+- **Новые проверки ranked English:** не менее 90% recall на отложенной выборке каждого уровня SCOWL и ноль ложных замен на 50 000 частых корректных токенов, 50 000 дополнительных английских слов и более чем 3 000 сгенерированных русских OOV-форм.
+- **Нативная доставка:** отдельный fixture build 128 честно помечен как заблокированный, а не пройденный, поскольку macOS не отдал фокус тестовому окну. Подпись, хеш установленного приложения и активный event tap обычного процесса проверены отдельно.
 
 В приложении нет reporter или endpoint для статистики использования.
 

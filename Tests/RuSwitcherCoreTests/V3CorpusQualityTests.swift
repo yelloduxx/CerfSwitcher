@@ -59,7 +59,7 @@ final class V3CorpusQualityTests: XCTestCase {
         }
 
         XCTAssertEqual(total, 50_000)
-        XCTAssertLessThanOrEqual(Double(falsePositives) / Double(total), 0.002)
+        XCTAssertEqual(falsePositives, 0)
     }
 
     func testCommonWrongLayoutRecallGate() {
@@ -117,31 +117,65 @@ final class V3CorpusQualityTests: XCTestCase {
         XCTAssertEqual(falsePositives, 0)
     }
 
-    func testExtendedEnglishTargetsConvertOnlyWithStrongCharacterEvidence() {
-        var eligible = 0
-        var hits = 0
-        for intended in model.trainingExtendedEnglishWords() {
-            guard intended.count >= 4 else { continue }
-            let mistyped = KeyMapping.convert(intended)
-            guard SmartTokenizer.languageHint(for: mistyped) == "ru",
-                  model.wordLogProbability(mistyped, language: "ru") == nil,
-                  model.characterLogProbability(intended, language: "en")
-                    - model.characterLogProbability(mistyped, language: "ru")
-                    >= model.thresholds.englishTargetCharacterAdvantage
-            else { continue }
-            eligible += 1
-            let result = evaluate(
-                mistyped,
-                current: "ru",
-                target: "en",
-                context: ["это", "текст"],
-                beliefLanguage: "ru"
-            )
-            if result.decision.verdict == .switchToConverted { hits += 1 }
-            if eligible == 2_000 { break }
+    func testRankedEnglishTargetsGeneralizeAcrossHeldOutTiersAndContext() {
+        func recall(
+            tier: EnglishSpellingTier,
+            context: [String],
+            beliefLanguage: String,
+            limit: Int = 4_000
+        ) -> (eligible: Int, recall: Double) {
+            var eligible = 0
+            var hits = 0
+            for (index, intended) in model.trainingExtendedEnglishWords().enumerated() {
+                // Deterministic held-out slice: decoder weights know only the
+                // SCOWL tier, never these individual spellings.
+                guard index % 5 == 3,
+                      model.englishSpellingTier(intended) == tier,
+                      intended.count >= 4 else { continue }
+                let mistyped = KeyMapping.convert(intended)
+                guard SmartTokenizer.languageHint(for: mistyped) == "ru",
+                      model.wordLogProbability(mistyped, language: "ru") == nil,
+                      !model.isExtendedRussianWord(mistyped)
+                else { continue }
+                eligible += 1
+                let result = evaluate(
+                    mistyped,
+                    current: "ru",
+                    target: "en",
+                    context: context,
+                    beliefLanguage: beliefLanguage
+                )
+                if result.decision.verdict == .switchToConverted,
+                   result.decision.candidate.replacement == intended {
+                    hits += 1
+                }
+                if eligible == limit { break }
+            }
+            return (eligible, Double(hits) / Double(max(1, eligible)))
         }
-        XCTAssertEqual(eligible, 2_000)
-        XCTAssertGreaterThanOrEqual(Double(hits) / Double(eligible), 0.98)
+
+        let common = recall(
+            tier: .common,
+            context: ["температура", "по", "шкале"],
+            beliefLanguage: "ru"
+        )
+        let standard = recall(
+            tier: .standard,
+            context: [],
+            beliefLanguage: "unknown"
+        )
+        let rare = recall(
+            tier: .rare,
+            context: ["this", "technical", "term"],
+            beliefLanguage: "en"
+        )
+
+        XCTAssertGreaterThanOrEqual(common.eligible, 3_000)
+        XCTAssertGreaterThanOrEqual(standard.eligible, 3_000)
+        XCTAssertGreaterThanOrEqual(rare.eligible, 2_000)
+        XCTAssertGreaterThanOrEqual(common.recall, 0.90, "common=\(common)")
+        XCTAssertGreaterThanOrEqual(standard.recall, 0.90, "standard=\(standard)")
+        XCTAssertGreaterThanOrEqual(rare.recall, 0.90, "rare=\(rare)")
     }
 
     func testGeneratedRussianOOVFormsStayProtectedInRussianContext() {
@@ -164,7 +198,7 @@ final class V3CorpusQualityTests: XCTestCase {
             }
         }
         XCTAssertGreaterThanOrEqual(total, 3_000)
-        XCTAssertLessThanOrEqual(Double(falsePositives) / Double(total), 0.002)
+        XCTAssertEqual(falsePositives, 0)
     }
 
     func testUnknownCompoundRecallGate() {

@@ -15,7 +15,7 @@ installed build changes.
 - Primary repository: `yelloduxx/RuSwitcher`; the production branch is `main`.
   `rashn/RuSwitcher` is the author's upstream repository, not a release source
   for this fork.
-- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **126**:
+- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **128**:
   - Bundle: `RuSwitcherPro.app` → `/Applications/RuSwitcherPro.app`
   - Bundle ID: `com.ruswitcher.pro` · Executable: `RuSwitcherPro` · Dev tag: `pro`
   - Logs: `~/Library/Logs/RuSwitcherPro/ruswitcher-pro.log` via
@@ -23,11 +23,12 @@ installed build changes.
   - Lineage: Lab 105 conversion core + AX 106–108 safety + runtime
     `ManualHostPolicy` capability detection + keyboard-deletion manual path for
     external hosts (build 118+) + non-destructive physical selection and
-    deferred manual learning for AX-blind hosts (builds 125–126).
+    deferred manual learning for AX-blind hosts (builds 125–126) + V3.1 ranked
+    SCOWL evidence for general RU-to-EN dictionary recovery (build 128).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
   - Installed executable SHA-256:
-    `5a63855896093e075932d8893a386c58f2a698809832faab490240b706e8b5fb`.
+    `6156d5c835befb1d2ace19751c29a1c907d48032ea2e557b4044b8d8d1cafab5`.
 - Verify the installed binary hash and PID after every local replacement; do
   not infer the running build from `version.json` alone.
 - Changing `ProductIdentity.bundleIdentifier` requires re-granting Accessibility
@@ -88,7 +89,7 @@ compares the literal-layout and opposite-layout hypotheses using:
 
 - physical-key/lattice cost;
 - frequent word probabilities;
-- EN SCOWL and RU Hunspell spelling membership;
+- ranked EN SCOWL 35/50/60 and RU Hunspell spelling membership;
 - character 2-5-gram plausibility;
 - recent language belief and phrase context;
 - compound analysis for unknown Russian forms;
@@ -281,7 +282,7 @@ Adaptive learning behavior:
 Bundled resources:
 
 - `language-model-v1.bin`: versioned V3 model, current SHA-256
-  `954cd3d86fae11dc6e82d099996406a4259c7f1148f67fbfa5d445ef45deb347`.
+  `1189ee8a6379053aecd51dd70d5a076451ba7081ebe26bef0072d14c81001fce`.
 - Production `.app` contains no V4 model. `layout-model-v4.json` and
   `LayoutRerankerV4.mlmodelc` belong only to `Experimental/V4`.
 
@@ -289,7 +290,9 @@ Bundled resources:
 hashes are pinned in `scripts/v4_training_sources.json`:
 
 - Google Books frequency data, CC BY 3.0.
-- English Speller Database/SCOWL level 60, revision/tag pinned in the manifest.
+- English Speller Database/SCOWL levels 35, 50 and 60, generated from one
+  pinned revision with commands and hashes recorded in the manifest. Runtime
+  uses these as common/standard/rare evidence, never as per-word overrides.
 - LibreOffice Russian Hunspell dictionary revision
   `38d96a4d54ec3449cf7f28cddae1fce32e2b15a7`.
 - The Russian dictionary expands lowercase forms with one SFX rule and stores
@@ -325,10 +328,10 @@ python3 scripts/run_mixed_layout_tsv_suite.py \
 
 Last audited result:
 
-- 58,945 / 59,388 tokens correct: 99.2541%.
-- 4,577 / 5,000 phrases entirely exact.
+- 58,938 / 59,388 tokens correct: 99.2423%.
+- 4,572 / 5,000 phrases entirely exact.
 - 100% keep accuracy for correct English, correct Russian and technical tokens.
-- 443 remaining failures were safe misses; zero wrong replacements/false positives.
+- 450 remaining failures were safe misses; zero wrong replacements/false positives.
 - Reports are generated under `.build/mixed-layout-5000-*.json*`.
 
 Pure and deterministic checks:
@@ -345,22 +348,22 @@ bash scripts/run_headless_native_parity_test.sh
 bash scripts/verify_v3_only_build.sh
 ```
 
-After removing V2, the root suite contains 171 tests. V4's 12 research tests run
+After removing V2, the root suite contains 186 tests. V4's 12 research tests run
 only from its separate package. The headless event-stream fixture must pass and
 its intentionally wrong expected output must fail.
 
-The 443 safe misses in the 5,000-phrase corpus are six repeated ambiguous
-lexical bases: `где` 157, `next` 95, `I` 77, `буфер` 60, `я` 41 and `he` 13.
+The 450 safe misses in the 5,000-phrase corpus are six repeated ambiguous
+lexical bases: `где` 157, `next` 95, `I` 77, `буфер` 67, `я` 41 and `he` 13.
 They are abstentions, not wrong replacements.
 
 The full headless event-stream corpus mode keeps every phrase sequential and
-isolated while scheduling separate phrases in parallel. On the development Mac,
-the same 59,388-token corpus took 9.902 s with 1 worker, 4.456 s with 3 workers
-and 2.370 s with 8 workers. All three 5,000-line result files were byte-identical
-(`ec58b110663e37650f5025deb151fc05fb30dcbafed2b23f88f4e9b2d8aed6`):
-58,945 correct tokens, 443 safe misses, zero false/wrong replacements and zero
-duplicate transactions. The batch quality gate rejects any false replacement,
-wrong replacement, duplicate transaction or regression above 443 safe misses.
+isolated while scheduling separate phrases in parallel. Build 128 processed the
+59,388-token corpus with 8 workers in 2.087 seconds: 58,938 correct tokens, 450
+safe misses, zero false/wrong replacements and zero duplicate transactions. A
+fresh clean build-126 checkout produces the same 450 misses; the historical 443
+report came from an unreproducible uncommitted decoder state. The batch quality
+gate rejects any false replacement, wrong replacement, duplicate transaction or
+regression above 450 safe misses.
 
 Learned-rule persistence is tested by `scripts/run_manual_learning_test.sh`: an
 unknown pair stays unchanged before training, selected-text double Shift creates
@@ -416,6 +419,11 @@ bash scripts/run_hid_stress_tests.sh
   at probe startup, so corpus runs cannot train or mutate the user's learned
   rules. The manual persistence script opts into the standard domain explicitly,
   backs it up and restores it on exit.
+- The build-128 ranked-English native fixture is
+  `Tests/Fixtures/HID/ranked-english-build128.json`. Its latest launch was
+  blocked because macOS did not grant the probe window focus, so it is not
+  counted as a native pass. The normal installed process separately showed an
+  enabled event tap; deterministic decoder/event-stream coverage passed.
 
 ## Build, Signing and Installation
 
@@ -425,8 +433,8 @@ Before installation:
 swift test
 git diff --check
 SIGN_ID='RuSwitcher Local Code Signing' bash build_app.sh
-codesign --verify --deep --strict RuSwitcher.app
-lipo -archs RuSwitcher.app/Contents/MacOS/RuSwitcher Pro
+codesign --verify --deep --strict RuSwitcherPro.app
+lipo -archs RuSwitcherPro.app/Contents/MacOS/RuSwitcherPro
 ```
 
 `build_app.sh` stamps `version.json`, builds universal, copies model/licence
@@ -439,12 +447,12 @@ Install atomically:
 2. Verify the staged signature.
 3. Stop the running `RuSwitcher Pro` process.
 4. Move the current app to a timestamped backup.
-5. Move staging to `/Applications/RuSwitcherAX.app`; do not overwrite the
-   author's `/Applications/RuSwitcher.app` or Codex
-   `/Applications/RuSwitcher.app`.
+5. Move staging to `/Applications/RuSwitcherPro.app`; do not overwrite the
+   author's `/Applications/RuSwitcher.app` or another fork's bundle.
 6. Open the app and verify version, architectures, signature, SHA-256 and process.
 
-Lab 105 footprint (Codex reference): ~10.84 MiB bundle, ~77.5 MiB idle RSS,
-model 7,296,305 bytes. AX build 106 hash is recorded after install.
+Build 128 footprint: 11,516 KiB bundle (~11.25 MiB), about 49 MiB settled idle
+RSS (78–80 MiB immediately after launch), model 7,405,428 bytes. Installed
+executable SHA-256 is recorded above.
 Always compare installed and freshly built hashes rather than trusting the build
 number alone.

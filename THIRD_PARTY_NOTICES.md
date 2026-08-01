@@ -22,10 +22,12 @@ data at runtime.
 The English plausibility lexicon in `language-model-v1.bin` is
 derived from the English Speller Database (formerly SCOWL), release
 `rel-2026.02.25`, commit `7e99edab8e32f9f9ea2b15f249ca8d4d67237410`.
-RuSwitcher Pro uses the level-60 American/British word list primarily to protect
-valid English source words. It may also confirm an RU-to-EN target behind
-source-language and character-probability safety gates; it is never treated as
-target-word frequency evidence by itself.
+RuSwitcher Pro reproducibly derives level-35, level-50 and level-60
+American/British lists from that same pinned source. The nested levels provide
+common, standard and rare spelling-confidence tiers. They protect valid English
+source words and contribute ranked evidence for RU-to-EN candidates together
+with source-language membership, character probability and phrase context;
+no individual word is promoted by application code.
 
 - Source: https://github.com/en-wl/wordlist
 - Copyright: 2000-2026 Kevin Atkinson

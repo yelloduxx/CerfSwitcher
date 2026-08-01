@@ -1,0 +1,14 @@
+{
+  "name": "ranked-english-build128",
+  "purpose": "Verify ranked RU-to-EN conversion and physical punctuation in one native phrase",
+  "expectedTransactions": 2,
+  "sourceIDs": ["build-128-ranked-english-regression"],
+  "phases": [
+    {"sourceLanguage": "ru", "text": "температура "},
+    {"sourceLanguage": "ru", "text": "афркутруше "},
+    {"sourceLanguage": "en", "text": "and "},
+    {"sourceLanguage": "ru", "text": "афркутрушеб "},
+    {"sourceLanguage": "en", "text": "plan B stays here. "}
+  ],
+  "expectedText": "температура fahrenheit and fahrenheit, plan B stays here. "
+}
