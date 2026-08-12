@@ -1,4 +1,17 @@
 public enum KeyMapping {
+    private static let enShiftedKeycode: [UInt16: Character] = [
+        18: "!", 19: "@", 20: "#", 21: "$", 23: "%", 22: "^",
+        26: "&", 28: "*", 25: "(", 29: ")", 27: "_", 24: "+",
+        33: "{", 30: "}", 42: "|", 41: ":", 39: "\"",
+        43: "<", 47: ">", 44: "?", 50: "~",
+    ]
+
+    private static let ruShiftedKeycode: [UInt16: Character] = [
+        18: "!", 19: "\"", 20: "№", 21: ";", 23: "%", 22: ":",
+        26: "?", 28: "*", 25: "(", 29: ")", 27: "_", 24: "+",
+        43: "Б", 47: "Ю", 44: ",", 42: "Ё", 50: "Ё",
+    ]
+
     public static let keycodeToEN: [UInt16: Character] = [
         0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
         8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
@@ -18,6 +31,8 @@ public enum KeyMapping {
         6: "я", 7: "ч", 8: "с", 9: "м", 11: "и", 45: "т",
         46: "ь", 43: "б", 47: "ю", 44: ".",
         42: "ё", 50: "ё",
+        18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6",
+        26: "7", 28: "8", 25: "9", 29: "0", 27: "-", 24: "=",
     ]
 
     public static let enToRu: [Character: Character] = [
@@ -51,5 +66,33 @@ public enum KeyMapping {
         let isLikelyRussian = text.unicodeScalars.contains { $0.value >= 0x0400 && $0.value <= 0x04FF }
         let map = isLikelyRussian ? ruToEn : enToRu
         return String(text.map { map[$0] ?? $0 })
+    }
+
+    /// Deterministic standard QWERTY/Russian-PC translation for InputMethodKit,
+    /// which receives physical key codes before a normal layout inserts text.
+    public static func producedText(
+        keyCode: UInt16,
+        language: String,
+        shift: Bool,
+        capsLock: Bool
+    ) -> String? {
+        let canonical = LanguageCode.canonical(language)
+        let base: Character?
+        switch canonical {
+        case "en":
+            base = shift ? enShiftedKeycode[keyCode] ?? keycodeToEN[keyCode]
+                : keycodeToEN[keyCode]
+        case "ru":
+            base = shift ? ruShiftedKeycode[keyCode] ?? keycodeToRU[keyCode]
+                : keycodeToRU[keyCode]
+        default:
+            return nil
+        }
+        guard let base else { return nil }
+        if base.isLetter {
+            let uppercase = shift != capsLock
+            return uppercase ? String(base).uppercased() : String(base).lowercased()
+        }
+        return String(base)
     }
 }

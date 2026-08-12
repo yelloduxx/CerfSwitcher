@@ -15,7 +15,7 @@ installed build changes.
 - Primary repository: `yelloduxx/RuSwitcher`; the production branch is `main`.
   `rashn/RuSwitcher` is the author's upstream repository, not a release source
   for this fork.
-- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **128**:
+- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **130**:
   - Bundle: `RuSwitcherPro.app` → `/Applications/RuSwitcherPro.app`
   - Bundle ID: `com.ruswitcher.pro` · Executable: `RuSwitcherPro` · Dev tag: `pro`
   - Logs: `~/Library/Logs/RuSwitcherPro/ruswitcher-pro.log` via
@@ -24,11 +24,14 @@ installed build changes.
     `ManualHostPolicy` capability detection + keyboard-deletion manual path for
     external hosts (build 118+) + non-destructive physical selection and
     deferred manual learning for AX-blind hosts (builds 125–126) + V3.1 ranked
-    SCOWL evidence for general RU-to-EN dictionary recovery (build 128).
+    SCOWL evidence for general RU-to-EN dictionary recovery (build 128) + exact
+    native-test identity gates and wake/session event-tap recovery (build 129) +
+    explicit learning and confirmed-rule recovery for plain ALL-CAPS acronyms
+    while structured identifiers remain protected (build 130).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
   - Installed executable SHA-256:
-    `6156d5c835befb1d2ace19751c29a1c907d48032ea2e557b4044b8d8d1cafab5`.
+    `2b59f4bc61eaad8754a75442d75d7798af37a576a9139dacc85f2b2c984044aa`.
 - Verify the installed binary hash and PID after every local replacement; do
   not infer the running build from `version.json` alone.
 - Changing `ProductIdentity.bundleIdentifier` requires re-granting Accessibility
@@ -56,6 +59,11 @@ installed build changes.
   it is absent from the root package graph and production bundle.
 - `Sources/RuSwitcher`: AppKit application, event tap, layout switching, AX
   context, manual conversion, transaction execution and settings.
+- `Sources/RuSwitcherInputMethod`: optional InputMethodKit companion with EN/RU
+  marked-text composition over the same production V3 decoder.
+- `InputMethod/Info.plist`, `build_input_method.sh` and
+  `scripts/install_input_method.sh`: companion metadata, universal build/signing
+  and atomic per-user registration.
 - `Sources/RuSwitcherSimulator`: parallel V3 corpus/phrase simulator.
 - `Sources/RuSwitcherTypingSimulator`: headless physical-event simulator over
   `InputSession`, V3 and replacement transaction plans. It supports one
@@ -74,6 +82,7 @@ SwiftPM targets:
 - `RuSwitcherCore` library (production V3)
 - `RuSwitcherAppSupport` library
 - `RuSwitcher` executable
+- `RuSwitcherInputMethod` executable
 - `RuSwitcherSimulator` executable
 - `RuSwitcherTypingSimulator` executable
 - `RuSwitcherCoreTests`
@@ -152,7 +161,10 @@ Hard blockers remain authoritative:
 - secure input and password fields;
 - denied applications (terminals, IDEs, password managers, etc.);
 - URL, email and code/identifier shapes;
-- mixed-script identifiers, camelCase and ALL-CAPS acronyms;
+- mixed-script identifiers and camelCase;
+- unconfirmed ALL-CAPS acronyms; a plain multi-letter acronym may convert only
+  through an explicitly confirmed global physical-layout pair, while URL/email,
+  structured identifiers and code-like shapes remain hard blockers;
 - single uppercase Latin letters;
 - single uppercase Cyrillic letters;
 - `neverConvert` rules;
@@ -173,6 +185,10 @@ and synthetic events before mutating the token state.
   changes and tap recovery invalidate the token/revision as appropriate.
 - Synthetic RuSwitcher Pro events carry `kRuSwitcherEventMarker` and must never feed
   back into the state machine.
+- macOS wake and session-active notifications debounce into one recovery: clear
+  stale input/learning state, invalidate AX focus and recreate the event tap.
+  Reconfiguration retries after 1, 3 and 10 seconds, then stops rather than
+  spinning indefinitely.
 - Active taps use `.headInsertEventTap`; listen-only taps may use tail placement.
 - Automatic replacement validates PID, bundle, focus identity, revision and the
   expected suffix before editing. An unavailable AX preflight blocks the post;
@@ -277,6 +293,41 @@ Adaptive learning behavior:
 - Archive validation is atomic: reject foreign/unsupported formats, files over
   5 MB, more than 2,000 rules and invalid fields without changing current rules.
 
+## Input Method Companion
+
+`RuSwitcherInputMethod` is an optional native input source, not another decoder.
+It exposes `com.ruswitcher.inputmethod.RuSwitcherPro.en` and `.ru`, keeps the
+unfinished token as marked text and calls `InputMethodCompositionSession` at
+Space, Enter or Tab. The session uses the bundled V3 model, phrase belief,
+always/never policy and the existing adaptive rules from the `com.ruswitcher.pro`
+defaults suite. It commits one final string through `IMKTextInput`; automatic
+conversion never posts deletion events, reads AX or touches the pasteboard.
+
+Double Shift first toggles marked text, then a real selection or the exact token
+before the caret exposed by `IMKTextInput`. Manual learning is deferred until the
+next ordinary input and is cancelled by destructive editing or another double
+Shift. The main application's event tap detects either companion source and stays
+transparent while it is active, preventing duplicate conversion.
+
+This path applies only to clients that implement the macOS text-input contract.
+Do not claim support for raw terminal surfaces, games, remote sessions, secure
+fields or fully custom editors without a native host result. If the V3 model or
+IMK client is unavailable, the controller passes the event through instead of
+claiming it. On macOS 26, AMFI rejects the reusable self-signed identity even
+when it is trusted for `codeSign` in the user or System domain. Activation needs
+an Apple-issued Apple Development or Developer ID identity with an eligible
+provisioning chain. `codesign` and Gatekeeper success alone do not prove that
+AMFI will launch the input-source process.
+
+Current build-130 candidate status: the universal companion builds, passes its
+self-check and registers two selectable modes, but macOS 26 rejects launch with
+AMFI error `-423` and reports no eligible provisioning profile. User- and
+System-domain trust tests for `RuSwitcher Local Code Signing` were both reverted;
+both trust domains are clean. No companion bundle remains in
+`~/Library/Input Methods`; rejected local test bundles were moved to
+`/private/tmp/ruswitcher-input-method-rejected-20260802`. Installed production
+RuSwitcher Pro remains running as build 130.
+
 ## Models and Provenance
 
 Bundled resources:
@@ -309,6 +360,8 @@ downloads and no network inference.
   latency buckets and transaction outcomes; never words or neighboring text.
 - The anonymous-statistics UI, reporter, persistence and localization keys were
   removed. There is no statistics endpoint.
+- The obsolete repository stats workflow, Telegram reporter and committed
+  history were removed in build 129; Stability CI has read-only permissions.
 - `rslog` accepts only `StaticString`; dynamic user text, context, paths, layout
   IDs, bundle IDs and localized errors cannot be passed to it.
 
@@ -348,7 +401,7 @@ bash scripts/run_headless_native_parity_test.sh
 bash scripts/verify_v3_only_build.sh
 ```
 
-After removing V2, the root suite contains 186 tests. V4's 12 research tests run
+After removing V2, the root suite contains 202 tests. V4's 12 research tests run
 only from its separate package. The headless event-stream fixture must pass and
 its intentionally wrong expected output must fail.
 
@@ -392,7 +445,20 @@ Real CGEvent tests, without Computer Use:
 ```bash
 bash scripts/run_hid_batch_tests.sh
 bash scripts/run_hid_stress_tests.sh
+bash scripts/run_native_release_smoke.sh
 ```
+
+- Every native script defaults to `/Applications/RuSwitcherPro.app` and rejects
+  a bundle whose ID, version, build or executable hash differs from the current
+  source-built app. The reference bundle is mandatory unless hash comparison is
+  explicitly disabled. `RUSWITCH_EXPECTED_BUNDLE_ID`,
+  `RUSWITCH_ALLOW_VERSION_MISMATCH` and `RUSWITCH_ALLOW_HASH_MISMATCH` are
+  explicit escape hatches for intentional fork testing.
+- App-facing fixtures and result files are staged under a unique temporary
+  directory so macOS Documents TCC cannot stall `Data(contentsOf:)` in a probe.
+- `run_native_release_smoke.sh` uses one mixed automatic phrase plus caret-word
+  and real-selection double-Shift cycles. It exits 77 as blocked unless run in
+  an isolated macOS session or with `RUSWITCH_ALLOW_FOCUS_STEALING=1`.
 
 - The authored stress fixture contains 16 natural mixed-language phrases, 164
   alternating-layout phases and 939 physical input characters in one
@@ -404,10 +470,12 @@ bash scripts/run_hid_stress_tests.sh
 - Do not run multiple CGEvent UI probes in parallel: macOS has one focus/layout
   event stream. The pure simulator may use parallel workers.
 - `headless-native-parity-trap.json` is shared by the headless simulator and the
-  native host. Its 13 phases and 121 physical characters cover both-known
+  native host. Its 15 phases cover both-known
   context, short words, dead-key quotes, punctuation/layout-letter ambiguity,
-  email, `plan B`, double spaces and a rare Russian word. Build 88 produced the
-  same exact text in both paths: 9 planned headless transactions and 9/9 native
+  ranked RU-to-EN words, email, `plan B`, double spaces and a rare Russian word.
+  The current expected trace contains 11 transactions. Build 88's earlier
+  13-phase fixture produced the same exact text in both paths: 9 planned
+  headless transactions and 9/9 native
   posted/verified transactions, with no external input, layout mismatch or
   boundary timeout. The native host disables macOS double-space period and
   automatic capitalization only through a volatile test-process defaults domain.
@@ -437,6 +505,19 @@ codesign --verify --deep --strict RuSwitcherPro.app
 lipo -archs RuSwitcherPro.app/Contents/MacOS/RuSwitcherPro
 ```
 
+Build and register the optional Input Method separately:
+
+```bash
+SIGN_ID='RuSwitcher Local Code Signing' bash build_input_method.sh
+bash scripts/install_input_method.sh
+```
+
+The Input Method build enables hardened runtime only for Developer ID signing.
+Its installer must verify both EN and RU sources after restarting the text-input
+agents and roll back the previous bundle if registration fails. Do not add the
+local self-signed identity to user or System trust: live AMFI testing proved that
+it remains ineligible, so the trust expansion has no benefit.
+
 `build_app.sh` stamps `version.json`, builds universal, copies model/licence
 resources and signs the bundle. Increment the build number for every installed
 binary change.
@@ -451,8 +532,8 @@ Install atomically:
    author's `/Applications/RuSwitcher.app` or another fork's bundle.
 6. Open the app and verify version, architectures, signature, SHA-256 and process.
 
-Build 128 footprint: 11,516 KiB bundle (~11.25 MiB), about 49 MiB settled idle
-RSS (78–80 MiB immediately after launch), model 7,405,428 bytes. Installed
-executable SHA-256 is recorded above.
+Build 129 footprint: 11,520 KiB bundle (~11.25 MiB), 72,928 KiB settled RSS
+(~71.2 MiB), 0.0–0.5% CPU across six two-second idle samples, and the same
+7,405,428-byte V3 model. The installed executable SHA-256 is recorded above.
 Always compare installed and freshly built hashes rather than trusting the build
 number alone.

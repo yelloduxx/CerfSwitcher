@@ -696,6 +696,35 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
+    func testUppercaseAcronymRequiresExplicitConfirmation() {
+        let typed = KeyMapping.convert("SEO")
+        XCTAssertEqual(typed, "ЫУЩ")
+
+        let unconfirmed = evaluate(typed, current: "ru", target: "en")
+        XCTAssertEqual(unconfirmed.decision.verdict, .keep)
+        XCTAssertEqual(unconfirmed.decision.reason, .blockedCodeLike)
+
+        let confirmed = evaluate(
+            typed,
+            current: "ru",
+            target: "en",
+            confirmed: true
+        )
+        XCTAssertEqual(confirmed.decision.verdict, .switchToConverted)
+        XCTAssertEqual(confirmed.decision.candidate.replacement, "SEO")
+        XCTAssertEqual(confirmed.decision.reason, .confirmedByUser)
+    }
+
+    func testConfirmationCannotOverrideStructuredIdentifierProtection() {
+        for token in ["SEO.com", "SEO_", "HTTPServer"] {
+            XCTAssertEqual(
+                evaluate(token, confirmed: true).decision.verdict,
+                .keep,
+                token
+            )
+        }
+    }
+
     func testDecoderPerformanceBudget() {
         var durations: [Double] = []
         durations.reserveCapacity(2_000)

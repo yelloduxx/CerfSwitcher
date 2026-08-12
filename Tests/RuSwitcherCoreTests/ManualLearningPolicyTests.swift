@@ -37,4 +37,22 @@ final class ManualLearningPolicyTests: XCTestCase {
             model: model
         ))
     }
+
+    func testPlainUppercaseLayoutPairCanBeLearned() {
+        XCTAssertTrue(ManualLearningPolicy.shouldPersist(
+            original: "ЫУЩ",
+            converted: "SEO",
+            model: model
+        ))
+    }
+
+    func testStructuredUppercaseIdentifiersRemainUnlearnable() {
+        for pair in [("ЫУЩ_", "SEO_"), ("ЫУЩ.com", "SEO.com")] {
+            XCTAssertFalse(ManualLearningPolicy.shouldPersist(
+                original: pair.0,
+                converted: pair.1,
+                model: model
+            ))
+        }
+    }
 }

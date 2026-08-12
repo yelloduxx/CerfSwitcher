@@ -7,12 +7,19 @@ public enum ManualLearningPolicy {
         converted: String,
         model: LanguageModelStore?
     ) -> Bool {
-        guard model != nil else { return false }
+        guard model != nil,
+              isLearnableTokenShape(original),
+              isLearnableTokenShape(converted) else { return false }
         return !isLikelyReverseConversion(
             original: original,
             converted: converted,
             model: model
         )
+    }
+
+    public static func isLearnableTokenShape(_ text: String) -> Bool {
+        SmartTokenizer.kind(of: text) == .lexical
+            || SmartTokenizer.isAllUppercaseWord(text)
     }
 
     public static func isLikelyReverseConversion(

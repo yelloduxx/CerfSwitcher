@@ -153,6 +153,7 @@ final class KeyboardMonitor: @unchecked Sendable {
     // Для двойного тапа
     private var lastTapTime: Date?
     private let tapWindow: TimeInterval = 0.4
+    private var inputMethodDelegationActive = false
 
     init(focusedElementResolver: NativeFocusedEditableResolver) {
         self.focusedElementResolver = focusedElementResolver
@@ -228,6 +229,8 @@ final class KeyboardMonitor: @unchecked Sendable {
     func reconfigure() -> Bool {
         guard let tap = onAltTap else { return false }
         rslog("Reconfiguring trigger…")
+        fullReset(invalidated: true)
+        onEditingInvalidated?()
         stop()
         return start(onAltTap: tap)
     }
@@ -473,6 +476,25 @@ final class KeyboardMonitor: @unchecked Sendable {
         resetPhysicalTranslation()
         fullReset(invalidated: true)
         onEditingInvalidated?()
+    }
+
+    /// The companion Input Method owns composition while either of its modes is
+    /// selected. The global event tap must stay transparent or both products
+    /// would try to resolve the same token at the boundary.
+    fileprivate func shouldDeferToCompanionInputMethod() -> Bool {
+        let active = LayoutSwitcher.currentLayoutID().hasPrefix(
+            ProductIdentity.inputMethodSourcePrefix
+        )
+        guard active != inputMethodDelegationActive else { return active }
+        inputMethodDelegationActive = active
+        triggerArmed = false
+        triggerPressTime = nil
+        lastTapTime = nil
+        keysTypedSinceConversion = true
+        resetPhysicalTranslation()
+        fullReset(invalidated: true)
+        onEditingInvalidated?()
+        return active
     }
 
     // MARK: - Event Handling
@@ -843,6 +865,10 @@ private func keyboardCallback(
     }
 
     let monitor = Unmanaged<KeyboardMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+
+    if monitor.shouldDeferToCompanionInputMethod() {
+        return Unmanaged.passRetained(event)
+    }
 
     if type == .keyDown {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))

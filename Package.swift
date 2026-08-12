@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "RuSwitcherCore", targets: ["RuSwitcherCore"]),
         .executable(name: "RuSwitcher", targets: ["RuSwitcher"]),
+        .executable(name: "RuSwitcherInputMethod", targets: ["RuSwitcherInputMethod"]),
         .executable(name: "RuSwitcherSimulator", targets: ["RuSwitcherSimulator"]),
         .executable(name: "RuSwitcherTypingSimulator", targets: ["RuSwitcherTypingSimulator"]),
     ],
@@ -34,6 +35,16 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("UniformTypeIdentifiers"),
+            ]
+        ),
+        .executableTarget(
+            name: "RuSwitcherInputMethod",
+            dependencies: ["RuSwitcherCore"],
+            path: "Sources/RuSwitcherInputMethod",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("InputMethodKit"),
             ]
         ),
         .executableTarget(

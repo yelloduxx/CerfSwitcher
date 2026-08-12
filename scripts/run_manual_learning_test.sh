@@ -1,8 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-APP="/Applications/RuSwitcherAX.app"
-DOMAIN="com.ruswitcher.ax"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=ruswitch_test_app.sh
+source "$ROOT/scripts/ruswitch_test_app.sh"
+ruswitch_validate_test_app "$ROOT"
+APP="$RUSWITCH_APP"
+APP_EXECUTABLE="$RUSWITCH_APP_EXECUTABLE"
+APP_EXEC="$RUSWITCH_APP_EXEC"
+DOMAIN="$RUSWITCH_APP_BUNDLE_ID"
 BACKUP="$(mktemp "${TMPDIR:-/tmp}/ruswitch-prefs.XXXXXX.plist")"
 RESULT="$(mktemp "${TMPDIR:-/tmp}/ruswitch-learning.XXXXXX.json")"
 BASELINE_RESULT="$(mktemp "${TMPDIR:-/tmp}/ruswitch-learning-baseline.XXXXXX.json")"
@@ -14,31 +20,31 @@ FIXTURE="$(mktemp "${TMPDIR:-/tmp}/ruswitch-learning-fixture.XXXXXX.json")"
 defaults export "$DOMAIN" "$BACKUP" >/dev/null
 
 restart_app() {
-    pkill -x RuSwitcherAX 2>/dev/null || true
+    pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
     for _ in {1..20}; do
-        pgrep -x RuSwitcherAX >/dev/null || break
+        pgrep -x "$APP_EXECUTABLE" >/dev/null || break
         sleep 0.1
     done
     sleep 0.3
     open "$APP"
     for _ in {1..30}; do
-        pgrep -f "$APP/Contents/MacOS/RuSwitcherAX" >/dev/null && return
+        pgrep -f "$APP_EXEC" >/dev/null && return
         sleep 0.1
     done
     return 1
 }
 
 stop_app() {
-    pkill -x RuSwitcherAX 2>/dev/null || true
+    pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
     for _ in {1..20}; do
-        pgrep -x RuSwitcherAX >/dev/null || return 0
+        pgrep -x "$APP_EXECUTABLE" >/dev/null || return 0
         sleep 0.1
     done
     return 0
 }
 
 restore_preferences() {
-    pkill -x RuSwitcherAX 2>/dev/null || true
+    pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
     defaults import "$DOMAIN" "$BACKUP" >/dev/null
     rm -f "$BACKUP" "$RESULT" "$BASELINE_RESULT" "$PERSISTED_RESULT" "$BUFFER_RESULT" "$PREVIOUS_RESULT" "$FIXTURE"
     restart_app || true

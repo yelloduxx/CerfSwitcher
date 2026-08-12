@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/RuSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
-  <img src="https://img.shields.io/badge/current-4.0.0%20(128)-brightgreen?style=flat-square" alt="Current build 128">
+  <img src="https://img.shields.io/badge/current-4.0.0%20(130)-brightgreen?style=flat-square" alt="Current build 130">
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and RuSwitcher Pro converts the last word in place. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
 
-The current `main` build is **4.0.0 (128)**. It uses Smart Engine V3.1 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
+The current `main` build is **4.0.0 (129)**. It uses Smart Engine V3.1 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
 
 ### How it works
 
@@ -43,7 +43,7 @@ The default is double Shift. The trigger is configurable — **Option**, **Comma
 
 RuSwitcher Pro can also fix the layout **automatically as you type**, with no key press. Turn it on in **Settings → Auto-conversion** (off by default). The production Smart Engine V3 is a fully local noisy-channel decoder. It compares the literal and opposite-layout hypotheses using word frequency, RU/EN spelling data, character n-grams, recent phrase language, compound analysis and learned manual corrections. It abstains when the evidence is unsafe.
 
-It handles common short words (`b` → `и`, `z` → `я`), long words such as `ghbdtncnde.` → `приветствую`, trailing punctuation (`ghbdtn,` → `привет,`) and unknown compounds such as `cegthcgbyf` → `суперспина` (`супер` + `спина`). Corrections happen only after Space, Enter or Tab, never halfway through a word; punctuation remains part of the token until that boundary so repeated marks cannot be corrupted by a mid-sequence layout switch. To avoid dangerous false fixes it skips words with digits / URLs / email-like text, single uppercase Latin letters (`plan B`), ALL-CAPS acronyms, camelCase / mixed-script code identifiers, terminals / IDEs / password managers, and password fields.
+It handles common short words (`b` → `и`, `z` → `я`), long words such as `ghbdtncnde.` → `приветствую`, trailing punctuation (`ghbdtn,` → `привет,`) and unknown compounds such as `cegthcgbyf` → `суперспина` (`супер` + `спина`). Corrections happen only after Space, Enter or Tab, never halfway through a word; punctuation remains part of the token until that boundary so repeated marks cannot be corrupted by a mid-sequence layout switch. To avoid dangerous false fixes it skips words with digits / URLs / email-like text, single uppercase Latin letters (`plan B`), unlearned ALL-CAPS acronyms, camelCase / mixed-script code identifiers, terminals / IDEs / password managers, and password fields. A plain multi-letter acronym can be taught explicitly with the manual trigger; structured identifiers remain blocked.
 
 For Latin input, an English-first source gate protects frequent words and a separate 80,000+ form ESDB/SCOWL spelling lexicon before considering RU conversion. Words outside both dictionaries are classified by English character probability: plausible English OOV forms get a keep bias, while English-unlikely physical-key strings may switch when the Russian hypothesis has stronger lexical, character or contextual evidence. For RU→EN, V3.1 ranks exact English spellings by reproducible SCOWL common/standard/rare tiers and combines that rank with character plausibility and phrase context. It converts only when the Cyrillic source is unknown and the candidate has at least four letters; a valid Russian source, code-like text and other hard blockers still win. This fixes whole classes of real English words that the former single character threshold missed, without per-word overrides.
 
@@ -58,6 +58,23 @@ Undoing an automatic correction or immediately editing it provides local negativ
 Some terminals and Chromium/Electron editors do not expose the text before the caret. Manual double Shift still converts a freshly typed buffered word without destructive Backspace: RuSwitcher Pro selects the exact suffix with marked Shift+Left events and types the opposite-layout physical keys over that selection. It cannot recover an arbitrary old word after navigation or a focus change if the host exposes no text.
 
 Automatic conversion in such hosts is available through **Settings → Auto-conversion → Also in apps without Accessibility** and is off by default. This mode cannot verify the text by read-back, so it relies on the current focus and input revision. Keep terminals or other sensitive tools in the application exception list unless you deliberately accept that trade-off. Password managers and secure-input fields remain blocked.
+
+#### Native Input Method companion (experimental)
+
+The source tree also contains `RuSwitcherInputMethod`, a separate InputMethodKit
+input source with EN and RU modes. It keeps the unfinished token as macOS marked
+text, runs the same production V3 decoder at Space, Enter or Tab, and commits the
+chosen spelling exactly once. Automatic correction therefore uses no AX read,
+CGEvent deletion, Backspace burst or pasteboard. Double Shift can toggle the
+marked token, a real selection, or the word immediately before the caret through
+the standard `IMKTextInput` contract. While either companion mode is active, the
+menu-bar application's global event tap stays transparent so the two paths cannot
+convert the same token.
+
+This is an optional compatibility mode, not a universal replacement. It works in
+clients that implement the macOS text-input protocol. Raw terminal surfaces,
+games, remote sessions, secure fields and fully custom editors may bypass or
+restrict input methods; use the normal RuSwitcher Pro event-tap mode there.
 
 **Three exception lists** let you tune it (Settings → Auto-conversion):
 - **Apps** — where auto-conversion stays off (terminals, IDEs and password managers are pre-filled; password managers can't be removed).
@@ -108,6 +125,19 @@ ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
 open "/Applications/RuSwitcherPro.app"
 ```
 
+To build and register the optional native Input Method companion:
+
+```bash
+SIGN_ID="<your trusted code-signing identity>" bash build_input_method.sh
+bash scripts/install_input_method.sh
+```
+
+Then enable **RuSwitcher EN** and **RuSwitcher RU** in System Settings → Keyboard
+→ Text Input. Input methods are launched by a protected macOS service. On current
+macOS, activation requires an Apple-issued Apple Development or Developer ID
+identity; the reusable self-signed identity can build and verify the bundle but
+AMFI will not launch it, even after adding it to user or System trust.
+
 Requires macOS 13+, Xcode Command Line Tools and a trusted code-signing identity. Local project builds use the reusable `RuSwitcher Local Code Signing` identity. The build script creates a universal `arm64`/`x86_64` bundle, verifies its signature and stops if Gatekeeper rejects it.
 
 ### Permissions
@@ -126,6 +156,8 @@ The app adds itself to the permission lists automatically — you only need to f
 - Targeted `CGEvent` transactions for automatic replacement and physical target-layout key events for AX-blind manual conversion.
 - `CGEvent.keyboardSetUnicodeString` for direct replacement text where appropriate — no clipboard in the normal word-conversion path.
 - `CGEventSource.userData` marker to filter the app's own simulated events.
+- Event-tap state is reset and the tap is recreated with bounded retries after
+  macOS wake or session unlock.
 - A memory-mapped, versioned local RU/EN language model generated from pinned Google Books n-gram frequency data and reproducible SCOWL 35/50/60 spelling tiers.
 - A Core ML V4 research package under `Experimental/V4`; it is absent from the normal package graph and production application.
 - Read-only `AXUIElement` range probes for focus and suffix validation; selected-text conversion uses AX first and preserves every pasteboard type in its fallback.
@@ -148,12 +180,13 @@ python3 scripts/run_mixed_layout_event_stream_suite.py corpus.tsv --jobs 8
 
 This catches decoder, stale-state, punctuation and duplicate-transaction errors and applies explicit false-positive/recall gates. Native CGEvent/AX delivery still requires the separate visible host or an isolated macOS user/VM. V4 is tested only with `swift test --package-path Experimental/V4`.
 
-Last audited build-128 checks:
+Latest source-tree checks for build 130 (also installed as production):
 
-- **186 tests:** 185 passed, 1 intentionally skipped, 0 failed.
+- **202 tests:** 201 passed, 1 intentionally skipped, 0 failed.
 - **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,938 exact (99.2423%); all 450 failures were safe misses, with zero false or wrong replacements and zero duplicate transactions. A clean build-126 checkout produces the same 450 misses.
 - **New ranked-English gates:** at least 90% held-out recall in every SCOWL tier, plus zero false replacements across 50,000 frequent correct tokens, 50,000 extended English spellings and more than 3,000 generated Russian OOV forms.
-- **Native delivery note:** the build-128 fixture was deliberately reported as blocked, not passed, when macOS would not grant its test window focus. Signature, installed hash and the normal application's active event tap were verified separately.
+- **Native release gate:** probes verify the exact RuSwitcher Pro bundle ID, build and executable hash, stage app-facing files in `/tmp`, and report `blocked` unless an isolated session or explicit focus permission is provided.
+- **CI:** every push and pull request runs tests, warnings-as-errors, ASan, deterministic simulators, the negative control and byte-for-byte model reproduction on macOS.
 
 RuSwitcher Pro contains no usage-statistics reporter or endpoint.
 
@@ -185,7 +218,7 @@ If you find RuSwitcher Pro useful:
 
 Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и RuSwitcher Pro сконвертирует последнее слово прямо у каретки. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
 
-Текущая версия в `main` — **4.0.0 (build 128)**. В приложении работает только продакшен-движок Smart Engine V3.1. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
+Текущая версия в `main` — **4.0.0 (build 130)**. В приложении работает только продакшен-движок Smart Engine V3.1. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
 
 ### Как работает
 
@@ -201,7 +234,7 @@ If you find RuSwitcher Pro useful:
 
 RuSwitcher Pro умеет исправлять раскладку **автоматически по ходу набора**, без нажатий. Включается в **Настройки → Автоконверсия** (по умолчанию выключено). Продакшен-движок Smart Engine V3 — полностью локальный noisy-channel decoder. Он сравнивает исходную и противоположную раскладки по частотам слов, RU/EN-словарям, символьным n-граммам, языку недавней фразы, составным словам и подтверждённым ручным исправлениям. При недостаточной уверенности текст остаётся неизменным.
 
-Теперь авто-конверсия обрабатывает частые короткие слова (`b` → `и`, `z` → `я`), длинные слова вроде `ghbdtncnde.` → `приветствую`, пунктуацию в конце (`ghbdtn,` → `привет,`) и неизвестные слитные слова вроде `cegthcgbyf` → `суперспина` (`супер` + `спина`). Исправление выполняется только после Space, Enter или Tab, но не посреди слова; пунктуация остаётся частью токена до этой границы, поэтому многоточие и повторные знаки не повреждаются переключением раскладки. Защищены цифры, URL/email, одиночные заглавные латинские буквы (`plan B`), ALL-CAPS, camelCase, смешанные идентификаторы, терминалы, IDE, менеджеры паролей и защищённые поля.
+Теперь авто-конверсия обрабатывает частые короткие слова (`b` → `и`, `z` → `я`), длинные слова вроде `ghbdtncnde.` → `приветствую`, пунктуацию в конце (`ghbdtn,` → `привет,`) и неизвестные слитные слова вроде `cegthcgbyf` → `суперспина` (`супер` + `спина`). Исправление выполняется только после Space, Enter или Tab, но не посреди слова; пунктуация остаётся частью токена до этой границы, поэтому многоточие и повторные знаки не повреждаются переключением раскладки. Защищены цифры, URL/email, одиночные заглавные латинские буквы (`plan B`), необученные ALL-CAPS-аббревиатуры, camelCase, смешанные идентификаторы, терминалы, IDE, менеджеры паролей и защищённые поля. Чистую многобуквенную аббревиатуру можно явно обучить ручным триггером; структурированный код всё равно останется заблокированным.
 
 Для латинского ввода сначала работает English-first защита: частотный словарь и отдельный орфографический ESDB/SCOWL-слой более чем из 80 тысяч дополнительных форм. Точное английское слово остаётся неизменным; незнакомая, но похожая на английскую форма получает keep-bias. Переключение разрешается, когда исходная строка на английскую не похожа, а русская гипотеза сильнее по словарю, символьной модели или контексту. Для RU→EN V3.1 делит точные английские формы на воспроизводимые уровни SCOWL common/standard/rare и совместно учитывает этот ранг, символьную правдоподобность и контекст фразы. Исходная кириллическая форма должна быть неизвестной, а кандидат — не короче четырёх букв; настоящее русское слово, код и остальные жёсткие блокировки всё равно имеют приоритет. Поэтому исправляется целый класс пропущенных английских слов, а не отдельные примеры из хардкода.
 
@@ -216,6 +249,23 @@ RuSwitcher Pro умеет исправлять раскладку **автома
 Некоторые терминалы и редакторы на Chromium/Electron не отдают программе текст перед кареткой. Двойной Shift всё равно меняет свежее слово из внутреннего буфера без разрушительного Backspace: RuSwitcher Pro выделяет точный хвост помеченными событиями Shift+Left и печатает поверх выделения физические клавиши целевой раскладки. Но произвольное старое слово после клика, навигации или смены окна в таком поле восстановить нельзя.
 
 Автоконверсию для таких приложений можно отдельно включить: **Настройки → Автоконверсия → Также в приложениях без Accessibility**. По умолчанию этот режим выключен. Без read-back программа опирается только на актуальность фокуса и ревизии ввода, поэтому терминалы и другие чувствительные приложения лучше оставить в списке исключений, если этот компромисс вам не нужен. Менеджеры паролей и secure-input поля блокируются всегда.
+
+#### Нативный Input Method (экспериментально)
+
+В репозитории также есть отдельный источник ввода `RuSwitcherInputMethod` с
+режимами EN и RU на базе InputMethodKit. Незавершённое слово остаётся системным
+marked text, на Space, Enter или Tab запускается тот же production-декодер V3,
+после чего выбранный вариант коммитится ровно один раз. Автокоррекции не нужны
+AX-чтение, удаление через CGEvent, пачка Backspace или буфер обмена. Двойной Shift
+может менять отмеченный токен, настоящее выделение или слово перед кареткой через
+стандартный контракт `IMKTextInput`. Пока активен один из режимов Input Method,
+глобальный event tap основного приложения остаётся прозрачным, поэтому двойной
+конвертации не возникает.
+
+Это дополнительный режим совместимости, а не универсальная замена. Он работает в
+полях, реализующих стандартный macOS Text Input API. Raw-terminal, игры, удалённые
+сессии, secure-поля и полностью самописные редакторы могут обходить или ограничивать
+Input Method; там нужно использовать обычный event-tap режим RuSwitcher Pro.
 
 **Три списка исключений** для тонкой настройки (Настройки → Автоконверсия):
 - **Приложения** — где авто-конверсия выключена (терминалы, IDE, менеджеры паролей уже в списке; менеджеры паролей удалить нельзя).
@@ -266,6 +316,20 @@ ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
 open "/Applications/RuSwitcherPro.app"
 ```
 
+Для сборки и регистрации дополнительного нативного Input Method:
+
+```bash
+SIGN_ID="<доверенная identity для подписи кода>" bash build_input_method.sh
+bash scripts/install_input_method.sh
+```
+
+После этого включите **RuSwitcher EN** и **RuSwitcher RU** в Системных настройках
+→ Клавиатура → Источники ввода. Input Method запускает защищённая служба macOS.
+На актуальной macOS для активации нужна Apple-issued identity типа Apple
+Development или Developer ID. Многоразовый самоподписанный сертификат позволяет
+собрать и проверить бандл, но AMFI не запускает его даже после добавления в
+пользовательское или системное доверие.
+
 Требуются macOS 13+, Xcode Command Line Tools и доверенная identity для подписи кода. Локальные сборки проекта подписываются многоразовой `RuSwitcher Local Code Signing`. Скрипт создаёт universal-бандл `arm64`/`x86_64`, проверяет подпись и останавливается, если Gatekeeper отклоняет приложение.
 
 ### Разрешения
@@ -284,6 +348,8 @@ open "/Applications/RuSwitcherPro.app"
 - Адресные `CGEvent`-транзакции для автозамены и физические клавиши целевой раскладки для ручной конверсии в AX-слепых полях.
 - `CGEvent.keyboardSetUnicodeString` для прямой вставки текста там, где это уместно — обычная конверсия слова не использует буфер обмена.
 - Маркер `CGEventSource.userData` для фильтрации собственных симулированных событий.
+- После пробуждения macOS или разблокировки сессии старое состояние ввода
+  сбрасывается, а event tap пересоздаётся с ограниченными ретраями.
 - Версионированная memory-mapped RU/EN-модель, воспроизводимо собранная из закреплённых Google Books n-gram data и уровней словаря SCOWL 35/50/60.
 - Исследовательская Core ML-модель V4 находится в отдельном пакете `Experimental/V4`; её нет в обычном графе сборки и production-приложении.
 - Read-only `AXUIElement` range probes для проверки фокуса и хвоста перед кареткой; ручная замена выделения сначала использует AX, а fallback сохраняет все типы pasteboard.
@@ -300,12 +366,13 @@ swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 
 `--input fixtures.jsonl` принимает тесты слов, `--phrase-input phrases.jsonl` — последовательные смешанные фразы, а `--phrase-results results.jsonl` сохраняет полный пошаговый отчёт. `scripts/run_headless_typing_simulator.sh` дополнительно проводит непрерывный поток физических клавиш через `InputSession`, V3 и транзакции замены без окна и перехвата фокуса. Он ловит ошибки decoder, stale state, пунктуации и повторных транзакций. Настоящую доставку CGEvent/AX всё равно можно проверить только видимым host-приложением либо в отдельной macOS-сессии/VM. V4 проверяется отдельно командой `swift test --package-path Experimental/V4`.
 
-Последняя проверка build 128:
+Последняя проверка исходников build 130 (эта же версия установлена как production):
 
-- **186 тестов:** 185 пройдено, 1 намеренно пропущен, 0 ошибок.
+- **202 теста:** 201 пройден, 1 намеренно пропущен, 0 ошибок.
 - **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 938 точных результатов (99,2423%); оставшиеся 450 случаев — безопасные пропуски, без ложных или неправильных замен и без повторных транзакций. Чистая сборка build 126 даёт те же 450 пропусков.
 - **Новые проверки ranked English:** не менее 90% recall на отложенной выборке каждого уровня SCOWL и ноль ложных замен на 50 000 частых корректных токенов, 50 000 дополнительных английских слов и более чем 3 000 сгенерированных русских OOV-форм.
-- **Нативная доставка:** отдельный fixture build 128 честно помечен как заблокированный, а не пройденный, поскольку macOS не отдал фокус тестовому окну. Подпись, хеш установленного приложения и активный event tap обычного процесса проверены отдельно.
+- **Нативный release-gate:** probe проверяет bundle ID, build и хеш именно RuSwitcher Pro, передаёт приложению файлы через `/tmp` и возвращает `blocked`, если нет отдельной сессии либо явного разрешения забрать фокус.
+- **CI:** каждый push и pull request запускает тесты, warnings-as-errors, ASan, детерминированные симуляторы, отрицательный контроль и побайтовую проверку воспроизводимости модели на macOS.
 
 В приложении нет reporter или endpoint для статистики использования.
 

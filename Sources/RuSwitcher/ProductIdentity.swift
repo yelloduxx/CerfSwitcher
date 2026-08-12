@@ -7,6 +7,8 @@ enum ProductIdentity {
     static let displayName = "RuSwitcher Pro"
     static let shortName = "RuSwitcherPro"
     static let bundleIdentifier = "com.ruswitcher.pro"
+    static let inputMethodBundleIdentifier = "com.ruswitcher.inputmethod.RuSwitcherPro"
+    static let inputMethodSourcePrefix = "com.ruswitcher.inputmethod.RuSwitcherPro."
     static let logDirectoryName = "RuSwitcherPro"
     static let logFileName = "ruswitcher-pro.log"
     /// Stable across builds so synthetic events never feed back into the tap.

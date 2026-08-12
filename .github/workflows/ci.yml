@@ -1,0 +1,60 @@
+name: Stability CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stability-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Repository checks
+        run: |
+          git diff --check
+          bash -n scripts/*.sh
+          python3 -m json.tool scripts/v4_training_sources.json >/dev/null
+          gzip -t scripts/data/*.gz
+          if grep -R -E 'RuSwitcherAX|com\.ruswitcher\.ax' scripts; then
+            echo "Legacy AX test identity returned to production scripts" >&2
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Warnings as errors
+        run: swift build -Xswiftc -warnings-as-errors
+
+      - name: Address sanitizer
+        run: swift test --sanitize=address
+
+      - name: Deterministic simulators
+        run: |
+          bash scripts/run_randomized_layout_suite.sh
+          bash scripts/verify_simulator_negative_control.sh
+          bash scripts/run_headless_typing_simulator.sh
+          bash scripts/verify_v3_only_build.sh
+
+      - name: Reproduce language model
+        run: |
+          python3 scripts/build_language_model.py \
+            --output "$RUNNER_TEMP/language-model-v1.bin"
+          cmp Sources/RuSwitcherCore/Resources/language-model-v1.bin \
+            "$RUNNER_TEMP/language-model-v1.bin"

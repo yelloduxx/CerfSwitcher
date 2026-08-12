@@ -98,6 +98,21 @@ public enum SmartTokenizer {
         return letter.isUppercase
     }
 
+    /// A plain multi-letter acronym is a soft identifier: automatic conversion
+    /// keeps it by default, but an explicit learned keyboard-layout pair may
+    /// override that protection. Structured identifiers remain hard blockers.
+    public static func isAllUppercaseWord(_ text: String) -> Bool {
+        let shape = shape(of: text)
+        let word = shape.lexicalCore
+        guard word.count >= 2,
+              word.allSatisfy(\.isLetter),
+              word == word.uppercased(),
+              word != word.lowercased()
+        else { return false }
+        let wrappers = shape.prefix + shape.suffix
+        return !wrappers.contains(where: { "_-/\\@".contains($0) })
+    }
+
     private static func looksLikeIdentifier(_ raw: String) -> Bool {
         if raw.contains("/") || raw.contains("\\") || raw.contains("_") { return true }
         if raw.unicodeScalars.contains(where: CharacterSet.decimalDigits.contains) { return true }

@@ -251,6 +251,9 @@ public enum LayoutDecoder {
             : nil
         let targetExtendedEnglish = targetEnglishTier != nil
         let targetExtendedRussian = targetCanonical == "ru" && model.isExtendedRussianWord(converted)
+        let confirmedAcronymPair = confirmed
+            && SmartTokenizer.isAllUppercaseWord(candidate.typedRaw)
+            && SmartTokenizer.isAllUppercaseWord(candidate.replacement)
 
         if integrity != .clean {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedEditing, evidence: [.blockedEditing])
@@ -265,10 +268,11 @@ public enum LayoutDecoder {
             && !(convertedShape.kind == .lexical
                 && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian))
         if SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw)
-            || sourceShapeIsProtected
+            || (sourceShapeIsProtected && !confirmedAcronymPair)
             || (convertedShape.kind.blocksAutomaticConversion
                 && candidate.kind != .trailingPunctuation
-                && candidate.kind != .wrappingPunctuation) {
+                && candidate.kind != .wrappingPunctuation
+                && !confirmedAcronymPair) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])
         }
 

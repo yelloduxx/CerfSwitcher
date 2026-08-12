@@ -1,24 +1,50 @@
 #!/bin/bash
 set -euo pipefail
 
-APP="${RUSWITCH_APP:-/Applications/RuSwitcherAX.app}"
-APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
-BIN="$APP/Contents/MacOS/$APP_EXECUTABLE"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEFAULT_FIXTURE="$ROOT/Tests/Fixtures/HID/mixed-layout-corpus-batch.json"
+# shellcheck source=ruswitch_test_app.sh
+source "$ROOT/scripts/ruswitch_test_app.sh"
+ruswitch_validate_test_app "$ROOT"
 
-test -x "$BIN"
+APP="$RUSWITCH_APP"
+BIN="$RUSWITCH_APP_EXEC"
+DEFAULT_FIXTURE="$ROOT/Tests/Fixtures/HID/mixed-layout-corpus-batch.json"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ruswitch-hid-batch.XXXXXX")"
+WAS_RUNNING=0
+
+if pgrep -f "$BIN" >/dev/null; then WAS_RUNNING=1; fi
+
+cleanup() {
+    while read -r pid; do
+        test -z "$pid" || kill "$pid" 2>/dev/null || true
+    done < <(pgrep -f "$BIN" || true)
+    rm -rf "$WORK_DIR"
+    if [ "$WAS_RUNNING" -eq 1 ]; then
+        open "$APP" >/dev/null
+        for _ in {1..30}; do
+            pgrep -f "$BIN" >/dev/null && break
+            sleep 0.1
+        done
+    fi
+}
+trap cleanup EXIT
+
 if [ "$#" -eq 0 ]; then
     set -- "$DEFAULT_FIXTURE"
 fi
 
-failed=0
 if [ -n "${HID_RESULT_PATH:-}" ] && [ "$#" -ne 1 ]; then
     echo "HID_RESULT_PATH requires exactly one fixture"
     exit 64
 fi
-for fixture in "$@"; do
-    fixture="$(cd "$(dirname "$fixture")" && pwd)/$(basename "$fixture")"
+
+failed=0
+index=0
+for fixture_argument in "$@"; do
+    fixture_source="$(cd "$(dirname "$fixture_argument")" && pwd)/$(basename "$fixture_argument")"
+    fixture="$WORK_DIR/fixture-$index.json"
+    cp "$fixture_source" "$fixture"
+
     while read -r pid; do
         test -z "$pid" || kill "$pid" 2>/dev/null || true
     done < <(pgrep -f "$BIN" || true)
@@ -26,12 +52,13 @@ for fixture in "$@"; do
         pgrep -f "$BIN" >/dev/null || break
         sleep 0.1
     done
-    sleep "${HID_RESTART_SETTLE_SECONDS:-5}"
+    sleep "${HID_RESTART_SETTLE_SECONDS:-1}"
 
-    fixture_name="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "$fixture")"
-    typed_length="$(python3 -c 'import json,sys; print(sum(len(x["text"]) for x in json.load(open(sys.argv[1], encoding="utf-8"))["phases"]))' "$fixture")"
-    result="${HID_RESULT_PATH:-$ROOT/.build/ruswitch-hid-batch-$$-$fixture_name.json}"
-    rm -f "$result"
+    fixture_name="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "$fixture_source")"
+    typed_length="$(python3 -c 'import json,sys; print(sum(len(x["text"]) for x in json.load(open(sys.argv[1], encoding="utf-8"))["phases"]))' "$fixture_source")"
+    result="$WORK_DIR/result-$index.json"
+    result_destination="${HID_RESULT_PATH:-$ROOT/.build/ruswitch-hid-batch-$$-$fixture_name.json}"
+    mkdir -p "$(dirname "$result_destination")"
 
     probe_pattern="$BIN --hid-probe-file $fixture"
     launched=0
@@ -46,9 +73,11 @@ for fixture in "$@"; do
     if [ "$launched" -ne 1 ]; then
         echo "FAIL $fixture_name: LaunchServices returned no probe PID"
         failed=1
+        index=$((index + 1))
         continue
     fi
-    timeout_ticks=$(( typed_length / 4 + 600 ))
+
+    timeout_ticks=$((typed_length / 4 + 600))
     for ((tick=0; tick<timeout_ticks; tick++)); do
         test -f "$result" && break
         sleep 0.1
@@ -57,10 +86,12 @@ for fixture in "$@"; do
     if ! test -f "$result"; then
         echo "FAIL $fixture_name: no result after $typed_length input characters"
         failed=1
+        index=$((index + 1))
         continue
     fi
+    cp "$result" "$result_destination"
 
-    if python3 - "$fixture" "$result" <<'PY'
+    if python3 - "$fixture_source" "$result_destination" <<'PY'
 import json
 import sys
 
@@ -100,7 +131,7 @@ if okay:
         print(f"last 240:  {actual[-240:]!r}")
 else:
     mismatch = next(
-        (index for index, pair in enumerate(zip(actual, expected)) if pair[0] != pair[1]),
+        (i for i, pair in enumerate(zip(actual, expected)) if pair[0] != pair[1]),
         min(len(actual), len(expected)),
     )
     print(f"first mismatch at character {mismatch}")
@@ -115,15 +146,16 @@ else:
 raise SystemExit(0 if okay else 1)
 PY
     then
-        if [ "${KEEP_HID_RESULTS:-0}" = "1" ]; then
-            echo "diagnostic result retained: $result"
+        if [ "${KEEP_HID_RESULTS:-0}" = "1" ] || [ -n "${HID_RESULT_PATH:-}" ]; then
+            echo "diagnostic result retained: $result_destination"
         else
-            rm -f "$result"
+            rm -f "$result_destination"
         fi
     else
         failed=1
-        echo "diagnostic result retained: $result"
+        echo "diagnostic result retained: $result_destination"
     fi
+    index=$((index + 1))
 done
 
 exit "$failed"

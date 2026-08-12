@@ -1,9 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-APP="${RUSWITCH_APP:-/Applications/RuSwitcherAX.app}"
-APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
-APP_EXEC="$APP/Contents/MacOS/$APP_EXECUTABLE"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=ruswitch_test_app.sh
+source "$ROOT/scripts/ruswitch_test_app.sh"
+ruswitch_validate_test_app "$ROOT"
+APP="$RUSWITCH_APP"
+APP_EXECUTABLE="$RUSWITCH_APP_EXECUTABLE"
+APP_EXEC="$RUSWITCH_APP_EXEC"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ruswitch-toggle-cycle.XXXXXX")"
 WAS_RUNNING=0
 
@@ -49,23 +53,46 @@ if not os.path.exists(path) or os.path.getsize(path) == 0:
 PY
 }
 
-run_scenario manual-russian-word-toggle-cycle 1
-run_scenario manual-caret-word-toggle-cycle
-run_scenario manual-selection-toggle-cycle
-run_scenario manual-auto-word-toggle-cycle
-run_scenario manual-ax-unavailable-toggle-cycle 0 \
-    --force-ax-unavailable-fallback --force-global-event-stream
-run_scenario manual-ax-unavailable-current-word-toggle-cycle 0 \
-    --force-ax-unavailable-fallback --force-global-event-stream
-run_scenario manual-ax-unavailable-long-word-toggle-cycle 0 \
-    --force-ax-unavailable-fallback --force-global-event-stream
+if [ "$#" -gt 0 ]; then
+    scenarios=("$@")
+else
+    scenarios=(
+        manual-russian-word-toggle-cycle
+        manual-caret-word-toggle-cycle
+        manual-selection-toggle-cycle
+        manual-auto-word-toggle-cycle
+        manual-ax-unavailable-toggle-cycle
+        manual-ax-unavailable-current-word-toggle-cycle
+        manual-ax-unavailable-long-word-toggle-cycle
+    )
+fi
 
-python3 - "$WORK_DIR" <<'PY'
+for scenario in "${scenarios[@]}"; do
+    case "$scenario" in
+        manual-russian-word-toggle-cycle)
+            run_scenario "$scenario" 1
+            ;;
+        manual-ax-unavailable-toggle-cycle|manual-ax-unavailable-current-word-toggle-cycle|manual-ax-unavailable-long-word-toggle-cycle)
+            run_scenario "$scenario" 0 \
+                --force-ax-unavailable-fallback --force-global-event-stream
+            ;;
+        manual-caret-word-toggle-cycle|manual-selection-toggle-cycle|manual-auto-word-toggle-cycle)
+            run_scenario "$scenario" 0
+            ;;
+        *)
+            echo "Unknown manual toggle scenario: $scenario" >&2
+            exit 64
+            ;;
+    esac
+done
+
+python3 - "$WORK_DIR" "${scenarios[@]}" <<'PY'
 import json
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+selected = sys.argv[2:]
 expected = {
     "manual-russian-word-toggle-cycle": [";jgf", "жопа"],
     "manual-caret-word-toggle-cycle": ["руку  ", "here  "],
@@ -76,7 +103,8 @@ expected = {
     "manual-ax-unavailable-long-word-toggle-cycle": ["приветствую", "ghbdtncnde."],
 }
 
-for name, trace in expected.items():
+for name in selected:
+    trace = expected[name]
     result = json.loads((root / f"{name}.json").read_text(encoding="utf-8"))
     passed = (
         result.get("postEventAccess") is True

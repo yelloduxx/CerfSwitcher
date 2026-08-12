@@ -27,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var permissionCheckTimer: Timer?
     private var iconRefreshTimer: Timer?
     private var updateCheckTimer: Timer?   // периодическая авто-проверка обновлений, пока приложение работает
+    private var sessionResumeWorkItem: DispatchWorkItem?
+    private var tapReconfigureWorkItem: DispatchWorkItem?
+    private var lastSessionRecoveryAt = Date.distantPast
     private var monitoringActive = false
     private var caretIndicator: CaretIndicator?   // issue #10: флаг у каретки (бета, по умолчанию OFF)
     private var lastFlagShown: String?            // идентичность раскладки для детекта смены (не title!)
@@ -44,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         setupStatusItem()
         setupSettingsCallbacks()
+        registerWorkspaceRecoveryObservers()
         syncLoginItem()
         runPermissionWizard()
         UpdateChecker.checkOnLaunch()
@@ -53,6 +57,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in
             Task { @MainActor in UpdateChecker.checkPeriodic() }
         }
+    }
+
+    private func registerWorkspaceRecoveryObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(
+            self,
+            selector: #selector(workspaceSessionResumed(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(workspaceSessionResumed(_:)),
+            name: NSWorkspace.sessionDidBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func workspaceSessionResumed(_ notification: Notification) {
+        guard monitoringActive else { return }
+        sessionResumeWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.monitoringActive else { return }
+            let now = Date()
+            guard now.timeIntervalSince(self.lastSessionRecoveryAt) >= 1 else { return }
+            self.lastSessionRecoveryAt = now
+            rslog("workspace_session_resumed")
+            self.cancelDeferredManualLearning()
+            self.lastAutoConverted = nil
+            self.textConverter.clearState()
+            self.focusedElementResolver.invalidate()
+            self.reconfigureTap()
+        }
+        sessionResumeWorkItem = work
+        // Wake and session-active notifications often arrive as one pair.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     /// Native integration host entry point. It wires the same production monitor
@@ -153,17 +193,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         converted: String,
         logFailure: Bool
     ) -> Bool {
+        guard ManualLearningPolicy.isLearnableTokenShape(original),
+              ManualLearningPolicy.isLearnableTokenShape(converted) else {
+            if logFailure { rslog("learning_nonlexical_skipped") }
+            return false
+        }
         guard ManualLearningPolicy.shouldPersist(
             original: original,
             converted: converted,
             model: languageModel
         ) else {
             if logFailure { rslog("learning_reverse_skipped") }
-            return false
-        }
-        guard SmartTokenizer.kind(of: original) == .lexical,
-              SmartTokenizer.kind(of: converted) == .lexical else {
-            if logFailure { rslog("learning_nonlexical_skipped") }
             return false
         }
         return true
@@ -1583,12 +1623,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Пересоздаёт event tap и, если создание не удалось (например, session-tap отклонён),
     /// ретраит — иначе тумблер «вкл», а tap'а нет, и приложение молча не реагирует на триггер.
-    private func reconfigureTap() {
-        guard !keyboardMonitor.reconfigure() else { return }
-        rslog("reconfigure failed (tap denied) — retry in 3s")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            if self?.keyboardMonitor.reconfigure() == false { rslog("reconfigure retry failed") }
+    private func reconfigureTap(attempt: Int = 0) {
+        if attempt == 0 { tapReconfigureWorkItem?.cancel() }
+        if keyboardMonitor.reconfigure() {
+            monitoringActive = true
+            tapReconfigureWorkItem = nil
+            return
         }
+
+        monitoringActive = false
+        let delays: [TimeInterval] = [1, 3, 10]
+        guard attempt < delays.count else {
+            rslog("event_tap_reconfigure_exhausted")
+            return
+        }
+        rslog("event_tap_reconfigure_retry_scheduled")
+        let work = DispatchWorkItem { [weak self] in
+            self?.reconfigureTap(attempt: attempt + 1)
+        }
+        tapReconfigureWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt], execute: work)
     }
 
     @objc private func recheckPermissions() {
@@ -1618,7 +1672,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Не теряем буфер обмена в 2-секундном окне отложенного восстановления
         // (актуально и при само-обновлении, которое завершает процесс).
+        sessionResumeWorkItem?.cancel()
+        tapReconfigureWorkItem?.cancel()
+        permissionCheckTimer?.invalidate()
+        iconRefreshTimer?.invalidate()
+        updateCheckTimer?.invalidate()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         textConverter.flushPendingClipboardRestore()
+        perAppLayoutManager.stop()
+        keyboardMonitor.stop()
     }
 
     @objc private func quit() {

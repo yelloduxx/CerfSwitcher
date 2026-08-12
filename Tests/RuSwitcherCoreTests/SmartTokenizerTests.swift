@@ -26,4 +26,13 @@ final class SmartTokenizerTests: XCTestCase {
         }
         XCTAssertEqual(SmartTokenizer.kind(of: "snake_case"), .identifier)
     }
+
+    func testPlainUppercaseAcronymIsDistinctFromStructuredIdentifier() {
+        for token in ["SEO", "ЫУЩ", "«SEO,»"] {
+            XCTAssertTrue(SmartTokenizer.isAllUppercaseWord(token), token)
+        }
+        for token in ["A", "NASA_", "HTTPServer", "SEO.com", "snake_case"] {
+            XCTAssertFalse(SmartTokenizer.isAllUppercaseWord(token), token)
+        }
+    }
 }
