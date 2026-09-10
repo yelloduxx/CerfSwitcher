@@ -14,6 +14,43 @@ import tempfile
 from corpus_run_artifacts import atomic_copy
 
 
+def rolling_space_actions(actions, gap_microseconds=5_000):
+    """Retain key hold times and ordinary cadence; roll the key after Space."""
+    if not actions or type(gap_microseconds) is not int or gap_microseconds <= 0:
+        raise ValueError("rolling-space gap must be a positive integer")
+    result, held = [], {}
+    previous_down = None
+    for index, original in enumerate(actions):
+        action = dict(original)
+        kind, code = action["kind"], action.get("keyCode")
+        if (kind not in ("keyDown", "keyUp") or code is None or action.get("autorepeat", False)
+                or any(action.get(modifier, False) for modifier in ("command", "option", "control"))):
+            raise ValueError("rolling-space profile supports balanced physical presses only")
+        if kind == "keyDown":
+            if code in held:
+                raise ValueError("duplicate keyDown in rolling-space source")
+            at = action["atMicroseconds"]
+            if previous_down is not None:
+                prior, prior_at = previous_down
+                gap = at - prior["atMicroseconds"]
+                if prior["keyCode"] == 49 and code != 49:
+                    gap = min(gap, gap_microseconds)
+                at = prior_at + gap
+            held[code] = (action["atMicroseconds"], at)
+            previous_down = (original, at)
+        else:
+            if code not in held:
+                raise ValueError("unbalanced keyUp in rolling-space source")
+            source_at, down_at = held.pop(code)
+            at = down_at + action["atMicroseconds"] - source_at
+        action["atMicroseconds"] = at
+        result.append((index, action))
+    if held:
+        raise ValueError("unreleased key in rolling-space source")
+    result.sort(key=lambda item: (item[1]["atMicroseconds"], item[0]))
+    return [action for _, action in result], {old: new for new, (old, _) in enumerate(result)}
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     parent = root / ".build" / "physical-runs"
@@ -112,10 +149,33 @@ def main() -> int:
             if name == "overlapping-delivery-control" and "text-mismatch" not in report["assessment"]["failures"]:
                 raise ValueError("overlapping-delivery control must detect actual text damage")
 
+        rolling = json.loads((root / "Tests/Fixtures/Simulator/physical-auto-code-switch.json").read_text())
+        rolling["stimulus"]["id"] += "-rolling-space"
+        rolling["stimulus"]["actions"], new_indices = rolling_space_actions(rolling["stimulus"]["actions"])
+        # Reindex observations only. Neither oracle controls the physical cadence.
+        for oracle in [rolling["oracle"], rolling["oracle"]["automaticOff"]]:
+            for checkpoint in oracle["checkpoints"]:
+                checkpoint["actionIndex"] = new_indices[checkpoint["actionIndex"]]
+        rolling_path = directory / "rolling-space-input.json"
+        rolling_path.write_text(json.dumps(rolling, ensure_ascii=False, indent=2) + "\n")
+        run("rolling-space", rolling_path, 0, "passed")
+        report = run("rolling-space-auto-off", rolling_path, 1, "failed", "auto-off")
+        if (report["execution"]["text"] != rolling["oracle"]["automaticOff"]["text"]
+                or report["execution"]["transactions"] != 0):
+            raise ValueError("rolling-space auto-off did not match its independent literal oracle")
+        rolling["stimulus"]["timing"] = {"deliveryDelayMicroseconds": 4_000,
+                                          "syntheticEventIntervalMicroseconds": 100}
+        rolling_delayed = directory / "rolling-space-delayed-input.json"
+        rolling_delayed.write_text(json.dumps(rolling, ensure_ascii=False, indent=2) + "\n")
+        report = run("rolling-space-overlap-control", rolling_delayed, 1, "failed")
+        if "text-mismatch" not in report["assessment"]["failures"] or report["execution"]["verifiedCompletions"] != 0:
+            raise ValueError("rolling-space overlap was not detected as unverified text damage")
+
         # These are observed limitations, not release passes. A green harness
         # means the independent oracle detected each intentionally broken run.
         summary["modeledRuntimeLimitations"] = [
             {"issue": "delivery-can-overlap-next-user-word", "evidence": str(directory / "overlapping-delivery-control.json")},
+            {"issue": "rolling-space-can-overlap-delivery", "evidence": str(directory / "rolling-space-overlap-control.json")},
         ]
         summary["detectedUnrepairedDamage"] = [
             {"issue": "dropped-deletion-rejected-by-anchor", "evidence": str(directory / "drop-backspace.json")},

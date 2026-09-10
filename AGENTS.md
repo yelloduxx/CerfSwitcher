@@ -809,6 +809,33 @@ bash scripts/run_native_release_smoke.sh
   open. No further live run was launched. Installed build 130 was restored as
   PID 16207 with its unchanged SHA-256; no new build was installed.
 
+### Rolling-Space timing checkpoint (September 11, windowless)
+
+- The physical CLI suite now derives a rolling-Space variant of the same mixed
+  phrase: ordinary keyDown intervals remain 70 ms, but the next key after Space
+  arrives after 5 ms while Space is still held. Original 23 ms hold times,
+  keycodes/modifiers and initial layout are preserved. Actions are re-sorted;
+  oracle checkpoint indices are remapped separately, without guiding input.
+- All 23 CLI harness checks passed (`closed-loop-xb_jxm1f` under
+  `.build/physical-runs`), including exact rolling-Space output, its independent
+  auto-off literal oracle, and detection of intentionally delayed delivery.
+  A 4 ms delivery delay plus 100 us between synthetic events damages the next
+  token in this model; it receives zero confirmations, not a false pass.
+  All 34 Python checks passed. No new native run or installation occurred.
+- A 16-profile exploratory grid (`.build/timing-grid-523ogghm`) varies keyDown
+  intervals 70/20/5/1 ms and delivery delay 0/4/8/16 ms, with 100 us event spacing.
+  All 70/20 ms profiles are exact; 5 ms fails with nonzero delay; 1 ms fails even
+  without initial delay. These are modeled limits, not measured user typing.
+- In the successful native trace, producer-boundary-post return to final Quartz
+  receipt measured 7.150, 2.474 and 12.154 ms for three batches. This includes the
+  event route, not just the callback. Three samples do not establish p95/p99 or
+  justify tuning production delays. Parse Int64 markers with exact integers;
+  floating-point JSON arithmetic loses their low bits and misidentifies actions.
+- Next diagnostic: measure callback occupancy before treating virtual overlap
+  as native corruption. The virtual clock currently does not charge synchronous
+  callback work, whereas a real callback may hold later input in the tap queue.
+  Do not hide the modeled failure or switch delivery APIs based on this grid.
+
 ## Build, Signing and Installation
 
 Before installation:
