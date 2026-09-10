@@ -987,6 +987,46 @@ bash scripts/run_native_release_smoke.sh
   editing commands. Headless queue timing and the remaining release gates are
   still open. Next work can proceed without taking the desktop focus.
 
+### Headless callback queue checkpoint (September 11, test-only)
+
+- Physical input now has distinct arrival and processing stages. A
+  `VirtualCallbackQueue` serializes processing and driver acknowledgements;
+  the existing clock independently delivers input and synthetic editor events.
+  A busy callback does not pause the input producer or the editor transport.
+  Queue release is idempotent; incomplete input/callback work is invalid.
+- `PhysicalTypingTiming` adds `conversionPrePostMicroseconds` and
+  `conversionPostWorkMicroseconds`, defaulting to zero. They model work before
+  publication and post/layout work before return, not a measured macOS replay.
+  The validation suite uses an explicit 4+8 ms stress envelope with 1 ms editor
+  delivery, 50 us synthetic intervals and a 20 ms readback. No oracle controls
+  these clocks. Existing artificial late-delivery fault cases remain visible.
+- Arrival-time text is translated independently of the layout at callback
+  processing. Reports record both, plus processing time and actual delivered
+  text. The same production `QueuedLayoutTransition` normalizes eligible
+  queued keys; `no-queued-layout-sync` disables it only in the test interpreter.
+  Automatic dead-key composition remains explicitly unsupported, including
+  a starter captured before a queued layout change. Enter/Tab host semantics,
+  external source/focus events and key-up ordering are still modeled contracts,
+  not native coverage of every host or OS scheduling path.
+- Physical suite `closed-loop-w3a3gcah` passed 29 harness controls. The busy
+  profile reproduces the native failure class exactly when synchronization is
+  disabled: `vы`, `кeview`, `jбсудим`. With synchronization, the full mixed phrase
+  is exact with 3 posts and 0 stale confirmations. All input arrival times are
+  unchanged; the three affected letters each wait 7 ms on the callback lane.
+  Changing the oracle does not change execution. Auto-off retains the independent
+  raw text. With all work costs zero, the old behavior falsely looks correct;
+  that result is a demonstrated simulator limitation, not a release pass.
+- A separate 30 ms delivery control still damages following text after the
+  callback has returned and fails the independent oracle without confirmation.
+  This is a configured hypothetical transport fault, **not** evidence that
+  native macOS exhibits that exact delay/order. Do not conflate it with the
+  first-letter race already fixed and observed in the external hosts.
+- 310 Swift tests, 48 Python tests and 16 focused ASan tests passed. A release
+  CLI invocation of the 93-character busy fixture took 0.15 seconds wall time
+  (`.build/queued-layout-timed.time`), including startup/report generation; this
+  is a single run, not a p95 or corpus throughput measurement. Production app,
+  model, learned rules and installed build 130 were not changed in this step.
+
 ## Build, Signing and Installation
 
 Before installation:

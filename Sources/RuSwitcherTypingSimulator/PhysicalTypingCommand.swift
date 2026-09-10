@@ -7,6 +7,7 @@ private struct PhysicalRunReport: Encodable {
     let simulator = "physical-keys-scheduled-delivery"
     let engine = "v3"
     let limitations = ["modeled-editor-not-macOS", "no-AX-or-CGEvent", "no-manual-learning",
+                       "configured-callback-cost-not-a-macOS-scheduler-replay",
                        "synchronous-preflight", "no-modified-host-commands", "no-automatic-dead-key-composition"]
     let runID: UUID
     var status = "invalidRun"
@@ -69,6 +70,7 @@ func runPhysical(inputPath: String, outputPath: String?, faultName: String?) -> 
         case "preflight-unavailable": faults.preflightUnavailable = true
         case "verification-unavailable": faults.verificationUnavailable = true
         case "duplicate-acknowledgement": faults.duplicateAcknowledgement = true
+        case "no-queued-layout-sync": faults.disableQueuedLayoutSynchronization = true
         default: throw PhysicalTypingError.invalidScenario("unknown injected fault")
         }
         // The interpreter receives no expected text, expected decisions or layout checkpoints.

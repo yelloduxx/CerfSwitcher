@@ -167,6 +167,59 @@ def main() -> int:
         if (report["execution"]["text"] != rolling["oracle"]["automaticOff"]["text"]
                 or report["execution"]["transactions"] != 0):
             raise ValueError("rolling-space auto-off did not match its independent literal oracle")
+
+        # A bounded stress envelope, not a replay of macOS timing: 4 ms before
+        # publication, 8 ms of synchronous post/layout work. Input still arrives
+        # every scheduled timestamp, and editor delivery runs on another lane.
+        busy = copy.deepcopy(rolling)
+        busy["stimulus"]["timing"] = {"conversionPrePostMicroseconds": 4_000,
+                                        "conversionPostWorkMicroseconds": 8_000,
+                                        "deliveryDelayMicroseconds": 1_000,
+                                        "syntheticEventIntervalMicroseconds": 50,
+                                        "verificationReadDelayMicroseconds": 20_000}
+        busy_path = directory / "queued-layout-input.json"
+        busy_path.write_text(json.dumps(busy, ensure_ascii=False, indent=2) + "\n")
+        fixed = run("queued-layout", busy_path, 0, "passed")
+        old = run("queued-layout-old-behavior", busy_path, 1, "failed", "no-queued-layout-sync")
+        waited = [row for row in fixed["execution"]["observations"]
+                  if row["producedText"] and row["capturedLayoutID"] != row["layoutIDBefore"]]
+        if not waited or "text-mismatch" not in old["assessment"]["failures"]:
+            raise ValueError("queued-layout control did not expose the old-layout first letter")
+        for row in waited:
+            stale = old["execution"]["observations"][row["actionIndex"]]
+            if (row["processedAtMicroseconds"] <= row["atMicroseconds"]
+                    or row["capturedText"] == row["producedText"]
+                    or row["deliveredText"] != row["producedText"]
+                    or stale["deliveredText"] != row["capturedText"]):
+                raise ValueError("queued key interpretation did not match the observed native failure class")
+        if [row["atMicroseconds"] for row in fixed["execution"]["observations"]] != [
+                action["atMicroseconds"] for action in busy["stimulus"]["actions"]]:
+            raise ValueError("the callback lane slowed down the input producer")
+        if fixed["execution"]["verifiedCompletions"] != 0:
+            raise ValueError("new input acquired a stale confirmation")
+        wrong_busy = copy.deepcopy(busy)
+        wrong_busy["oracle"]["text"] = "intentionally wrong expected queued text"
+        wrong_busy_path = directory / "queued-wrong-oracle-input.json"
+        wrong_busy_path.write_text(json.dumps(wrong_busy, ensure_ascii=False, indent=2) + "\n")
+        wrong_queued = run("queued-wrong-oracle", wrong_busy_path, 1, "failed")
+        if wrong_queued["execution"] != fixed["execution"]:
+            raise ValueError("oracle changed queued physical execution")
+        unpriced = copy.deepcopy(busy)
+        unpriced["stimulus"]["timing"] = {}
+        unpriced_path = directory / "zero-work-input.json"
+        unpriced_path.write_text(json.dumps(unpriced, ensure_ascii=False, indent=2) + "\n")
+        run("zero-work-misses-queue-regression", unpriced_path, 0, "passed", "no-queued-layout-sync")
+        literal = run("queued-layout-auto-off", busy_path, 1, "failed", "auto-off")
+        if (literal["execution"]["text"] != busy["oracle"]["automaticOff"]["text"]
+                or literal["execution"]["transactions"] != 0):
+            raise ValueError("busy-lane auto-off changed the literal input")
+        damaged = copy.deepcopy(busy)
+        damaged["stimulus"]["timing"]["deliveryDelayMicroseconds"] = 30_000
+        damaged_path = directory / "queued-late-delivery-input.json"
+        damaged_path.write_text(json.dumps(damaged, ensure_ascii=False, indent=2) + "\n")
+        late = run("queued-late-delivery-control", damaged_path, 1, "failed")
+        if "text-mismatch" not in late["assessment"]["failures"] or late["execution"]["verifiedCompletions"] != 0:
+            raise ValueError("the callback lane hid damage from genuinely late delivery")
         rolling["stimulus"]["timing"] = {"deliveryDelayMicroseconds": 4_000,
                                           "syntheticEventIntervalMicroseconds": 100}
         rolling_delayed = directory / "rolling-space-delayed-input.json"
@@ -180,6 +233,7 @@ def main() -> int:
         summary["modeledRuntimeLimitations"] = [
             {"issue": "delivery-can-overlap-next-user-word", "evidence": str(directory / "overlapping-delivery-control.json")},
             {"issue": "rolling-space-can-overlap-delivery", "evidence": str(directory / "rolling-space-overlap-control.json")},
+            {"issue": "delivery-after-busy-callback-can-still-overlap-input", "evidence": str(directory / "queued-late-delivery-control.json")},
         ]
         summary["detectedUnrepairedDamage"] = [
             {"issue": "dropped-deletion-rejected-by-anchor", "evidence": str(directory / "drop-backspace.json")},

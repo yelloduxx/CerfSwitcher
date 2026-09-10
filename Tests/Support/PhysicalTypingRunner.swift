@@ -12,6 +12,7 @@ public struct PhysicalTypingFaults: Equatable, Sendable {
     public var preflightUnavailable = false
     public var verificationUnavailable = false
     public var duplicateAcknowledgement = false
+    public var disableQueuedLayoutSynchronization = false
 
     public init() {}
 }
@@ -19,10 +20,14 @@ public struct PhysicalTypingFaults: Equatable, Sendable {
 public struct PhysicalTypingObservation: Codable, Equatable, Sendable {
     public let actionIndex: Int
     public let atMicroseconds: UInt64
+    public let processedAtMicroseconds: UInt64
+    public let capturedLayoutID: String
+    public let capturedText: String
     public let layoutIDBefore: String
     public let layoutIDAfter: String
     public let producedText: String
     public let textAfter: String
+    public let deliveredText: String
 }
 
 public struct PhysicalTypingDecision: Codable, Equatable, Sendable {
@@ -114,12 +119,13 @@ public struct PhysicalTypingRunner {
         for (index, action) in stimulus.actions.enumerated() {
             session.clock.schedule(at: action.atMicroseconds) {
                 guard session.error == nil else { return }
-                do { try session.apply(action, at: index) }
+                do { try session.receive(action, at: index) }
                 catch { session.error = error }
             }
         }
         session.clock.drain()
         if let error = session.error { throw error }
+        guard session.finishedAllInput else { throw PhysicalTypingError.invalidScenario("incomplete callback queue") }
         return session.execution
     }
 
@@ -140,7 +146,8 @@ public struct PhysicalTypingRunner {
         let timing = stimulus.timing ?? .init()
         guard [timing.deliveryDelayMicroseconds, timing.syntheticEventIntervalMicroseconds,
                timing.layoutDelayMicroseconds, timing.verificationReadDelayMicroseconds,
-               timing.acknowledgementDelayMicroseconds].allSatisfy({ $0 <= 1_000_000 }),
+               timing.acknowledgementDelayMicroseconds, timing.conversionPrePostMicroseconds,
+               timing.conversionPostWorkMicroseconds].allSatisfy({ $0 <= 1_000_000 }),
               stimulus.actions.count <= 100_000 else {
             throw PhysicalTypingError.invalidScenario("timing or action limit exceeded")
         }
@@ -201,19 +208,24 @@ private final class PhysicalTypingSession {
     let timing: PhysicalTypingTiming
     private var activeLayoutID: String
     private var translation = KeyboardLayoutTranslationState()
+    private var translationLayoutID: String?
+    private var arrivalTranslation = KeyboardLayoutTranslationState()
+    private var arrivalTranslationLayoutID: String?
+    private var queuedLayoutTransition = QueuedLayoutTransition()
+    private lazy var callbackQueue = VirtualCallbackQueue(clock: clock)
     private var input = InputSession(contextLimit: InputContextLimits.maximumTokens)
     private var fieldID = "editor"
     private var editors = ["editor": VirtualTextEditor()]
     private var transactions = 0
     private var verifiedCompletions = 0
-    private var observations: [PhysicalTypingObservation] = []
+    private var observations: [Int: PhysicalTypingObservation] = [:]
     private var decisions: [PhysicalTypingDecision] = []
     private var trace: [PhysicalTypingTrace] = []
     private var currentActionIndex = 0
     private var postedTransactionSequence: UInt64?
     private lazy var transport = ScheduledEditorTransport(session: self)
     private lazy var driver = AutomaticReplacementDriver(
-        coordinator: NativeReplacementCoordinator(reader: transport, poster: transport), scheduler: clock
+        coordinator: NativeReplacementCoordinator(reader: transport, poster: transport), scheduler: callbackQueue
     )
     private var focus: FocusedElementIdentity {
         .init(processID: 1, bundleID: "com.ruswitcher.physical-test", identifier: fieldID)
@@ -234,45 +246,97 @@ private final class PhysicalTypingSession {
 
     var execution: PhysicalTypingExecution {
         .init(text: editor.text, finalLayoutID: activeLayoutID, transactions: transactions,
-              observations: observations, decisions: decisions, trace: trace,
+              observations: observations.sorted { $0.key < $1.key }.map(\.value), decisions: decisions, trace: trace,
               editors: editors.mapValues(Self.editorState), verifiedCompletions: verifiedCompletions,
               context: input.context.map(\.text), timing: timing, focusedFieldID: fieldID)
     }
 
-    func apply(_ action: PhysicalTypingAction, at index: Int) throws {
+    var finishedAllInput: Bool { callbackQueue.isIdle && observations.count == stimulus.actions.count }
+
+    func receive(_ action: PhysicalTypingAction, at index: Int) throws {
+        let capturedLayoutID = activeLayoutID
+        if arrivalTranslationLayoutID != activeLayoutID {
+            arrivalTranslation.reset()
+            arrivalTranslationLayoutID = activeLayoutID
+        }
+        let capturedText = try producedText(action, layoutID: activeLayoutID, translator: &arrivalTranslation, index: index)
+        if action.kind == .keyDown, let keyCode = action.keyCode,
+           KeyMapping.keycodeToEN[keyCode] != nil || keyCode == 49,
+           capturedText.isEmpty, !faults.disableAutomaticConversion {
+            throw PhysicalTypingError.unsupportedAction(index, "automatic dead-key composition")
+        }
+        // Explicit source/focus actions affect the environment immediately;
+        // session invalidation still waits for its turn on the callback lane.
+        if action.kind == .selectLayout, let id = action.layoutID {
+            activeLayoutID = id
+            queuedLayoutTransition.reset()
+        }
+        if action.kind == .focusChange, let id = action.fieldID {
+            fieldID = id
+            if editors[id] == nil { editors[id] = VirtualTextEditor() }
+        }
+        record("input-arrived", actionIndex: index)
+        callbackQueue.perform { [self] done in
+            guard error == nil else { done(); return }
+            do { try apply(action, at: index, capturedLayoutID: capturedLayoutID, capturedText: capturedText, done: done) }
+            catch { self.error = error; done() }
+        }
+    }
+
+    private func producedText(_ action: PhysicalTypingAction, layoutID: String,
+                              translator: inout KeyboardLayoutTranslationState, index: Int) throws -> String {
+        guard action.kind == .keyDown, let keyCode = action.keyCode else { return "" }
+        if keyCode == 36 { return "\n" }
+        if keyCode == 48 { return "\t" }
+        guard KeyMapping.keycodeToEN[keyCode] != nil || keyCode == 49 else { return "" }
+        let layout = try layouts.layout(layoutID)
+        guard let value = translator.translate(keyCode: keyCode, shift: action.shift, capsLock: action.capsLock,
+                                               layoutData: layout.data, keyboardType: stimulus.keyboardType) else {
+            throw PhysicalTypingError.unsupportedAction(index, "keyboard translation failed")
+        }
+        return value
+    }
+
+    private func apply(_ action: PhysicalTypingAction, at index: Int, capturedLayoutID: String, capturedText: String,
+                       done: @escaping @MainActor () -> Void) throws {
         currentActionIndex = index
         let before = activeLayoutID
+        let began = clock.now
         var produced = ""
+        var delivered = ""
+        record("callback-began", actionIndex: index)
+        func finished() {
+            observations[index] = .init(
+                actionIndex: index, atMicroseconds: action.atMicroseconds, processedAtMicroseconds: began,
+                capturedLayoutID: capturedLayoutID, capturedText: capturedText,
+                layoutIDBefore: before, layoutIDAfter: activeLayoutID,
+                producedText: produced, textAfter: editor.text, deliveredText: delivered
+            )
+            record("user-\(action.kind.rawValue)", actionIndex: index)
+            record("callback-ended", actionIndex: index)
+            done()
+        }
         switch action.kind {
         case .selectLayout:
-            if let id = action.layoutID {
-                activeLayoutID = id
-                translation.reset()
-            }
+            translation.reset()
         case .focusChange:
-            if let id = action.fieldID {
-                fieldID = id
-                if editors[id] == nil { editors[id] = VirtualTextEditor() }
-            }
             input.handle(.focusChanged)
             translation.reset()
+            queuedLayoutTransition.reset()
         case .tapRecovery:
             input.handle(.tapRecovered)
             translation.reset()
+            queuedLayoutTransition.reset()
         case .keyUp:
             break
         case .keyDown:
             guard let keyCode = action.keyCode else { throw PhysicalTypingError.invalidScenario("missing keycode") }
-            if [36, 48].contains(keyCode) {
-                produced = keyCode == 36 ? "\n" : "\t"
-            } else if KeyMapping.keycodeToEN[keyCode] != nil || keyCode == 49 {
-                let layout = try layouts.layout(activeLayoutID)
-                guard let value = translation.translate(
-                    keyCode: keyCode, shift: action.shift, capsLock: action.capsLock,
-                    layoutData: layout.data, keyboardType: stimulus.keyboardType
-                ) else { throw PhysicalTypingError.unsupportedAction(index, "keyboard translation failed") }
-                produced = value
+            if translationLayoutID != activeLayoutID {
+                translation.reset()
+                translationLayoutID = activeLayoutID
             }
+            produced = try producedText(action, layoutID: activeLayoutID, translator: &translation, index: index)
+            delivered = capturedText
             let key = TypedKey(keyCode: keyCode, shift: action.shift, caps: action.capsLock,
                                producedText: produced, sourceLayoutID: activeLayoutID)
             let disposition = InputEventClassifier.classifyLocalKeyDown(
@@ -280,49 +344,59 @@ private final class PhysicalTypingSession {
             )
             switch disposition {
             case let .boundary(boundary):
-                try finish(boundary, at: index)
-                if keyCode == 36 || keyCode == 48 {
-                    // This host is a multiline editor: Enter/Tab insert text,
-                    // not send a message or move focus. Production clears only
-                    // pass-through boundaries; a consumed boundary stays staged.
-                    if !lastBoundaryConsumed { input.reset() }
-                    translation.reset()
+                try finish(boundary, at: index) { [self] in
+                    if keyCode == 36 || keyCode == 48 {
+                        // This host inserts Enter/Tab; it does not send or move focus.
+                        // Only pass-through boundaries clear the staged session.
+                        if !lastBoundaryConsumed { input.reset() }
+                        translation.reset()
+                        queuedLayoutTransition.reset()
+                    }
+                    delivered = lastBoundaryConsumed ? "" : boundary.text
+                    finished()
                 }
+                return
             case .compositionCommit:
                 guard faults.disableAutomaticConversion else {
                     throw PhysicalTypingError.unsupportedAction(index, "automatic dead-key composition")
                 }
-                editor.insert(produced)
+                editor.insert(delivered)
+                queuedLayoutTransition.reset()
             case .printable:
                 if produced.isEmpty, !faults.disableAutomaticConversion {
                     throw PhysicalTypingError.unsupportedAction(index, "automatic dead-key composition")
                 }
-                editor.insert(produced)
+                if !faults.disableQueuedLayoutSynchronization,
+                   let override = queuedLayoutTransition.overrideText(
+                    eventTimestamp: action.atMicroseconds * 1_000, layoutID: activeLayoutID, translatedText: produced
+                   ) {
+                    delivered = override
+                    if delivered != capturedText { record("queued-layout-retranslated", actionIndex: index) }
+                }
+                editor.insert(delivered)
                 input.handle(.printable(key))
             case let .editing(event):
                 input.handle(event)
+                queuedLayoutTransition.reset()
+                delivered = ""
                 if event == .plainBackspace { editor.backspace() }
                 else if keyCode == 123 || keyCode == 124 {
                     editor.moveCaret(byCharacters: keyCode == 123 ? -1 : 1, extendingSelection: action.shift)
                 } else { throw PhysicalTypingError.unsupportedAction(index, "host editing semantics") }
             }
         }
-        observations.append(.init(
-            actionIndex: index, atMicroseconds: action.atMicroseconds,
-            layoutIDBefore: before, layoutIDAfter: activeLayoutID,
-            producedText: produced, textAfter: editor.text
-        ))
-        record("user-\(action.kind.rawValue)", actionIndex: index)
+        finished()
     }
 
     private var lastBoundaryConsumed = false
 
-    private func finish(_ boundary: InputBoundary, at index: Int) throws {
+    private func finish(_ boundary: InputBoundary, at index: Int, done: @escaping @MainActor () -> Void) throws {
         lastBoundaryConsumed = false
         guard let snapshot = input.snapshot(boundary: boundary, focus: focus),
               let original = snapshot.producedText else {
             editor.insert(boundary.text)
             input.handle(.boundary(boundary))
+            done()
             return
         }
         let sourceID = snapshot.sourceLayoutID
@@ -331,6 +405,7 @@ private final class PhysicalTypingSession {
               !faults.disableAutomaticConversion else {
             editor.insert(boundary.text)
             input.applyTokenHandlingResult(.passThrough, snapshot: snapshot)
+            done()
             return
         }
         let source = try layouts.layout(sourceID)
@@ -359,22 +434,40 @@ private final class PhysicalTypingSession {
         case let .keep(handling, _):
             editor.insert(boundary.text)
             input.applyTokenHandlingResult(handling, snapshot: snapshot)
+            done()
             return
         case let .replace(prepared, _): request = prepared
         }
+        after(timing.conversionPrePostMicroseconds) { [self] in
+            submit(request, snapshot: snapshot, sourceLanguage: source.language, targetLanguage: target.language,
+                   boundary: boundary, index: index, done: done)
+        }
+    }
+
+    private func after(_ delay: UInt64, _ action: @escaping @MainActor () -> Void) {
+        if delay == 0 { action() }
+        else { clock.schedule(at: clock.now + delay, action) }
+    }
+
+    private func submit(_ request: ReplacementRequest, snapshot: TokenSnapshot, sourceLanguage: String,
+                        targetLanguage: String, boundary: InputBoundary, index: Int,
+                        done: @escaping @MainActor () -> Void) {
         let transaction = request.transaction
         postedTransactionSequence = transaction.sequence
         let submission = driver.submit(
             request,
-            sourceLanguage: source.language, targetLanguage: target.language,
+            sourceLanguage: sourceLanguage, targetLanguage: targetLanguage,
             switchLayout: { [unowned self] id in requestLayout(id, actionIndex: index, sequence: transaction.sequence) }
         ) { [weak self] outcome in
-            self?.complete(outcome, transaction: transaction, language: target.language, actionIndex: index)
+            self?.complete(outcome, transaction: transaction, language: targetLanguage, actionIndex: index)
         }
         lastBoundaryConsumed = submission.handling.consumeBoundary
-        input.applyTokenHandlingResult(submission.handling, snapshot: snapshot)
-        if !lastBoundaryConsumed { editor.insert(boundary.text) }
         record("submit-\(submission.outcome)", actionIndex: index, sequence: transaction.sequence)
+        after(submission.isNewPost ? timing.conversionPostWorkMicroseconds : 0) { [self] in
+            input.applyTokenHandlingResult(submission.handling, snapshot: snapshot)
+            if !lastBoundaryConsumed { editor.insert(boundary.text) }
+            done()
+        }
     }
 
     private func requestLayout(_ id: String?, actionIndex: Int, sequence: UInt64) {
@@ -382,10 +475,12 @@ private final class PhysicalTypingSession {
         let apply: @MainActor () -> Void = { [unowned self] in
             activeLayoutID = id
             translation.reset()
+            if !faults.disableQueuedLayoutSynchronization {
+                queuedLayoutTransition.record(targetLayoutID: id, completedAt: clock.now * 1_000)
+            }
             record("layout-delivered", actionIndex: actionIndex, sequence: sequence)
         }
-        if timing.layoutDelayMicroseconds == 0 { apply() }
-        else { clock.schedule(at: clock.now + timing.layoutDelayMicroseconds, apply) }
+        after(timing.layoutDelayMicroseconds + timing.conversionPostWorkMicroseconds, apply)
     }
 
     private func complete(_ outcome: ReplacementOutcome, transaction: ConversionTransaction,

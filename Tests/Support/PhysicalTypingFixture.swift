@@ -98,12 +98,19 @@ public struct PhysicalTypingTiming: Codable, Equatable, Sendable {
     public var layoutDelayMicroseconds: UInt64 = 0
     public var verificationReadDelayMicroseconds: UInt64 = 1_000
     public var acknowledgementDelayMicroseconds: UInt64 = 0
+    /// Callback work before the shared coordinator is invoked; input arrival
+    /// and the editor clock continue independently while this lane is occupied.
+    public var conversionPrePostMicroseconds: UInt64 = 0
+    /// Synchronous post/layout work before switching and staging can finish.
+    /// This is not synthetic event delivery latency or a per-word input pause.
+    public var conversionPostWorkMicroseconds: UInt64 = 0
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case deliveryDelayMicroseconds, syntheticEventIntervalMicroseconds, layoutDelayMicroseconds
         case verificationReadDelayMicroseconds, acknowledgementDelayMicroseconds
+        case conversionPrePostMicroseconds, conversionPostWorkMicroseconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -114,6 +121,8 @@ public struct PhysicalTypingTiming: Codable, Equatable, Sendable {
         layoutDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .layoutDelayMicroseconds) ?? 0
         verificationReadDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .verificationReadDelayMicroseconds) ?? 1_000
         acknowledgementDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .acknowledgementDelayMicroseconds) ?? 0
+        conversionPrePostMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .conversionPrePostMicroseconds) ?? 0
+        conversionPostWorkMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .conversionPostWorkMicroseconds) ?? 0
     }
 }
 

@@ -203,6 +203,76 @@ final class ScheduledPhysicalTypingTests: XCTestCase {
         XCTAssertEqual(result.failures, ["selection-mismatch", "verified-completion-count-mismatch"])
     }
 
+    func testQueuedNextLetterReproducesBothNativeLayoutDirectionsWithoutWaitingForTheWord() throws {
+        let layouts = try layouts()
+        let runner = try runner(layouts)
+        for (text, intended, initial) in [(prose, ru, en),
+                                          ("please review the memo, and keep plan B for tomorrow. ", en, ru)] {
+            for prePost: UInt64 in [1_000, 6_000] {
+                var timing = PhysicalTypingTiming()
+                timing.conversionPrePostMicroseconds = prePost
+                timing.conversionPostWorkMicroseconds = 8_000
+                timing.deliveryDelayMicroseconds = 1_000
+                timing.syntheticEventIntervalMicroseconds = 50
+                timing.verificationReadDelayMicroseconds = 20_000
+                let fixture = try rollingOpening(layouts, text: text, intended: intended, initial: initial, timing: timing)
+                let fixed = try runner.run(fixture.stimulus)
+                XCTAssertTrue(PhysicalTypingAssessment.assess(fixed, oracle: fixture.oracle).passed)
+                var oldBehavior = PhysicalTypingFaults()
+                oldBehavior.disableQueuedLayoutSynchronization = true
+                let broken = try runner.run(fixture.stimulus, faults: oldBehavior)
+                XCTAssertFalse(PhysicalTypingAssessment.assess(broken, oracle: fixture.oracle).passed)
+                XCTAssertEqual(broken.transactions, fixed.transactions)
+                let waitingKey = try XCTUnwrap(fixed.observations.first {
+                    !$0.producedText.isEmpty && $0.capturedLayoutID != $0.layoutIDBefore
+                })
+                XCTAssertGreaterThan(waitingKey.processedAtMicroseconds, waitingKey.atMicroseconds)
+                XCTAssertNotEqual(waitingKey.capturedText, waitingKey.producedText)
+                XCTAssertEqual(waitingKey.deliveredText, waitingKey.producedText)
+                XCTAssertEqual(broken.observations[waitingKey.actionIndex].deliveredText, waitingKey.capturedText)
+                let start = try XCTUnwrap(fixed.trace.first { $0.event == "submit-postedUnverified" })
+                let end = try XCTUnwrap(fixed.trace.first {
+                    $0.event == "callback-ended" && $0.actionIndex == start.actionIndex
+                })
+                XCTAssertTrue(fixed.trace.contains {
+                    $0.event == "synthetic-insertion" && $0.atMicroseconds > start.atMicroseconds && $0.atMicroseconds < end.atMicroseconds
+                })
+                XCTAssertEqual(fixed.verifiedCompletions, 0)
+            }
+        }
+    }
+
+    func testBusyCallbackDoesNotHideDeliveryThatArrivesAfterItHasReturned() throws {
+        let layouts = try layouts()
+        var timing = PhysicalTypingTiming()
+        timing.conversionPrePostMicroseconds = 2_000
+        timing.conversionPostWorkMicroseconds = 8_000
+        timing.deliveryDelayMicroseconds = 30_000
+        let fixture = try rollingOpening(layouts, text: prose, intended: ru, initial: en, timing: timing)
+        let actual = try runner(layouts).run(fixture.stimulus)
+        XCTAssertFalse(PhysicalTypingAssessment.assess(actual, oracle: fixture.oracle).passed)
+        XCTAssertEqual(actual.verifiedCompletions, 0)
+        let firstDeletion = try XCTUnwrap(actual.trace.first { $0.event == "synthetic-backspace" })
+        let queuedLetter = try XCTUnwrap(actual.observations.first { $0.capturedLayoutID != $0.layoutIDBefore })
+        XCTAssertLessThan(queuedLetter.processedAtMicroseconds, firstDeletion.atMicroseconds)
+    }
+
+    private func rollingOpening(_ layouts: SystemTypingLayouts, text: String, intended: String, initial: String,
+                                timing: PhysicalTypingTiming) throws -> PhysicalTypingFixture {
+        var compiler = PhysicalTypingCompiler(layouts: layouts)
+        try compiler.append(text: text, intendedLayoutID: intended, intervalMicroseconds: 70_000)
+        let boundary = try XCTUnwrap(compiler.actions.firstIndex { $0.kind == .keyDown && $0.keyCode == 49 })
+        let next = try XCTUnwrap(compiler.actions.indices.first { $0 > boundary && compiler.actions[$0].kind == .keyDown })
+        let shift = compiler.actions[next].atMicroseconds - compiler.actions[boundary].atMicroseconds - 5_000
+        let actions: [PhysicalTypingAction] = compiler.actions.enumerated().map { index, action in
+            .init(kind: action.kind, atMicroseconds: action.atMicroseconds - (index >= next ? shift : 0),
+                  keyCode: action.keyCode, shift: action.shift, capsLock: action.capsLock)
+        }.sorted { $0.atMicroseconds < $1.atMicroseconds }
+        return .init(stimulus: .init(id: "queued-opening", layoutIDs: [en, ru], initialLayoutID: initial,
+                                     actions: actions, timing: timing),
+                     oracle: .init(text: text, finalLayoutID: intended, transactions: 1))
+    }
+
     private func layouts() throws -> SystemTypingLayouts {
         do { return try SystemTypingLayouts(ids: [en, ru]) }
         catch PhysicalTypingError.unavailableLayout(let id) { throw XCTSkip("Required system layout unavailable: \(id)") }
