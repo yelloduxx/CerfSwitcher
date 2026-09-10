@@ -708,6 +708,52 @@ bash scripts/run_native_release_smoke.sh
   overlapping-delivery failure remains unresolved. Decoder weights, dictionary,
   installed build and user rules were not changed.
 
+### First external native evidence (September 10)
+
+- OS grants were approved; app and driver preflight now report access. Installed
+  build 130 was stopped only for each authorized short run and restored with
+  executable-hash/PID verification. The latest restored PID was 6044.
+- The first driver run stopped on action 0 at 10,018 microseconds lateness, so
+  it did not test conversion. `--timing-check` now measures source lookup and
+  event preparation without posting; the cold input-source read measured 32.8 ms.
+  Live records split focus/read/preparation/post duration. First post itself is
+  still about 9 ms; no deadline was increased or timing pass assumed.
+- The driver previously blocked the main run loop with sleep. A no-window
+  timer/cancellation self-check failed on that code (exit 64) and passes when
+  waiting services the default run-loop mode. Initial source verification and
+  non-posted object warmup occur before the input schedule. Absolute per-key
+  deadlines remain unchanged; no conversion-dependent wait was added.
+- Existing `physical-closed-loop.json` remains an unresolved manual-source
+  transition trap: a `selectLayout` and following key share one timestamp;
+  native produced `фnd` instead of `and`, despite the driver observing US.
+  Its first automatic replacement was posted/verified. The oracle was not
+  changed to accept the wrong letter. Evidence: native run
+  `9511ec04-5197-4604-921b-d67f354ab6b4` under `.build/native-runs`.
+- New `physical-auto-code-switch.json` has 93 physical presses, no manual
+  source-change commands, and three independently expected automatic switches.
+  It covers RU/EN/RU prose, punctuation and `plan B`; keyDown spacing is 70 ms,
+  each keyUp follows its keyDown by 23 ms, without per-word pauses. Headless text, final layout and
+  three transition checkpoints pass, with three confirmations.
+- In native run `352414a6-96b7-47c7-be62-210f30328d57`, that full text/selection,
+  all layout checkpoints and 3 posted/3 verified replacements also matched.
+  The full case still failed: original boundary keyDowns 14/68/152 were consumed
+  as expected, but original keyUp 15 was absent. All 186 producer actions
+  completed, max lateness 9,837 us; no foreign input was recorded. The cause of
+  the missing release is not established and is not silently exempted.
+- Host reports now separate `receivedEvents` in the AppKit local monitor from
+  `eventTrace` after NSTextView handlers. Assessors require actual receipt data,
+  not handler callbacks as a proxy. This is still not a global Quartz tap
+  observation. The native negative control has not run because the positive
+  delivery gate fails first; there is no full external-native suite pass.
+- The runner now collects the auto-off control even after a completed positive
+  quality failure, retaining an overall failed result. Invalid/interrupted
+  evidence still aborts before another window. Two mocked orchestration tests
+  cover that distinction; the amended two-case flow has not run natively yet.
+- Further UI runs were paused after these short attempts. Next: resolve the
+  missing-release observation and characterize explicit source-change latency,
+  then complete the native negative control and fast-overlap case. A correct
+  normal-speed phrase does not prove all editors or fast input are safe.
+
 ## Build, Signing and Installation
 
 Before installation:

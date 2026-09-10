@@ -111,8 +111,9 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
             or len(host["selection"]) != 2 or any(type(x) is not int for x in host["selection"])
             or type(app.get("automaticConversion")) is not bool or type(app.get("modelAvailable")) is not bool
             or type(driver.get("restoredLayout")) is not bool
-            or type(host.get("eventTrace")) is not list or type(driver.get("records")) is not list
-            or not all(isinstance(x, dict) for x in host["eventTrace"] + driver["records"])):
+            or type(host.get("eventTrace")) is not list or type(host.get("receivedEvents")) is not list
+            or type(driver.get("records")) is not list
+            or not all(isinstance(x, dict) for x in host["eventTrace"] + host["receivedEvents"] + driver["records"])):
         return ["malformed-native-evidence"]
     failures = []
     for data, name, pid in [(host, "host", pids[0]), (app, "app", pids[1]), (driver, "driver", pids[2])]:
@@ -150,7 +151,7 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
         index = checkpoint["actionIndex"]
         if index >= len(records) or records[index].get("layoutID") != checkpoint["layoutIDBefore"]:
             failures.append("layout-checkpoint-mismatch")
-    events = host.get("eventTrace", [])
+    events = host["receivedEvents"]
     inputs = [e for e in events if type(e.get("marker")) is int and input_marker < e["marker"] <= input_marker + 10_000]
     downs = sum(e.get("kind") == "keyDown" for e in inputs)
     ups = sum(e.get("kind") == "keyUp" for e in inputs)
@@ -309,6 +310,22 @@ def run_case(root, fixture, executables, automatic):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
+def run_cases(directory, fixture, executables, summary):
+    accepted = True
+    quality_failures = {"text-mismatch", "selection-mismatch", "layout-mismatch", "layout-checkpoint-mismatch",
+                        "transaction-count-mismatch", "delivered-keydown-count-mismatch",
+                        "delivered-keyup-count-mismatch", "input-delivery-sequence-mismatch"}
+    for name, enabled in [("positive", True), ("auto-off-control", False)]:
+        result = run_case(directory / name, fixture, executables, enabled)
+        summary["cases"].append(result)
+        if set(result["failures"]) - quality_failures:
+            raise RuntimeError("native run interrupted or evidence invalid; no further window opened")
+        if not case_accepted(result, enabled):
+            accepted = False
+            summary.setdefault("qualityFailures", []).append(name)
+    return accepted
+
+
 def main(argv=None, *, root=None):
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
@@ -420,14 +437,10 @@ def main(argv=None, *, root=None):
                         time.sleep(0.05)
                     if running_switchers():
                         raise BlockedEnvironment("switcher still running after stop request")
-                for name, enabled in [("positive", True), ("auto-off-control", False)]:
-                    result = run_case(directory / name, fixture, [x[1] for x in products], enabled)
-                    summary["cases"].append(result)
-                    if not case_accepted(result, enabled):
-                        raise RuntimeError("positive native case failed" if enabled else "auto-off control was damaged or did not detect disabled conversion")
+                accepted = run_cases(directory, fixture, [x[1] for x in products], summary)
                 if any(digest(path) != summary["signedBinarySHA256"][path.name] for _, path in products):
                     raise RuntimeError("a tested executable changed during the run")
-                summary["status"] = "passed"
+                summary["status"] = "passed" if accepted else "failed"
     except BlockedEnvironment as error:
         summary.update(status="blockedEnvironment", error=str(error))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

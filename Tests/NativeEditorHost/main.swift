@@ -19,6 +19,13 @@ private struct HostEvent: Codable, Equatable {
     let selection: [Int]
 }
 
+private struct ReceivedEvent: Codable, Equatable {
+    let kind: String
+    let keyCode: Int
+    let marker: Int64
+    let atNanoseconds: UInt64
+}
+
 private struct HostSnapshot: Codable, Equatable {
     var schemaVersion = 1
     let runID: String
@@ -30,6 +37,7 @@ private struct HostSnapshot: Codable, Equatable {
     let selection: [Int]
     let unexpectedInputCount: Int
     let eventTrace: [HostEvent]
+    let receivedEvents: [ReceivedEvent]
 
     func write(to root: URL, final: Bool) throws {
         let encoder = JSONEncoder()
@@ -105,6 +113,7 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private var selection = [0, 0]
     private var unexpectedInputCount = 0
     private var eventTrace: [HostEvent] = []
+    private var receivedEvents: [ReceivedEvent] = []
     private var window: NSWindow?
     private var textView: ProbeTextView?
     private var timer: Timer?
@@ -159,7 +168,9 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
                 guard let self else { return false }
                 switch event.type {
                 case .keyDown, .keyUp, .flagsChanged:
-                    return self.acceptKeyboard(event)
+                    guard self.acceptKeyboard(event) else { return false }
+                    self.recordReceipt(event)
+                    return true
                 default:
                     self.checkControlFiles()
                     if self.status == .recording {
@@ -239,6 +250,20 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         ))
     }
 
+    private func recordReceipt(_ event: NSEvent) {
+        guard receivedEvents.count < 10_000 else { finish(.interrupted); return }
+        let kind: String
+        switch event.type {
+        case .keyDown: kind = "keyDown"
+        case .keyUp: kind = "keyUp"
+        default: kind = "flagsChanged"
+        }
+        // Arrival at the app is different from NSTextView choosing to handle it.
+        receivedEvents.append(.init(kind: kind, keyCode: Int(event.keyCode),
+                                     marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0,
+                                     atNanoseconds: DispatchTime.now().uptimeNanoseconds))
+    }
+
     func unexpectedInput() {
         checkControlFiles()
         guard status == .recording, !finished else { return }
@@ -295,7 +320,8 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             text: text,
             selection: selection,
             unexpectedInputCount: unexpectedInputCount,
-            eventTrace: eventTrace
+            eventTrace: eventTrace,
+            receivedEvents: receivedEvents
         )
         do {
             try snapshot.write(to: root, final: final)
@@ -336,7 +362,8 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) thro
         text: "",
         selection: [0, 0],
         unexpectedInputCount: 0,
-        eventTrace: []
+        eventTrace: [],
+        receivedEvents: []
     )
     // Exercise exact integer encoding without allocating any native event.
     guard let sampleMarker = config.inputEventMarker(actionIndex: 0) else { throw HostError.invalidOutput }

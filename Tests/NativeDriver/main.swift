@@ -31,6 +31,10 @@ private struct InputRecord: Codable {
     let plannedNanoseconds: UInt64
     let postedNanoseconds: UInt64
     let layoutID: String
+    let focusCheckNanoseconds: UInt64
+    let layoutReadNanoseconds: UInt64
+    let preparationNanoseconds: UInt64
+    let postNanoseconds: UInt64
 }
 
 private struct DriverReport: Encodable {
@@ -90,8 +94,65 @@ private func wait(until time: UInt64, cancelled: () -> Bool) throws {
         if cancelled() { throw DriverError.interruptedFocus }
         let now = DispatchTime.now().uptimeNanoseconds
         guard now < time else { return }
-        Thread.sleep(forTimeInterval: min(0.01, Double(time - now) / 1_000_000_000))
+        let interval = min(0.01, Double(time - now) / 1_000_000_000)
+        // NSWorkspace and input-source observations need the main run loop.
+        // The absolute deadline still bounds timing; do not wait for conversion.
+        if !RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: interval)) {
+            Thread.sleep(forTimeInterval: interval)
+        }
     }
+}
+
+private func checkWaitServicesRunLoop() throws {
+    let callback = DispatchSemaphore(value: 0)
+    let timer = Timer(timeInterval: 0.001, repeats: false) { _ in callback.signal() }
+    RunLoop.current.add(timer, forMode: .default)
+    defer { timer.invalidate() }
+    do {
+        try wait(until: DispatchTime.now().uptimeNanoseconds + 250_000_000) {
+            callback.wait(timeout: .now()) == .success
+        }
+    } catch DriverError.interruptedFocus {
+        return
+    }
+    throw DriverError.invalidFixture
+}
+
+private func prepareEvent(_ action: PhysicalTypingAction, index: Int, config: ExternalNativeProbeConfiguration,
+                          source: CGEventSource, keyboardType: UInt32) throws -> CGEvent {
+    guard let key = action.keyCode,
+          let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: action.kind == .keyDown),
+          let marker = config.inputEventMarker(actionIndex: index) else { throw DriverError.eventAllocation }
+    var flags: CGEventFlags = []
+    if action.shift { flags.insert(.maskShift) }
+    if action.capsLock { flags.insert(.maskAlphaShift) }
+    event.flags = flags
+    event.setIntegerValueField(.eventSourceUserData, value: marker)
+    event.setIntegerValueField(.keyboardEventAutorepeat, value: action.autorepeat ? 1 : 0)
+    event.setIntegerValueField(.keyboardEventKeyboardType, value: Int64(keyboardType))
+    return event
+}
+
+private func checkPreparationTiming(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration) throws {
+    guard let source = CGEventSource(stateID: .hidSystemState),
+          let index = stimulus.actions.firstIndex(where: { $0.kind == .keyDown }) else { throw DriverError.invalidFixture }
+    var samples: [[String: UInt64]] = []
+    for _ in 0..<8 {
+        let start = DispatchTime.now().uptimeNanoseconds
+        _ = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let focusRead = DispatchTime.now().uptimeNanoseconds
+        _ = currentLayoutID()
+        let layoutRead = DispatchTime.now().uptimeNanoseconds
+        let event = try prepareEvent(stimulus.actions[index], index: index, config: config,
+                                     source: source, keyboardType: stimulus.keyboardType)
+        withExtendedLifetime(event) {}
+        let prepared = DispatchTime.now().uptimeNanoseconds
+        samples.append(["focusCheckNanoseconds": focusRead - start, "layoutReadNanoseconds": layoutRead - focusRead,
+                        "preparationNanoseconds": prepared - layoutRead])
+    }
+    let data = try JSONSerialization.data(withJSONObject: ["eventsPosted": 0, "samples": samples], options: [.sortedKeys])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
 }
 
 private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration,
@@ -113,13 +174,23 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
     guard TISSelectInputSource(initial) == noErr else { throw DriverError.blockedLayout }
     guard let eventSource = CGEventSource(stateID: .hidSystemState) else { throw DriverError.eventAllocation }
     eventSource.userData = config.inputMarker
-    let began = DispatchTime.now().uptimeNanoseconds + 100_000_000
+    let cancelled = {
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path)
+            || NSWorkspace.shared.frontmostApplication?.processIdentifier != hostPID
+    }
+    try wait(until: DispatchTime.now().uptimeNanoseconds + 100_000_000, cancelled: cancelled)
+    guard currentLayoutID() == stimulus.initialLayoutID else { throw DriverError.blockedLayout }
+    if let firstKey = stimulus.actions.firstIndex(where: { $0.kind == .keyDown }) {
+        // Warm object construction without sending anything or freezing the
+        // Unicode payloads of later keys before the layout actually changes.
+        _ = try prepareEvent(stimulus.actions[firstKey], index: firstKey, config: config,
+                             source: eventSource, keyboardType: stimulus.keyboardType)
+    }
+    let began = DispatchTime.now().uptimeNanoseconds
     for (index, action) in stimulus.actions.enumerated() {
         let planned = began + action.atMicroseconds * 1_000
-        try wait(until: planned) {
-            FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path)
-                || NSWorkspace.shared.frontmostApplication?.processIdentifier != hostPID
-        }
+        try wait(until: planned, cancelled: cancelled)
+        let focusCheckStarted = DispatchTime.now().uptimeNanoseconds
         guard !FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == hostPID else { throw DriverError.interruptedFocus }
         let now = DispatchTime.now().uptimeNanoseconds
@@ -129,39 +200,36 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
         // supposedly independent high-rate input stream.
         guard lateness <= 10_000 else { throw DriverError.scheduleTooLate }
         let layout = currentLayoutID()
+        let layoutRead = DispatchTime.now().uptimeNanoseconds
         guard stimulus.layoutIDs.contains(layout) else { throw DriverError.blockedLayout }
         if index == 0, layout != stimulus.initialLayoutID { throw DriverError.blockedLayout }
+        var prepared = layoutRead
         switch action.kind {
         case .selectLayout:
             guard let id = action.layoutID, let source = sources[id], TISSelectInputSource(source) == noErr else {
                 throw DriverError.blockedLayout
             }
         case .keyDown, .keyUp:
-            guard let key = action.keyCode,
-                  let event = CGEvent(keyboardEventSource: eventSource, virtualKey: key, keyDown: action.kind == .keyDown) else {
-                throw DriverError.eventAllocation
-            }
-            var flags: CGEventFlags = []
-            if action.shift { flags.insert(.maskShift) }
-            if action.capsLock { flags.insert(.maskAlphaShift) }
-            event.flags = flags
-            guard let marker = config.inputEventMarker(actionIndex: index) else { throw DriverError.invalidFixture }
-            event.setIntegerValueField(.eventSourceUserData, value: marker)
-            event.setIntegerValueField(.keyboardEventAutorepeat, value: action.autorepeat ? 1 : 0)
-            event.setIntegerValueField(.keyboardEventKeyboardType, value: Int64(stimulus.keyboardType))
+            let event = try prepareEvent(action, index: index, config: config, source: eventSource,
+                                         keyboardType: stimulus.keyboardType)
+            prepared = DispatchTime.now().uptimeNanoseconds
             event.post(tap: .cghidEventTap)
         case .focusChange, .tapRecovery: throw DriverError.unsupportedAction
         }
         let posted = DispatchTime.now().uptimeNanoseconds
         report.records.append(.init(actionIndex: index, plannedNanoseconds: planned,
-                                    postedNanoseconds: posted, layoutID: layout))
+                                    postedNanoseconds: posted, layoutID: layout,
+                                    focusCheckNanoseconds: now - focusCheckStarted,
+                                    layoutReadNanoseconds: layoutRead - now,
+                                    preparationNanoseconds: prepared - layoutRead,
+                                    postNanoseconds: posted - prepared))
         let postLateness = (posted - planned) / 1_000
         report.maximumLatenessMicroseconds = max(report.maximumLatenessMicroseconds, postLateness)
         guard postLateness <= 10_000 else { throw DriverError.scheduleTooLate }
     }
     // Only the end of the continuous phrase waits for observation, never a
     // word boundary or a decoder verdict.
-    Thread.sleep(forTimeInterval: 0.3)
+    try wait(until: DispatchTime.now().uptimeNanoseconds + 300_000_000, cancelled: cancelled)
 }
 
 do {
@@ -174,7 +242,12 @@ do {
     let stimulus = try JSONDecoder().decode(PhysicalTypingStimulus.self, from: data)
     try validate(stimulus, config: config)
     if CommandLine.arguments.contains("--self-check") {
+        try checkWaitServicesRunLoop()
         print("PASS: input/config valid; no application, window or events created")
+        exit(0)
+    }
+    if CommandLine.arguments.contains("--timing-check") {
+        try checkPreparationTiming(stimulus, config: config)
         exit(0)
     }
     if CommandLine.arguments.contains("--request-access"), !CGPreflightPostEventAccess() {

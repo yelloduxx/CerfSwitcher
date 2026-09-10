@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location("external_suite", Path(__file__).parents[1] / "run_external_native_suite.py")
@@ -14,7 +15,7 @@ class NativeAssessmentTests(unittest.TestCase):
         self.fixture = {"oracle": {"text": "done ", "finalLayoutID": "en", "transactions": 1},
                         "stimulus": {"actions": [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]}}
         self.host = dict(pid=10, status="complete", unexpectedInputCount=0, text="done ", selection=[5, 0],
-                         eventTrace=[dict(kind="keyUp", keyCode=49, marker=125)])
+                         eventTrace=[], receivedEvents=[dict(kind="keyUp", keyCode=49, marker=125)])
         self.app = dict(pid=20, status="complete", automaticConversion=True, modelAvailable=True, posted=1, verified=1, targetProcessID=10)
         self.driver = dict(pid=30, status="complete", finalLayoutID="en", restoredLayout=True,
                            maximumLatenessMicroseconds=0,
@@ -35,7 +36,7 @@ class NativeAssessmentTests(unittest.TestCase):
 
     def testCorrectTextCannotHideSelectionDuplicatesOrUnverifiedReplacement(self):
         self.host["selection"] = [0, 5]
-        self.host["eventTrace"] *= 2
+        self.host["receivedEvents"] *= 2
         self.app["verified"] = 0
         failures = self.assess()
         self.assertIn("selection-mismatch", failures)
@@ -68,14 +69,14 @@ class NativeAssessmentTests(unittest.TestCase):
         self.assertEqual(self.assess(), ["malformed-native-evidence"])
 
     def testCorrectCountsCannotHideWrongKeyOrDuplicatedAction(self):
-        self.host["eventTrace"][0]["keyCode"] = 0
+        self.host["receivedEvents"][0]["keyCode"] = 0
         self.assertIn("input-delivery-sequence-mismatch", self.assess())
-        self.host["eventTrace"][0]["keyCode"] = 49
+        self.host["receivedEvents"][0]["keyCode"] = 49
         self.fixture["stimulus"]["actions"] += [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]
         self.driver["records"] += [dict(actionIndex=i, plannedNanoseconds=i, postedNanoseconds=i) for i in (2, 3)]
-        self.host["eventTrace"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
+        self.host["receivedEvents"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
         self.assertEqual(self.assess(), [])
-        self.host["eventTrace"][-1]["marker"] = 125
+        self.host["receivedEvents"][-1]["marker"] = 125
         failures = self.assess()
         self.assertNotIn("delivered-keyup-count-mismatch", failures)
         self.assertIn("input-delivery-sequence-mismatch", failures)
@@ -86,7 +87,7 @@ class NativeAssessmentTests(unittest.TestCase):
 
     def testAutoOffMustMatchItsOwnOracleNotMerelyFailThePositiveOne(self):
         self.fixture["oracle"]["automaticOff"] = {"text": "wrong ", "finalLayoutID": "en", "transactions": 0}
-        self.host.update(text="wrong ", selection=[6, 0], eventTrace=[dict(kind="keyDown", keyCode=49, marker=124),
+        self.host.update(text="wrong ", selection=[6, 0], receivedEvents=[dict(kind="keyDown", keyCode=49, marker=124),
                                                                      dict(kind="keyUp", keyCode=49, marker=125)])
         self.app.update(automaticConversion=False, posted=0, verified=0)
 
@@ -97,12 +98,39 @@ class NativeAssessmentTests(unittest.TestCase):
                         controlFailures=SUITE.assess(control, self.host, self.app, self.driver, [10, 20, 30], False, 123))
 
         self.assertTrue(SUITE.case_accepted(result(), False))
-        self.host["eventTrace"].pop(0)
+        self.host["receivedEvents"].pop(0)
         damaged = result()
         self.assertIn("text-mismatch", damaged["failures"])
         self.assertIn("delivered-keydown-count-mismatch", damaged["controlFailures"])
         self.assertFalse(SUITE.case_accepted(damaged, False))
         self.assertFalse(SUITE.case_accepted(dict(passed=False, failures=["text-mismatch"]), False))
+
+    def testArrivalIsIndependentOfResponderHandling(self):
+        self.assertEqual(self.host["eventTrace"], [])
+        self.assertEqual(self.assess(), [])
+        self.host["eventTrace"] = self.host["receivedEvents"][:]
+        self.host["receivedEvents"] = []
+        self.assertIn("delivered-keyup-count-mismatch", self.assess())
+        del self.host["receivedEvents"]
+        self.assertEqual(self.assess(), ["malformed-native-evidence"])
+
+    def testCompletedPositiveFailureStillCollectsTheNegativeControl(self):
+        summary = dict(cases=[])
+        positive = dict(passed=False, failures=["delivered-keyup-count-mismatch"], controlFailures=None)
+        negative = dict(passed=False, failures=["text-mismatch"], controlFailures=[])
+        with patch.object(SUITE, "run_case", side_effect=[positive, negative]) as run:
+            self.assertFalse(SUITE.run_cases(Path("unused"), {}, [], summary))
+        self.assertEqual([call.args[-1] for call in run.call_args_list], [True, False])
+        self.assertEqual(summary["cases"], [positive, negative])
+        self.assertEqual(summary["qualityFailures"], ["positive"])
+
+    def testInterferenceStopsBeforeAnotherWindowIsRequested(self):
+        summary = dict(cases=[])
+        result = dict(passed=False, failures=["external-interference"], controlFailures=None)
+        with patch.object(SUITE, "run_case", return_value=result) as run:
+            with self.assertRaisesRegex(RuntimeError, "no further window"):
+                SUITE.run_cases(Path("unused"), {}, [], summary)
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == "__main__":
