@@ -17,10 +17,16 @@ enum ExternalNativeProbe {
               let config = try? ExternalNativeProbeConfiguration.load(from: sessionURL), config.runID == runID,
               config.replacementMarker == kRuSwitcherEventMarker,
               RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments) == config.preferencesDomain else { exit(64) }
+        if CommandLine.arguments.contains("--request-access") {
+            let options = ["AXTrustedCheckOptionPrompt" as CFString: true as CFBoolean] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
+            if !CGPreflightPostEventAccess() { _ = CGRequestPostEventAccess() }
+        }
         let accessibility = AXIsProcessTrusted()
         let listening = CGPreflightListenEventAccess()
         let posting = CGPreflightPostEventAccess()
-        if CommandLine.arguments.contains("--preflight") {
+        if CommandLine.arguments.contains("--preflight") || CommandLine.arguments.contains("--request-access") {
             print("accessibility=\(accessibility) listening=\(listening) posting=\(posting); no event tap started")
             exit(accessibility && listening && posting ? 0 : 77)
         }

@@ -177,7 +177,10 @@ do {
         print("PASS: input/config valid; no application, window or events created")
         exit(0)
     }
-    if CommandLine.arguments.contains("--preflight") {
+    if CommandLine.arguments.contains("--request-access"), !CGPreflightPostEventAccess() {
+        _ = CGRequestPostEventAccess()
+    }
+    if CommandLine.arguments.contains("--preflight") || CommandLine.arguments.contains("--request-access") {
         let available = config.layoutIDs.allSatisfy { enabledSource($0) != nil }
         let access = CGPreflightPostEventAccess()
         print("postingAccess=\(access) enabledLayouts=\(available); no events posted")

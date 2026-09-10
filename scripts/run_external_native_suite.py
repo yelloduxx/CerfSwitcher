@@ -67,6 +67,25 @@ def write_json(path, data):
     temporary.replace(path)
 
 
+def archive_run(root, runtime, summary):
+    destination = root / ".build/native-runs" / summary["runID"]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Never merge with previous evidence, even if a run ID is accidentally reused.
+    destination.mkdir()
+    try:
+        shutil.copytree(runtime, destination, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("*.app", "summary.json"))
+        archived = dict(summary, artifactDirectory=str(destination))
+        archived["cases"] = [dict(case, artifactDirectory=str(destination / Path(case["directory"]).name))
+                             for case in summary["cases"]]
+        # Publish completion last; an incomplete archive cannot contain a passed summary.
+        write_json(destination / "summary.json", archived)
+        return archived
+    except BaseException:
+        shutil.rmtree(destination)
+        raise
+
+
 def read_state(path, run_id):
     try:
         data = json.loads(Path(path).read_text())
@@ -419,6 +438,10 @@ def main(argv=None, *, root=None):
                 summary["restoredInstalledApp"] = restore_installed(restore_hash)
             except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                 summary.update(status="invalidRun", restorationError=str(error))
+    try:
+        summary = archive_run(root, directory, summary)
+    except OSError as error:
+        summary.update(status="invalidRun", archiveError=str(error))
     write_json(directory / "summary.json", summary)
     (root / ".build").mkdir(exist_ok=True)
     write_json(root / ".build/external-native-last.json", summary)

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -75,6 +76,36 @@ class NativePreflightTests(unittest.TestCase):
         self.assertEqual(summary["status"], "permissionsReadyNotRun")
         self.assertEqual(summary["cases"], [])
         self.assertNotIn("restoredInstalledApp", summary)
+
+    def testReportsSurviveRuntimeCleanupWithoutArchivingApplications(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            (runtime / "positive").mkdir(parents=True)
+            (runtime / "Test.app/Contents").mkdir(parents=True)
+            (runtime / "Test.app/Contents/binary").write_bytes(b"not evidence")
+            SUITE.write_json(runtime / "positive/host-result.json", {"text": "test phrase, complete!"})
+            summary = dict(runID="run-one", status="blockedEnvironment", cases=[dict(directory=str(runtime / "positive"))])
+            archived = SUITE.archive_run(root, runtime, summary)
+            shutil.rmtree(runtime)
+            archive = Path(archived["artifactDirectory"])
+            self.assertFalse((archive / "Test.app").exists())
+            self.assertEqual(json.loads((archive / "summary.json").read_text()), archived)
+            self.assertEqual(json.loads((Path(archived["cases"][0]["artifactDirectory"]) / "host-result.json").read_text()),
+                             {"text": "test phrase, complete!"})
+
+    def testArchiveCannotOverwriteEarlierRunEvidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            summary = dict(runID="run-one", status="preparedNotRun", cases=[])
+            archived = SUITE.archive_run(root, runtime, summary)
+            evidence = Path(archived["artifactDirectory"]) / "summary.json"
+            original = evidence.read_bytes()
+            with self.assertRaises(FileExistsError):
+                SUITE.archive_run(root, runtime, dict(summary, status="passed"))
+            self.assertEqual(evidence.read_bytes(), original)
 
 
 if __name__ == "__main__":

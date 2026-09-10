@@ -666,6 +666,26 @@ bash scripts/run_native_release_smoke.sh
   287 Swift tests and 23 Python artifact/assessor tests pass. Native delivery,
   external editor behavior and the modeled overlapping-input failure remain
   unverified/unresolved; no new app has been installed.
+- Permission requests are explicit CLI actions (`--request-access`) on the
+  validated probe/driver configuration; they exit after the standard macOS
+  request and never start an event tap or type. Ordinary `--preflight` and the
+  wrapper's `--preflight-only` do not request grants. The user authorized one
+  request; installed Pro was neither stopped nor replaced.
+- After the Mac restarted, installed Pro retained the build-130 hash and ran as
+  PID 1566. The old `/private/tmp` probe bundles were gone. The wrapper now copies
+  completed reports/configs/logs into `.build/native-runs/<runID>` (without app
+  bundles), publishes the archived summary last and refuses run-ID reuse.
+  `artifactDirectory` points to durable evidence; `directory` is the runtime
+  location. All 25 Python artifact/assessor checks pass, including temporary
+  directory deletion and duplicate archive-ID controls.
+- Post-restart TCC attribution is now verified, not inferred: both test
+  processes were attributed to responsible `com.openai.codex`, whose current
+  `/Applications/ChatGPT.app` has display name `ChatGPT`. Its Accessibility and
+  Input Monitoring grants are the relevant UI entries for direct child-process
+  tests on this host. Evidence: `.build/native-permission-attribution.log` and
+  `.build/native-after-restart-preflight.log`. Do not add private TCC entitlements,
+  change signing identity or launch through another privileged app to evade a
+  refusal. No successful external native run has occurred yet.
 
 ### Shared automatic preparation (September 10)
 
