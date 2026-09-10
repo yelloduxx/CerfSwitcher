@@ -32,12 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tapReconfigureWorkItem: DispatchWorkItem?
     private var lastSessionRecoveryAt = Date.distantPast
     private var monitoringActive = false
+    private var siblingMonitoringStarted = false
+    private var siblingApplications = SiblingApplicationTracker(
+        ownProcessID: ProcessInfo.processInfo.processIdentifier,
+        ownBundleID: ProductIdentity.bundleIdentifier
+    )
     private var caretIndicator: CaretIndicator?   // issue #10: флаг у каретки (бета, по умолчанию OFF)
     private var lastFlagShown: String?            // идентичность раскладки для детекта смены (не title!)
     private var badgeCache: [String: NSImage] = [:]  // монохромные плашки, чтобы не перерисовывать 2с-опросом
     func applicationDidFinishLaunching(_ notification: Notification) {
         SettingsManager.shared.migrateAdaptiveRulesIfNeeded()
         sanitizeAdaptiveRules()
+        startSiblingApplicationMonitoring()
         if languageModel != nil {
             rslog("engine_v3_available")
         } else {
@@ -84,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let now = Date()
             guard now.timeIntervalSince(self.lastSessionRecoveryAt) >= 1 else { return }
             self.lastSessionRecoveryAt = now
+            self.refreshSiblingApplications()
             rslog("workspace_session_resumed")
             self.cancelDeferredManualLearning()
             self.lastAutoConverted = nil
@@ -101,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func startHIDProbeMonitoring() {
         SettingsManager.shared.migrateAdaptiveRulesIfNeeded()
         sanitizeAdaptiveRules()
+        startSiblingApplicationMonitoring()
         setupStatusItem()
         setupSettingsCallbacks()
         startMonitoring(offerSetup: false)
@@ -532,7 +540,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // флаг «застревает». Постоянный лёгкий опрос держит иконку в синхроне с системой.
         iconRefreshTimer?.invalidate()
         iconRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.updateStatusIcon() }
+            Task { @MainActor in
+                self?.updateStatusIcon()
+                self?.refreshStatusHealth()
+            }
         }
         rslog("Monitoring started successfully")
         if let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier {
@@ -1060,7 +1071,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             request,
             sourceLanguage: langs.current,
             targetLanguage: targetLang,
-            switchLayout: applyTargetLayout
+            switchLayout: { targetID in
+                self.applyTargetLayout(targetID, synchronizeQueuedKeys: Set([langs.current, targetLang]) == ["en", "ru"])
+            }
         ) { [weak self] outcome in
             self?.finishAutomaticReplacement(
                 outcome: outcome,
@@ -1122,9 +1135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func applyTargetLayout(_ targetLayoutID: String?) {
+    private func applyTargetLayout(_ targetLayoutID: String?, synchronizeQueuedKeys: Bool) {
         if let targetLayoutID {
-            LayoutSwitcher.switchTo(layoutID: targetLayoutID)
+            let switched = LayoutSwitcher.switchTo(layoutID: targetLayoutID)
+            if switched, synchronizeQueuedKeys, !SettingsManager.shared.remoteDesktopMode {
+                keyboardMonitor.recordAutomaticLayoutSwitch(
+                    targetLayoutID: targetLayoutID, completedAt: DispatchTime.now().uptimeNanoseconds
+                )
+            }
         } else {
             LayoutSwitcher.switchToOpposite()
         }
@@ -1228,7 +1246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         verItem.isEnabled = false
         menu.addItem(verItem)
-        let healthItem = NSMenuItem(title: autoConversionHealthText(), action: nil, keyEquivalent: "")
+        let healthItem = NSMenuItem(title: refreshStatusHealth(), action: nil, keyEquivalent: "")
         healthItem.isEnabled = false
         healthItem.tag = Self.healthItemTag
         menu.addItem(healthItem)
@@ -1334,7 +1352,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// а текущую меняют и мимо нас — системным хоткеем).
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
-        menu.items.first(where: { $0.tag == Self.healthItemTag })?.title = autoConversionHealthText()
+        refreshSiblingApplications()
+        menu.items.first(where: { $0.tag == Self.healthItemTag })?.title = refreshStatusHealth()
         let insertAt = menu.items.firstIndex { $0.tag == Self.layoutItemTag } ?? 2
         for old in menu.items where old.tag == Self.layoutItemTag { menu.removeItem(old) }
         for (offset, item) in layoutMenuItems().enumerated() {
@@ -1366,23 +1385,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.button?.image = nil
             statusItem.button?.title = flag
         }
-        statusItem.button?.toolTip = autoConversionHealthText()
         if changed { caretIndicator?.layoutChanged() }
     }
 
+    @discardableResult
+    private func refreshStatusHealth() -> String {
+        // Health diagnostics query system services. Refresh on the existing UI
+        // timer/menu/lifecycle paths, never from immediate per-key flag updates.
+        // Conversion safety checks remain live in handleAutoConvert.
+        let text = autoConversionHealthText()
+        statusItem.button?.toolTip = text
+        return text
+    }
+
     private func hasSiblingRuSwitcherInstance() -> Bool {
-        NSWorkspace.shared.runningApplications.contains { app in
-            guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
-            let bundleID = app.bundleIdentifier ?? ""
-            return bundleID == "com.ruswitcher.app"
-                || bundleID == "com.ruswitcher.lab"
-                || bundleID == ProductIdentity.bundleIdentifier
-                || (app.localizedName?.contains("RuSwitcher") == true)
+        siblingApplications.hasSibling
+    }
+
+    private func startSiblingApplicationMonitoring() {
+        guard !siblingMonitoringStarted else { return }
+        siblingMonitoringStarted = true
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            center.addObserver(self, selector: #selector(siblingApplicationChanged(_:)), name: name, object: nil)
         }
+        refreshSiblingApplications()
+    }
+
+    private func refreshSiblingApplications() {
+        siblingApplications.replace(with: NSWorkspace.shared.runningApplications.map(Self.siblingSnapshot))
+    }
+
+    private static func siblingSnapshot(_ application: NSRunningApplication) -> SiblingApplicationTracker.Application {
+        .init(processID: application.processIdentifier, bundleID: application.bundleIdentifier, name: application.localizedName)
+    }
+
+    @objc private func siblingApplicationChanged(_ notification: Notification) {
+        guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let changed: Bool
+        if notification.name == NSWorkspace.didTerminateApplicationNotification {
+            changed = siblingApplications.terminated(processID: application.processIdentifier)
+        } else {
+            changed = siblingApplications.launched(Self.siblingSnapshot(application))
+        }
+        if changed, statusItem != nil { refreshStatusHealth() }
     }
 
     private func autoConversionHealthText() -> String {
-        // Live check: clearing the warning when Lab/author quits, without restart.
+        // Sibling presence follows lifecycle notifications; all other health
+        // queries run only on explicit UI refresh paths, not in the key callback.
         if hasSiblingRuSwitcherInstance() {
             return L10n.statusSiblingInstance
         }

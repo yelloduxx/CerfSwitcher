@@ -893,6 +893,62 @@ bash scripts/run_native_release_smoke.sh
   No decoder evaluation or synthetic error profiles were run yet. Never tune on
   the frozen test split or silently normalize its punctuation for physical input.
 
+### Queued-key layout transition checkpoint (September 11, not installed)
+
+- Moving health diagnostics off immediate status-icon updates removes synchronous
+  permission/front-app/sibling queries from that UI call path. Sibling presence
+  is cached from workspace launch/termination notifications, with snapshots at
+  startup, wake and menu opening. The health tooltip refreshes on the existing
+  two-second UI timer. Conversion safety checks remain live and unchanged.
+- The optional native `--sample-process` mode samples only the owned positive
+  probe; it never runs in prepare/preflight-only mode. Sampled timings are marked
+  diagnostic. Run `04baee4c...` was invalid due to driver scheduling lateness;
+  its stack sample caught a slow startup icon/LaunchServices query, **not** a
+  converted event callback. No timing limit was relaxed. Helper display names
+  no longer contain RuSwitcher, so they do not masquerade as sibling switchers.
+- Rolling-Space run `30ed5867-b687-4289-910e-28a0a99bc7a7` failed with `vы` and
+  `кeview`. All original event receipts and processing-layout checkpoints were
+  intact. Control `c6d7adb7-00e5-4880-936f-0e3c678d6837`, with synchronous icon
+  updates restored, also failed and added `jбсудим`. The asynchronous-icon
+  experiment was rejected and removed.
+- Evidence: the next key was posted while the boundary callback was still
+  working. By processing time the monitor's TIS source had changed, but the
+  external NSTextView received its keyDown in the earlier layout; its later
+  keyUp already used the target layout. Producer CGEvent Unicode diagnostics
+  were removed after the control because they are not the AppKit interpretation.
+  The test-only host now records accepted NSEvent characters alongside its
+  existing exact-text trace. Unmarked/user input is still rejected.
+- `QueuedLayoutTransition` now covers only local EN/RU automatic switches whose
+  TIS selection succeeded. Queued printable keyDowns timestamped no later than
+  that switch receive the session's translated Unicode on the **original**
+  event. There is no deletion, repost, sleep, timer window or word-specific rule.
+  Newer timestamps, layout mismatch, editing/focus reset, shortcuts, dead keys
+  and complex Unicode close or bypass this narrow transition. Remote/listen-only
+  input and the Input Method are not rewritten. Apple documents that frameworks
+  may interpret [keyboard Unicode overrides](https://developer.apple.com/documentation/coregraphics/cgevent/keyboardsetunicodestring(stringlength:unicodestring:))
+  differently, so NSTextView success is not a claim about every editor.
+- Fixed rolling run `19c7c54c-ef9f-4b96-94d8-8f1d4bc6c578` and ordinary run
+  `e9970ba3-a36e-4d26-ba23-7157d7415f9e` both passed exact text/caret/layout,
+  complete Quartz/AppKit receipts and independent auto-off controls. They use
+  one continuous 93-character phrase, with no per-word waits; rolling puts the
+  next key 5 ms after Space. Ordinary input retained its strict 3 posts/3
+  confirmations gate. Rolling had 3 posts/0 fresh confirmations as expected
+  after subsequent input. No test oracle was changed to accept the bad letters.
+- Conversion callback samples remain above the 5 ms target: rolling
+  13.260/3.537/6.876 ms, ordinary 8.075/9.171/3.535 ms. This is neither p99 nor a
+  completed performance gate. The physical simulator still lacks callback busy
+  time and pre-queue layout interpretation; it does **not** yet reproduce this
+  native race. Shared transition unit tests and the external host establish
+  this fix; do not attribute it to existing headless parity.
+- 306 Swift tests, 45 Python harness checks, 26 focused ASan tests and 23 physical
+  CLI controls passed. The physical suite still reports its known modeled
+  overlap limitations; those expected failing controls are not runtime fixes.
+  The installed build 130
+  was restored with unchanged executable SHA-256 as PID 30245 after the final
+  windowed run. The new code is not installed; the model and user's learned
+  rules are unchanged. Remaining work includes modeled queue
+  timing, WebKit/Electron, manual/learning paths and broader release gates.
+
 ## Build, Signing and Installation
 
 Before installation:

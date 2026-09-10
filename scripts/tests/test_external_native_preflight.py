@@ -17,6 +17,27 @@ SPEC.loader.exec_module(SUITE)
 
 
 class NativePreflightTests(unittest.TestCase):
+    def testHelpersDoNotAdvertiseThemselvesAsCompetingSwitcherApps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "input-binary"
+            binary.write_bytes(b"not executed")
+            bundle, executable = SUITE.bundle(binary, root, "RuSwitcherNativeDriver", "com.ruswitcher.native-driver",
+                                               display_name="Keyboard Test Driver")
+            info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+            self.assertEqual(executable.name, "RuSwitcherNativeDriver")
+            self.assertEqual(info["CFBundleIdentifier"], "com.ruswitcher.native-driver")
+            self.assertEqual(info["CFBundleDisplayName"], "Keyboard Test Driver")
+            self.assertNotIn("RuSwitcher", info["CFBundleName"])
+
+    def testSamplingIsForbiddenInReadOnlyModes(self):
+        for mode in ("--prepare-only", "--preflight-only"):
+            with patch("sys.stderr", new_callable=io.StringIO), \
+                 patch.object(SUITE.subprocess, "Popen", side_effect=AssertionError("launched a process")), \
+                 self.assertRaises(SystemExit) as caught:
+                SUITE.main([mode, "--sample-process"])
+            self.assertEqual(caught.exception.code, 2)
+
     def run_preflight(self, permission_exit):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

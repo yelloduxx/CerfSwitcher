@@ -276,7 +276,7 @@ def case_accepted(result, automatic):
             and result.get("controlFailures") == [])
 
 
-def bundle(binary, root, name, identifier, app_info=None):
+def bundle(binary, root, name, identifier, app_info=None, *, display_name=None):
     app = root / (name + ".app")
     contents = app / "Contents"
     (contents / "MacOS").mkdir(parents=True)
@@ -284,10 +284,12 @@ def bundle(binary, root, name, identifier, app_info=None):
     executable = contents / "MacOS" / name
     shutil.copy2(binary, executable)
     info = dict(app_info or {})
-    info.update(CFBundleIdentifier=identifier, CFBundleExecutable=name, CFBundleName=name,
+    info.update(CFBundleIdentifier=identifier, CFBundleExecutable=name, CFBundleName=display_name or name,
                 CFBundlePackageType="APPL", CFBundleVersion=str(info.get("CFBundleVersion", "1")),
                 CFBundleShortVersionString=info.get("CFBundleShortVersionString", "1.0"),
                 NSPrincipalClass="NSApplication", LSMinimumSystemVersion="13.0")
+    if display_name is not None:
+        info["CFBundleDisplayName"] = display_name
     with (contents / "Info.plist").open("wb") as output:
         plistlib.dump(info, output)
     return app, executable
@@ -307,7 +309,7 @@ def terminate_owned(processes):
                     process.wait(timeout=3)
 
 
-def run_case(root, fixture, executables, automatic):
+def run_case(root, fixture, executables, automatic, *, sample_process=False):
     root.mkdir()
     run_id = str(uuid.uuid4())
     input_marker = 0x5253544500000000 | (uuid.uuid4().int & 0xFFFFFFFF)
@@ -362,6 +364,12 @@ def run_case(root, fixture, executables, automatic):
             time.sleep(0.02)
         else:
             raise RuntimeError("host did not start recording")
+        sampler = None
+        if sample_process:
+            # This samples only the owned probe, not the installed app or editor.
+            # Functional results remain useful; timings under sampling are diagnostic.
+            sampler = launch("/usr/bin/sample", [str(app.pid), "6", "1", "-mayDie",
+                                                 "-file", str(root / "app-sample.txt")], "sampler")
         driver = launch(executables[2], ["--session", str(root / "session.json"), "--stimulus", str(root / "stimulus.json"),
                                          "--host-pid", str(host.pid)], "driver")
         deadline = time.monotonic() + config["timeoutSeconds"]
@@ -372,6 +380,10 @@ def run_case(root, fixture, executables, automatic):
             time.sleep(0.02)
         if driver.poll() is None:
             raise RuntimeError("driver deadline exceeded")
+        if sampler is not None:
+            sampler.wait(timeout=10)
+            if sampler.returncode != 0 or not (root / "app-sample.txt").is_file():
+                raise RuntimeError("native process sampling failed; no timing conclusion")
         (root / "stop").touch()
         app.wait(timeout=3)
         host.wait(timeout=3)
@@ -394,7 +406,9 @@ def run_case(root, fixture, executables, automatic):
         result = dict(runID=run_id, automaticConversion=automatic, failures=failures,
                       controlFailures=control_failures, passed=not failures, directory=str(root),
                       deliveryDiagnostics=delivery_diagnostics(fixture, host_result, input_marker),
-                      callbackTiming=callback_timing_diagnostics(app_result))
+                      callbackTiming=callback_timing_diagnostics(app_result),
+                      sampled=sample_process,
+                      timingUse="diagnostic-under-sampling" if sample_process else "unprofiled-observations")
         write_json(root / "assessment.json", result)
         return result
     finally:
@@ -406,7 +420,7 @@ def run_case(root, fixture, executables, automatic):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
-def run_cases(directory, fixture, executables, summary):
+def run_cases(directory, fixture, executables, summary, *, sample_process=False):
     accepted = True
     quality_failures = {"text-mismatch", "selection-mismatch", "layout-mismatch", "layout-checkpoint-mismatch",
                         "transaction-count-mismatch", "delivered-keydown-count-mismatch",
@@ -415,7 +429,7 @@ def run_cases(directory, fixture, executables, summary):
                         "quartz-input-delivery-sequence-mismatch", "callback-input-sequence-mismatch",
                         "callback-consumption-mismatch"}
     for name, enabled in [("positive", True), ("auto-off-control", False)]:
-        result = run_case(directory / name, fixture, executables, enabled)
+        result = run_case(directory / name, fixture, executables, enabled, sample_process=sample_process and enabled)
         summary["cases"].append(result)
         if set(result["failures"]) - quality_failures:
             raise RuntimeError("native run interrupted or evidence invalid; no further window opened")
@@ -434,7 +448,11 @@ def main(argv=None, *, root=None):
     parser.add_argument("--restart-installed-pro", action="store_true",
                         help="Explicitly permit quitting and restoring only /Applications/RuSwitcherPro.app")
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--sample-process", action="store_true",
+                        help="Collect a six-second stack sample of the owned positive-case app; not a latency acceptance run")
     args = parser.parse_args(argv)
+    if args.sample_process and (args.prepare_only or args.preflight_only):
+        parser.error("process sampling requires an explicitly permitted live run")
     root = Path(root) if root is not None else Path(__file__).resolve().parent.parent
     live = not (args.prepare_only or args.preflight_only)
     (root / ".build").mkdir(exist_ok=True)
@@ -488,8 +506,10 @@ def main(argv=None, *, root=None):
             info = plistlib.loads((root / "Info.plist").read_bytes())
             info.update(CFBundleShortVersionString=version["version"], CFBundleVersion=str(version["build"]))
             products = [bundle(binaries / "RuSwitcher", directory, "RuSwitcherPro", "com.ruswitcher.pro", info),
-                        bundle(binaries / "RuSwitcherNativeEditorHost", directory, "RuSwitcherNativeEditorHost", "com.ruswitcher.native-editor-host"),
-                        bundle(binaries / "RuSwitcherNativeDriver", directory, "RuSwitcherNativeDriver", "com.ruswitcher.native-driver")]
+                        bundle(binaries / "RuSwitcherNativeEditorHost", directory, "RuSwitcherNativeEditorHost", "com.ruswitcher.native-editor-host",
+                               display_name="Keyboard Test Editor"),
+                        bundle(binaries / "RuSwitcherNativeDriver", directory, "RuSwitcherNativeDriver", "com.ruswitcher.native-driver",
+                               display_name="Keyboard Test Driver")]
             resources = products[0][0] / "Contents/Resources"
             shutil.copy2(root / "Sources/RuSwitcherCore/Resources/language-model-v1.bin", resources)
             shutil.copy2(root / "RuSwitcher.icns", resources)
@@ -536,7 +556,7 @@ def main(argv=None, *, root=None):
                         time.sleep(0.05)
                     if running_switchers():
                         raise BlockedEnvironment("switcher still running after stop request")
-                accepted = run_cases(directory, fixture, [x[1] for x in products], summary)
+                accepted = run_cases(directory, fixture, [x[1] for x in products], summary, sample_process=args.sample_process)
                 if any(digest(path) != summary["signedBinarySHA256"][path.name] for _, path in products):
                     raise RuntimeError("a tested executable changed during the run")
                 summary["status"] = "passed" if accepted else "failed"

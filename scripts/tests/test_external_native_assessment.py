@@ -218,6 +218,14 @@ class NativeAssessmentTests(unittest.TestCase):
                 SUITE.run_cases(Path("unused"), {}, [], summary)
         self.assertEqual(run.call_count, 1)
 
+    def testSamplingIsExplicitAndOnlyAppliesToPositiveCase(self):
+        positive = dict(passed=True, failures=[], controlFailures=None)
+        negative = dict(passed=False, failures=["text-mismatch"], controlFailures=[])
+        for requested in (False, True):
+            with patch.object(SUITE, "run_case", side_effect=[positive, negative]) as run:
+                self.assertTrue(SUITE.run_cases(Path("unused"), {}, [], dict(cases=[]), sample_process=requested))
+            self.assertEqual([call.kwargs["sample_process"] for call in run.call_args_list], [requested, False])
+
 
 if __name__ == "__main__":
     unittest.main()

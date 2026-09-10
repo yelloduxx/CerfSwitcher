@@ -111,6 +111,7 @@ final class KeyboardMonitor: @unchecked Sendable {
     private var physicalTranslation = KeyboardLayoutTranslationState()
     private var physicalTranslationLayoutID: String?
     private var physicalTranslationLayoutData: Data?
+    fileprivate var queuedLayoutTransition = QueuedLayoutTransition()
 
     /// Длина текущего набираемого слова
     var currentWordLength: Int { inputSession.currentKeys.count }
@@ -257,7 +258,12 @@ final class KeyboardMonitor: @unchecked Sendable {
         keysTypedSinceConversion = false
     }
 
+    func recordAutomaticLayoutSwitch(targetLayoutID: String, completedAt: UInt64) {
+        queuedLayoutTransition.record(targetLayoutID: targetLayoutID, completedAt: completedAt)
+    }
+
     private func fullReset(invalidated: Bool = false) {
+        queuedLayoutTransition.reset()
         wordBeforeBoundaryLength = 0
         boundaryCount = 0
         prevWordKeys = []
@@ -269,6 +275,7 @@ final class KeyboardMonitor: @unchecked Sendable {
     }
 
     private func resetPhysicalTranslation() {
+        queuedLayoutTransition.reset()
         physicalTranslation.reset()
         physicalTranslationLayoutID = nil
         physicalTranslationLayoutData = nil
@@ -915,6 +922,17 @@ private func keyboardCallback(
             sourceLayoutID: sourceLayoutID
         )
         if consume { consumed = true; return nil }
+        if !remote, monitor.activeTap,
+           event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskSecondaryFn]).isEmpty {
+            if let text = monitor.queuedLayoutTransition.overrideText(
+                eventTimestamp: event.timestamp, layoutID: sourceLayoutID, translatedText: producedText
+            ) {
+                let utf16 = Array(text.utf16)
+                event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+            }
+        } else {
+            monitor.queuedLayoutTransition.reset()
+        }
     } else if type == .flagsChanged {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         if monitor.handleFlagsChanged(flags: event.flags, keyCode: keyCode) {

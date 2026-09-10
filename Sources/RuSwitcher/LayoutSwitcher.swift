@@ -37,11 +37,13 @@ enum LayoutSwitcher {
     }
 
     /// Переключает на конкретную раскладку по точному ID
-    static func switchTo(layoutID: String) {
+    @discardableResult
+    static func switchTo(layoutID: String) -> Bool {
         let sources = installedLayouts()
         if let target = sources.first(where: { sourceID($0) == layoutID }) {
-            TISSelectInputSource(target)
+            return TISSelectInputSource(target) == noErr
         }
+        return false
     }
 
     /// Enabled, selectable input sources. includeAllInstalled=false below

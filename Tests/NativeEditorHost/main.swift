@@ -17,6 +17,7 @@ private struct HostEvent: Codable, Equatable {
     let atNanoseconds: UInt64
     let textAfter: String
     let selection: [Int]
+    let eventCharacters: String?
 }
 
 private struct ReceivedEvent: Codable, Equatable {
@@ -324,7 +325,8 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0,
             atNanoseconds: DispatchTime.now().uptimeNanoseconds,
             textAfter: text,
-            selection: selection
+            selection: selection,
+            eventCharacters: event.type == .keyDown || event.type == .keyUp ? event.characters : nil
         ))
     }
 
@@ -458,7 +460,7 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) thro
     guard let sampleMarker = config.inputEventMarker(actionIndex: 0) else { throw HostError.invalidOutput }
     let sample = HostEvent(
         kind: "keyDown", keyCode: 0, marker: sampleMarker,
-        atNanoseconds: UInt64.max, textAfter: "synthetic", selection: [9, 0]
+        atNanoseconds: UInt64.max, textAfter: "synthetic", selection: [9, 0], eventCharacters: "a"
     )
     let sampleData = try JSONEncoder().encode(sample)
     guard try JSONDecoder().decode(HostEvent.self, from: sampleData) == sample else {
