@@ -778,7 +778,7 @@ bash scripts/run_native_release_smoke.sh
   `.build/corpus-runs`). This is not native-delivery proof. Installed build 130
   and user rules are unchanged; native release gates remain pending.
 
-### Process-level delivery observation (September 10, not run live)
+### Process-level delivery observation (September 10)
 
 - The external host now observes its own PID with a listen-only Quartz tap
   before AppKit dispatch. Host schema 2 records key type/code, exact action
@@ -792,11 +792,22 @@ bash scripts/run_native_release_smoke.sh
   auto-off cases require the observer and preserve the prior exact-text gates.
 - 20 Python native-harness checks passed. Release compilation with
   warnings-as-errors and no-window serialization self-checks passed in native
-  preparation `044a7aae-5fd3-4988-9aa8-99b2df254628` (`preparedNotRun`). The
-  process tap itself has not yet been exercised live. Next critical check is
-  the same short automatic RU/EN/RU fixture plus its independent auto-off case,
-  with fresh permission to use a visible editor. Do not infer native overlap
-  corruption from the deliberately delayed virtual transport alone.
+  preparation `044a7aae-5fd3-4988-9aa8-99b2df254628` (`preparedNotRun`). Do not
+  infer native overlap corruption from deliberately delayed virtual transport.
+- Authorized live run `28baa820-e962-4f3d-a1af-25652da0bb10` at source `054fe4a`
+  passed the short `physical-auto-code-switch.json` fixture and its independent
+  auto-off control. Exact 93-character text, caret, three layout checkpoints and
+  3 posted/3 verified replacements matched; auto-off matched its literal oracle
+  with zero replacements. Both cases delivered all expected original key-ups
+  through the process tap and AppKit, with no interference or duplicates.
+  Receipt totals were 233 with conversion and 186 without; each driver completed
+  186 actions. Maximum scheduling lateness was 8,702/8,489 microseconds.
+- This is one successful normal-speed native fixture, not a release-wide pass.
+  The earlier missing key-up did not recur; its root cause is still unknown,
+  and adding an observer may itself affect timing. The zero-gap manual-source
+  trap, rapid-overlap acceptance and other editor/manual-learning gates remain
+  open. No further live run was launched. Installed build 130 was restored as
+  PID 16207 with its unchanged SHA-256; no new build was installed.
 
 ## Build, Signing and Installation
 
