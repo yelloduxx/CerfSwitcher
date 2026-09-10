@@ -949,6 +949,44 @@ bash scripts/run_native_release_smoke.sh
   rules are unchanged. Remaining work includes modeled queue
   timing, WebKit/Electron, manual/learning paths and broader release gates.
 
+### External WebKit receiver checkpoint (September 11, test-only)
+
+- `run_external_native_suite.py --editor webkit` selects a real WKWebView
+  textarea instead of the default external NSTextView. `--prepare-only` and
+  `--preflight-only` keep their no-window/no-input contracts; preparation
+  self-checks the selected host argument and typed DOM state serialization.
+- The test page is inline, nonpersistent and restricted by CSP to no network
+  resources. It never sees an oracle or injects fixture text. Only marked
+  driver/app events pass the native monitor; clipboard/drop events and user
+  interference stop the test. Production dependencies/resources are unchanged.
+- WebKit reports trusted DOM keyDown/keyUp/input/selection events with ordered
+  sequence numbers, actual value, UTF-16 selection and focus. Final completion
+  requires a new read-only JavaScript query matching the event-driven state,
+  with a 250 ms deadline. A missing or mismatching read is not called verified.
+  Native Quartz and AppKit receipts remain mandatory. DOM keyboard counts must
+  also match AppKit; DOM events are not relabelled as NSTextView dispatch.
+- Normal run `c52e219d-0910-4519-8c61-342184b79b3a` and rolling-Space run
+  `a942e08b-45bb-4e12-b7e7-491e0f211c28` passed the same 93-character mixed phrase
+  and independent auto-off controls. Both ended at [93, 0] with exact text and
+  3 posts. Normal input had 3 fresh confirmations; rolling had 0, as expected
+  after subsequent input. Both positive runs recorded 115 DOM keyDowns and
+  118 keyUps, exactly matching native AppKit receipts including replacements.
+  Both auto-off runs had 93/93 DOM/native events and zero conversions.
+- The DOM count gate was added after inspecting those reports and re-evaluated
+  them successfully without changing their original files or the oracles.
+  A negative assessor test removes a DOM release while keeping the correct
+  final text and verifies rejection. Further tests reject another backend's
+  report, absent/untrusted DOM input, stale text and an unverified final read.
+- Default NSTextView regression run `862b1c6a-357d-4d15-9c99-d3f54d112e5e`
+  passed after adding the WebKit option: 3/3 verified automatic replacements
+  and exact positive/auto-off results. 306 Swift and 48 Python tests passed;
+  release builds used warnings-as-errors. Installed build 130 was restored
+  with its unchanged SHA as PID 33466. No new build was installed.
+- This validates automatic conversion in NSTextView and WebKit textarea, not
+  Chromium/Electron/Codex, contenteditable, manual conversion, learning or all
+  editing commands. Headless queue timing and the remaining release gates are
+  still open. Next work can proceed without taking the desktop focus.
+
 ## Build, Signing and Installation
 
 Before installation:

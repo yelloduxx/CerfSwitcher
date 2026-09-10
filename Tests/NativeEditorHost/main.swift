@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import WebKit
 import RuSwitcherAppSupport
 
 private enum HostStatus: String, Codable {
@@ -8,6 +9,10 @@ private enum HostStatus: String, Codable {
 
 private enum HostError: Error {
     case invalidOutput
+}
+
+private enum EditorKind: String {
+    case nstextview, webkit
 }
 
 private struct HostEvent: Codable, Equatable {
@@ -50,6 +55,9 @@ private struct HostSnapshot: Codable, Equatable {
     let quartzEvents: [QuartzEvent]
     let quartzTapAvailable: Bool
     let quartzTapInterrupted: Bool
+    let editorKind: String
+    let domEvents: [WebEditorEvent]
+    let domFinalReadVerified: Bool
 
     func write(to root: URL, final: Bool) throws {
         let encoder = JSONEncoder()
@@ -119,6 +127,7 @@ private final class ProbeTextView: NSTextView {
 private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let config: ExternalNativeProbeConfiguration
     private let root: URL
+    private let editorKind: EditorKind
     private let started = ProcessInfo.processInfo.systemUptime
     private var status = HostStatus.ready
     private var text = ""
@@ -133,13 +142,18 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private var quartzSource: CFRunLoopSource?
     private var window: NSWindow?
     private var textView: ProbeTextView?
+    private var webEditor: WebEditorSurface?
+    private var domEvents: [WebEditorEvent] = []
+    private var domFinalReadVerified = false
+    private var finalReadPending = false
     private var timer: Timer?
     private var eventMonitor: Any?
     private var finished = false
 
-    init(config: ExternalNativeProbeConfiguration, root: URL) {
+    init(config: ExternalNativeProbeConfiguration, root: URL, editorKind: EditorKind) {
         self.config = config
         self.root = root
+        self.editorKind = editorKind
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -157,29 +171,37 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         window.delegate = self
         window.isReleasedWhenClosed = false
 
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 720, height: 360))
-        scrollView.hasVerticalScroller = true
-        scrollView.autoresizingMask = [.width, .height]
-        let view = ProbeTextView(frame: scrollView.contentView.bounds)
-        view.host = self
-        view.isRichText = false
-        view.isEditable = true
-        view.isSelectable = true
-        view.isVerticallyResizable = true
-        view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]
-        view.textContainer?.widthTracksTextView = true
-        view.isAutomaticQuoteSubstitutionEnabled = false
-        view.isAutomaticDashSubstitutionEnabled = false
-        view.isAutomaticTextReplacementEnabled = false
-        view.isAutomaticSpellingCorrectionEnabled = false
-        view.isAutomaticTextCompletionEnabled = false
-        view.isContinuousSpellCheckingEnabled = false
-        view.enabledTextCheckingTypes = 0
-        scrollView.documentView = view
-        window.contentView = scrollView
         self.window = window
-        textView = view
+        if editorKind == .webkit {
+            let surface = WebEditorSurface()
+            webEditor = surface
+            surface.onEvent = { [weak self] in self?.recordDOM($0) }
+            surface.onFailure = { [weak self] in self?.finish(.interrupted) }
+            window.contentView = surface.view
+        } else {
+            let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 720, height: 360))
+            scrollView.hasVerticalScroller = true
+            scrollView.autoresizingMask = [.width, .height]
+            let view = ProbeTextView(frame: scrollView.contentView.bounds)
+            view.host = self
+            view.isRichText = false
+            view.isEditable = true
+            view.isSelectable = true
+            view.isVerticallyResizable = true
+            view.isHorizontallyResizable = false
+            view.autoresizingMask = [.width]
+            view.textContainer?.widthTracksTextView = true
+            view.isAutomaticQuoteSubstitutionEnabled = false
+            view.isAutomaticDashSubstitutionEnabled = false
+            view.isAutomaticTextReplacementEnabled = false
+            view.isAutomaticSpellingCorrectionEnabled = false
+            view.isAutomaticTextCompletionEnabled = false
+            view.isContinuousSpellCheckingEnabled = false
+            view.enabledTextCheckingTypes = 0
+            scrollView.documentView = view
+            window.contentView = scrollView
+            textView = view
+        }
 
         // Filter before AppKit can dispatch an unmarked command-key equivalent.
         eventMonitor = NSEvent.addLocalMonitorForEvents(
@@ -204,8 +226,9 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             return allowed ? event : nil
         }
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
+        window.makeFirstResponder((textView as NSView?) ?? webEditor?.view)
         NSApp.activate(ignoringOtherApps: true)
+        webEditor?.load()
 
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -330,6 +353,25 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         ))
     }
 
+    private func recordDOM(_ event: WebEditorEvent) {
+        guard !finished else { return }
+        guard domEvents.count < 10_000,
+              status == .recording || (event.state.text.isEmpty && event.state.selection == [0, 0]) else {
+            finish(.interrupted)
+            return
+        }
+        text = event.state.text
+        selection = event.state.selection
+        domEvents.append(event)
+    }
+
+    private var editorFocused: Bool {
+        if let webEditor {
+            return webEditor.state?.focused == true && webEditor.containsResponder(window?.firstResponder)
+        }
+        return textView != nil && window?.firstResponder === textView
+    }
+
     private func recordReceipt(_ event: NSEvent) {
         guard receivedEvents.count < 10_000 else { finish(.interrupted); return }
         let kind: String
@@ -362,11 +404,11 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             return
         }
         if status == .ready,
-           FileManager.default.fileExists(atPath: root.appendingPathComponent("record").path) {
+           editorFocused, FileManager.default.fileExists(atPath: root.appendingPathComponent("record").path) {
             status = .recording
         }
         if status == .recording,
-           !NSApp.isActive || window?.isKeyWindow != true || window?.firstResponder !== textView {
+           !NSApp.isActive || window?.isKeyWindow != true || !editorFocused {
             finish(.interrupted)
         }
     }
@@ -385,6 +427,13 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     }
 
     private func editorMatchesSnapshot() -> Bool {
+        if let webEditor {
+            // WebKit is asynchronous: do not label this cached state a fresh
+            // readback. Completion below requires a separate live DOM query.
+            return webEditor.state == nil
+                ? status == .ready && text.isEmpty
+                : webEditor.state?.text == text && webEditor.state?.selection == selection
+        }
         guard let view = textView else { return false }
         let range = view.selectedRange()
         return view.string == text && [range.location, range.length] == selection
@@ -396,7 +445,7 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             pid: Int(ProcessInfo.processInfo.processIdentifier),
             status: status,
             active: NSApp.isActive,
-            keyWindow: window?.isKeyWindow ?? false,
+            keyWindow: window?.isKeyWindow == true && editorFocused,
             text: text,
             selection: selection,
             unexpectedInputCount: unexpectedInputCount,
@@ -404,7 +453,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             receivedEvents: receivedEvents,
             quartzEvents: quartzEvents,
             quartzTapAvailable: quartzTapAvailable,
-            quartzTapInterrupted: quartzTapInterrupted
+            quartzTapInterrupted: quartzTapInterrupted,
+            editorKind: editorKind.rawValue,
+            domEvents: final ? domEvents : [],
+            domFinalReadVerified: domFinalReadVerified
         )
         do {
             try snapshot.write(to: root, final: final)
@@ -416,8 +468,28 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
 
     private func finish(_ finalStatus: HostStatus, terminate: Bool = true) {
         guard !finished else { return }
+        if finalStatus == .complete, let webEditor, !domFinalReadVerified {
+            guard !finalReadPending else { return }
+            finalReadPending = true
+            webEditor.readState { [weak self] readback in
+                guard let self, !self.finished else { return }
+                self.finalReadPending = false
+                guard let readback, readback.focused, readback == webEditor.state,
+                      readback.text == self.text, readback.selection == self.selection else {
+                    self.finish(.interrupted, terminate: terminate)
+                    return
+                }
+                self.domFinalReadVerified = true
+                self.finish(.complete, terminate: terminate)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, self.finalReadPending, !self.finished else { return }
+                self.finish(.interrupted, terminate: terminate)
+            }
+            return
+        }
         let completionIsCurrent = status == .recording && NSApp.isActive
-            && window?.isKeyWindow == true && window?.firstResponder === textView
+            && window?.isKeyWindow == true && editorFocused
             && editorMatchesSnapshot()
         status = finalStatus
         // Validate before completing, but never copy untrusted edits into the report.
@@ -434,11 +506,12 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         quartzSource = nil
         quartzTap = nil
         write(final: true)
+        webEditor?.stop()
         if terminate { NSApp.terminate(nil) }
     }
 }
 
-private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) throws {
+private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL, editorKind: EditorKind) throws {
     try config.validate()
     let snapshot = HostSnapshot(
         runID: config.runID.uuidString,
@@ -454,7 +527,8 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) thro
         quartzEvents: [.init(kind: "keyUp", keyCode: 49, marker: config.inputMarker + 1,
                              atNanoseconds: UInt64.max, eventTimestampNanoseconds: UInt64.max)],
         quartzTapAvailable: false,
-        quartzTapInterrupted: false
+        quartzTapInterrupted: false,
+        editorKind: editorKind.rawValue, domEvents: [], domFinalReadVerified: false
     )
     // Exercise exact integer encoding without allocating any native event.
     guard let sampleMarker = config.inputEventMarker(actionIndex: 0) else { throw HostError.invalidOutput }
@@ -464,6 +538,14 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) thro
     )
     let sampleData = try JSONEncoder().encode(sample)
     guard try JSONDecoder().decode(HostEvent.self, from: sampleData) == sample else {
+        throw HostError.invalidOutput
+    }
+    let domSample = WebEditorEvent(event: "input", trusted: true,
+                                  state: .init(sequence: 1, text: "EN русский", selection: [10, 0], focused: true))
+    let domData = try JSONEncoder().encode(domSample)
+    guard domSample.state.isValid,
+          try JSONDecoder().decode(WebEditorEvent.self, from: domData) == domSample,
+          !WebEditorState(sequence: 1, text: "a", selection: [2, 0], focused: true).isValid else {
         throw HostError.invalidOutput
     }
     try snapshot.write(to: root, final: true)
@@ -481,6 +563,8 @@ if !isSelfCheck && ProcessInfo.processInfo.environment["RUSWITCH_ALLOW_FOCUS_STE
     exit(77)
 }
 var sessionPath: String?
+private var editorKind = EditorKind.nstextview
+var editorArgumentSeen = false
 var index = 0
 var selfCheckCount = 0
 while index < arguments.count {
@@ -492,6 +576,12 @@ while index < arguments.count {
         index += 1
         guard index < arguments.count, sessionPath == nil else { exit(64) }
         sessionPath = arguments[index]
+    case "--editor":
+        index += 1
+        guard index < arguments.count, !editorArgumentSeen,
+              let kind = EditorKind(rawValue: arguments[index]) else { exit(64) }
+        editorKind = kind
+        editorArgumentSeen = true
     default:
         exit(64)
     }
@@ -512,7 +602,7 @@ do {
 }
 if isSelfCheck {
     do {
-        try selfCheck(config: config, root: root)
+        try selfCheck(config: config, root: root, editorKind: editorKind)
         print("native editor self-check passed; no application, window or input events")
         exit(0)
     } catch {
@@ -526,7 +616,7 @@ textServiceOverrides["NSAutomaticPeriodSubstitutionEnabled"] = false
 textServiceOverrides["NSAutomaticCapitalizationEnabled"] = false
 UserDefaults.standard.setVolatileDomain(textServiceOverrides, forName: UserDefaults.argumentDomain)
 let app = NSApplication.shared
-private let host = NativeEditorHost(config: config, root: root)
+private let host = NativeEditorHost(config: config, root: root, editorKind: editorKind)
 app.setActivationPolicy(.regular)
 app.delegate = host
 withExtendedLifetime(host) { app.run() }

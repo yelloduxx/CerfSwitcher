@@ -101,7 +101,7 @@ class BlockedEnvironment(RuntimeError):
     pass
 
 
-def assess(fixture, host, app, driver, pids, automatic, input_marker):
+def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor="nstextview"):
     if not all(isinstance(value, dict) for value in (host, app, driver)):
         return ["malformed-native-evidence"]
     integer_fields = [(host, "pid"), (host, "unexpectedInputCount"), (app, "pid"), (app, "posted"),
@@ -120,6 +120,10 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
                        + host["quartzEvents"] + driver["records"])):
         return ["malformed-native-evidence"]
     failures = []
+    if host.get("editorKind", "nstextview") != editor:
+        failures.append("editor-kind-mismatch")
+    if editor == "webkit":
+        failures += dom_evidence_failures(host)
     if not host["quartzTapAvailable"]:
         failures.append("quartz-observation-unavailable")
     if host["quartzTapInterrupted"]:
@@ -175,6 +179,38 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
     failures += input_delivery_failures(actions, host["receivedEvents"], app["posted"], input_marker)
     failures += ["quartz-" + failure for failure in
                  input_delivery_failures(actions, host["quartzEvents"], app["posted"], input_marker)]
+    return failures
+
+
+def dom_evidence_failures(host):
+    failures = [] if host.get("domFinalReadVerified") is True else ["dom-final-read-unverified"]
+    events = host.get("domEvents")
+    if not isinstance(events, list) or not events:
+        return failures + ["dom-input-missing"]
+    previous_sequence = -1
+    for row in events:
+        state = row.get("state") if isinstance(row, dict) else None
+        if (not isinstance(state, dict) or type(state.get("sequence")) is not int
+                or state["sequence"] != previous_sequence + 1
+                or type(state.get("text")) is not str or type(state.get("selection")) is not list
+                or len(state["selection"]) != 2 or any(type(n) is not int or n < 0 for n in state["selection"])
+                or sum(state["selection"]) > len(state["text"].encode("utf-16-le")) // 2
+                or type(state.get("focused")) is not bool
+                or row.get("event") not in ("ready", "keydown", "keyup", "input", "selectionchange")):
+            return failures + ["dom-evidence-invalid"]
+        previous_sequence = state["sequence"]
+        if row.get("trusted") is not True:
+            failures.append("dom-untrusted-event")
+    if events[0]["event"] != "ready" or events[0]["state"]["text"] != "" or events[0]["state"]["selection"] != [0, 0]:
+        failures.append("dom-initial-state-invalid")
+    if not any(row["event"] == "input" for row in events):
+        failures.append("dom-input-missing")
+    for dom_kind, native_kind in (("keydown", "keyDown"), ("keyup", "keyUp")):
+        if sum(row["event"] == dom_kind for row in events) != sum(row.get("kind") == native_kind for row in host["receivedEvents"]):
+            failures.append("dom-" + dom_kind + "-count-mismatch")
+    state = events[-1]["state"]
+    if state["text"] != host["text"] or state["selection"] != host["selection"] or not state["focused"]:
+        failures.append("dom-snapshot-mismatch")
     return failures
 
 
@@ -264,7 +300,8 @@ def delivery_diagnostics(fixture, host, input_marker):
     return dict(observationComplete=complete,
                 unobservedReleaseActionsAtQuartz=sorted(releases - quartz),
                 releaseActionsMissingAtAppKit=sorted(quartz - appkit),
-                releaseActionsNotHandled=sorted(appkit - responder))
+                releaseActionsNotHandled=sorted(appkit - responder) if host.get("editorKind", "nstextview") == "nstextview" else None,
+                responderObservation="webkit-dom" if host.get("editorKind") == "webkit" else "nstextview-dispatch")
 
 
 def case_accepted(result, automatic):
@@ -309,7 +346,7 @@ def terminate_owned(processes):
                     process.wait(timeout=3)
 
 
-def run_case(root, fixture, executables, automatic, *, sample_process=False):
+def run_case(root, fixture, executables, automatic, *, sample_process=False, editor="nstextview"):
     root.mkdir()
     run_id = str(uuid.uuid4())
     input_marker = 0x5253544500000000 | (uuid.uuid4().int & 0xFFFFFFFF)
@@ -328,7 +365,7 @@ def run_case(root, fixture, executables, automatic, *, sample_process=False):
         return process
 
     try:
-        host = launch(executables[1], ["--session", str(root / "session.json")], "host")
+        host = launch(executables[1], ["--session", str(root / "session.json"), "--editor", editor], "host")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = read_state(root / "host-state.json", run_id, schema_version=2)
@@ -397,17 +434,17 @@ def run_case(root, fixture, executables, automatic, *, sample_process=False):
         if not all([host_result, app_result, driver_result]):
             raise RuntimeError("missing final native result")
         failures = assess(fixture, host_result, app_result, driver_result,
-                          [host.pid, app.pid, driver.pid], automatic, input_marker)
+                          [host.pid, app.pid, driver.pid], automatic, input_marker, editor=editor)
         control_failures = None
         if not automatic:
             control_fixture = dict(fixture, oracle=fixture["oracle"]["automaticOff"])
             control_failures = assess(control_fixture, host_result, app_result, driver_result,
-                                      [host.pid, app.pid, driver.pid], False, input_marker)
+                                          [host.pid, app.pid, driver.pid], False, input_marker, editor=editor)
         result = dict(runID=run_id, automaticConversion=automatic, failures=failures,
                       controlFailures=control_failures, passed=not failures, directory=str(root),
                       deliveryDiagnostics=delivery_diagnostics(fixture, host_result, input_marker),
                       callbackTiming=callback_timing_diagnostics(app_result),
-                      sampled=sample_process,
+                      sampled=sample_process, editorKind=editor,
                       timingUse="diagnostic-under-sampling" if sample_process else "unprofiled-observations")
         write_json(root / "assessment.json", result)
         return result
@@ -420,7 +457,7 @@ def run_case(root, fixture, executables, automatic, *, sample_process=False):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
-def run_cases(directory, fixture, executables, summary, *, sample_process=False):
+def run_cases(directory, fixture, executables, summary, *, sample_process=False, editor="nstextview"):
     accepted = True
     quality_failures = {"text-mismatch", "selection-mismatch", "layout-mismatch", "layout-checkpoint-mismatch",
                         "transaction-count-mismatch", "delivered-keydown-count-mismatch",
@@ -429,7 +466,7 @@ def run_cases(directory, fixture, executables, summary, *, sample_process=False)
                         "quartz-input-delivery-sequence-mismatch", "callback-input-sequence-mismatch",
                         "callback-consumption-mismatch"}
     for name, enabled in [("positive", True), ("auto-off-control", False)]:
-        result = run_case(directory / name, fixture, executables, enabled, sample_process=sample_process and enabled)
+        result = run_case(directory / name, fixture, executables, enabled, sample_process=sample_process and enabled, editor=editor)
         summary["cases"].append(result)
         if set(result["failures"]) - quality_failures:
             raise RuntimeError("native run interrupted or evidence invalid; no further window opened")
@@ -448,6 +485,7 @@ def main(argv=None, *, root=None):
     parser.add_argument("--restart-installed-pro", action="store_true",
                         help="Explicitly permit quitting and restoring only /Applications/RuSwitcherPro.app")
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--editor", choices=("nstextview", "webkit"), default="nstextview")
     parser.add_argument("--sample-process", action="store_true",
                         help="Collect a six-second stack sample of the owned positive-case app; not a latency acceptance run")
     args = parser.parse_args(argv)
@@ -474,7 +512,7 @@ def main(argv=None, *, root=None):
     fixture_path = args.fixture or root / "Tests/Fixtures/Simulator/physical-closed-loop.json"
     fixture = json.loads(fixture_path.read_text())
     directory = Path(tempfile.mkdtemp(prefix="ruswitch-external-", dir="/private/tmp"))
-    summary.update(directory=str(directory), fixtureSHA256=digest(fixture_path))
+    summary.update(directory=str(directory), fixtureSHA256=digest(fixture_path), editorKind=args.editor)
     restore_hash = None
     try:
         if live and (not isinstance(fixture.get("oracle", {}).get("automaticOff"), dict)
@@ -495,7 +533,7 @@ def main(argv=None, *, root=None):
         subprocess.run([str(binaries / "RuSwitcherNativeDriver"), "--session", str(directory / "session.json"),
                         "--stimulus", str(directory / "stimulus.json"), "--self-check"], check=True, timeout=10)
         subprocess.run([str(binaries / "RuSwitcherNativeEditorHost"), "--session", str(directory / "session.json"),
-                        "--self-check"], check=True, timeout=10)
+                        "--self-check", "--editor", args.editor], check=True, timeout=10)
         summary["binarySHA256"] = {name: digest(binaries / name) for name in
                                   ("RuSwitcher", "RuSwitcherNativeDriver", "RuSwitcherNativeEditorHost")}
         summary["sourceCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
@@ -556,7 +594,7 @@ def main(argv=None, *, root=None):
                         time.sleep(0.05)
                     if running_switchers():
                         raise BlockedEnvironment("switcher still running after stop request")
-                accepted = run_cases(directory, fixture, [x[1] for x in products], summary, sample_process=args.sample_process)
+                accepted = run_cases(directory, fixture, [x[1] for x in products], summary, sample_process=args.sample_process, editor=args.editor)
                 if any(digest(path) != summary["signedBinarySHA256"][path.name] for _, path in products):
                     raise RuntimeError("a tested executable changed during the run")
                 summary["status"] = "passed" if accepted else "failed"

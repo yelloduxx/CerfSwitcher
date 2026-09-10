@@ -33,6 +33,46 @@ class NativeAssessmentTests(unittest.TestCase):
     def testCompleteIndependentEvidencePasses(self):
         self.assertEqual(self.assess(), [])
 
+    def set_webkit_evidence(self):
+        self.host.update(editorKind="webkit", domFinalReadVerified=True, domEvents=[
+            dict(event="ready", trusted=True, state=dict(sequence=0, text="", selection=[0, 0], focused=True)),
+            dict(event="input", trusted=True, state=dict(sequence=1, text="done ", selection=[5, 0], focused=True)),
+            dict(event="keyup", trusted=True, state=dict(sequence=2, text="done ", selection=[5, 0], focused=True))])
+
+    def testWebKitCannotReuseTextViewOrUnverifiedDOMEvidence(self):
+        def assess_web():
+            return SUITE.assess(self.fixture, self.host, self.app, self.driver,
+                                [10, 20, 30], True, 123, editor="webkit")
+        self.assertIn("editor-kind-mismatch", assess_web())
+        self.set_webkit_evidence()
+        self.assertEqual(assess_web(), [])
+        self.host["domFinalReadVerified"] = False
+        self.assertIn("dom-final-read-unverified", assess_web())
+        self.host["domFinalReadVerified"] = True
+        self.host["domEvents"][-1]["state"]["text"] = "fail "
+        self.assertIn("dom-snapshot-mismatch", assess_web())
+
+    def testWebKitMustObserveTrustedInputAndFocusedFinalSelection(self):
+        self.host.update(editorKind="webkit", domFinalReadVerified=True, domEvents=[])
+        def assess_web():
+            return SUITE.assess(self.fixture, self.host, self.app, self.driver,
+                                [10, 20, 30], True, 123, editor="webkit")
+        self.assertIn("dom-input-missing", assess_web())
+        self.set_webkit_evidence()
+        self.host["domEvents"][-1]["trusted"] = False
+        self.assertIn("dom-untrusted-event", assess_web())
+        self.host["domEvents"][-1]["trusted"] = True
+        self.host["domEvents"][-1]["state"]["focused"] = False
+        self.assertIn("dom-snapshot-mismatch", assess_web())
+
+    def testWebKitExactTextCannotHideMissingDOMKeyboardDelivery(self):
+        self.set_webkit_evidence()
+        self.host["domEvents"].pop()
+        failures = SUITE.assess(self.fixture, self.host, self.app, self.driver,
+                                [10, 20, 30], True, 123, editor="webkit")
+        self.assertNotIn("text-mismatch", failures)
+        self.assertIn("dom-keyup-count-mismatch", failures)
+
     def testCorrectTextAloneCannotHideMissingOrLateInput(self):
         self.driver["records"].pop()
         self.driver["maximumLatenessMicroseconds"] = 10001
