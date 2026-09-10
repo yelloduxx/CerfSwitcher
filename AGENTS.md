@@ -70,6 +70,9 @@ installed build changes.
   shares local classification and replacement lifecycle with production, but
   uses virtual editor/AX transport, not native AppDelegate/AX/CGEvent delivery.
   Legacy independent phrase JSONL batches support `--jobs`.
+- `Tests/NativeEditorHost` and `Tests/NativeDriver`: separate executable targets
+  for an external NSTextView receiver and timestamp-driven CGEvent producer.
+  They are not dependencies or resources of the production `.app`.
 - `Tests/Support` (`RuSwitcherTestSupport`) and `Tests/RuSwitcherTypingTests`:
   read-only system-layout loading, physical fixtures, interpreter and independent
   assessor. These are dependencies of the simulator/tests, never the app.
@@ -602,6 +605,67 @@ bash scripts/run_native_release_smoke.sh
   compare one identical short scenario in an external
   native host. No installed app or production decoder changed; native checks
   and installation remain pending.
+
+### External native harness (September 10)
+
+- `scripts/run_external_native_suite.py --prepare-only` compiles the app, host
+  and driver with warnings-as-errors, validates the input-only stimulus and
+  report formats, and returns `preparedNotRun`. It never opens a window or posts
+  an event. The compiled source fingerprint and executable hashes are recorded.
+- Live execution requires `RUSWITCH_ALLOW_FOCUS_STEALING=1`. It uses distinct
+  app/editor/driver PIDs, one continuous mixed phrase and an auto-off negative
+  control. The driver has absolute timestamps, no per-word waits, and rejects
+  schedules more than 10 ms late instead of silently slowing the test.
+- The app entry `--external-native-probe UUID session.json --host-pid PID`
+  starts the production monitor/replacement path without onboarding or update
+  checks, restricted to that host PID. Preferences/rules use a unique
+  `com.ruswitcher.nativeprobe.<uuid>` domain. Test logs read that domain's debug
+  flag, and isolated startup no longer deletes the user's obsolete stats file.
+- `--restart-installed-pro` is an explicit opt-in for stopping only the exact
+  `/Applications/RuSwitcherPro.app/Contents/MacOS/RuSwitcherPro` process after
+  permission/signature checks, then restoring it with PID/hash verification.
+  Other switcher processes block the run; the harness does not kill them.
+- The host records trusted marked events and its actual text/UTF-16 selection.
+  Foreign input/focus loss aborts without serializing the new user text. The
+  verifier checks fresh run IDs, distinct PIDs, text, selection, layouts, input
+  counts, scheduling, and app post/confirmation counts. Seven Python negative
+  checks cover malformed/stale/incomplete/incorrect evidence.
+- Current state: preparation/self-checks succeeded; 286 Swift tests passed. The
+  user allowed a short live run, but preflight returned exit 77 before any window
+  or event tap was opened. The signed driver explicitly reported
+  `postingAccess=false enabledLayouts=true`. The signed app's preflight also
+  failed; its designated requirement matches the installed app, which does not
+  prove OS access for a separately launched process. No privacy database,
+  signature identity or trust setting was modified to bypass this gate.
+- The installed build-130 process stayed PID 2151 throughout this failed attempt;
+  executable hash remained `2b59f4bc61eaad8754a75442d75d7798af37a576a9139dacc85f2b2c984044aa`.
+  There is no successful external native result yet. First attempt evidence:
+  `.build/external-native-first-live.log` and
+  `/private/tmp/ruswitch-external-rdee1tbd/summary.json`.
+- Current native coverage is automatic input only, AppKit, current architecture.
+  Explicit modifier flags are supplied with keys; physical flagsChanged/manual
+  double-Shift, WebKit/Electron, persisted learning and callback p99 remain
+  outside this first external harness. Do not claim full native parity or a
+  release pass from preparation, self-checks or a blocked run.
+- After resume, `--preflight-only` was added as a read-only access check, without
+  a focus flag or app stop. The fresh signed probe reported all three access
+  flags false; the driver reported posting false and enabled layouts true.
+  Evidence: `.build/external-native-resume-preflight.log`. The tool never
+  requests or changes privacy grants; successful access is
+  `permissionsReadyNotRun`, never a native pass.
+- Review found three false-green paths in the new harness, not three decoder
+  bugs. Auto-off now has a separately authored raw-text oracle; its integrity
+  must pass as well as the normal oracle failing. Every delivered input has a
+  unique action marker, so loss plus duplication of another key cannot hide in
+  matching aggregate counts. Only posted conversion boundary keyDowns may be
+  absent. Completion rechecks actual editor text, selection and focus instead
+  of blindly writing a cached good snapshot. The final native snapshot fix is
+  source-verified and builds; its live race has not yet been exercised.
+- The test app uses the production hardened-runtime flag and entitlements with
+  the same reusable identity. These are packaging parity, not a TCC workaround.
+  287 Swift tests and 23 Python artifact/assessor tests pass. Native delivery,
+  external editor behavior and the modeled overlapping-input failure remain
+  unverified/unresolved; no new app has been installed.
 
 ## Build, Signing and Installation
 

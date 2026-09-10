@@ -23,4 +23,12 @@ final class RuntimePreferencesDomainTests: XCTestCase {
     func testNormalApplicationUsesStandardPreferences() {
         XCTAssertNil(RuntimePreferencesDomain.isolatedSuiteName(arguments: ["RuSwitcher"]))
     }
+
+    func testExternalProbeUsesUniqueDomainAndCannotOptIntoUserPreferences() {
+        let id = "1E89483A-DB80-44F4-A9AB-9ED5049F531E"
+        XCTAssertEqual(RuntimePreferencesDomain.isolatedSuiteName(arguments: [
+            "RuSwitcher", "--external-native-probe", id, "/tmp/session.json", "--hid-use-standard-preferences"
+        ]), "com.ruswitcher.nativeprobe." + id.lowercased())
+        XCTAssertNil(RuntimePreferencesDomain.isolatedSuiteName(arguments: ["RuSwitcher", "--external-native-probe", "invalid"]))
+    }
 }

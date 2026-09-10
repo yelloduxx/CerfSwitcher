@@ -1,7 +1,9 @@
 import AppKit
 import RuSwitcherAppSupport
 
-if CommandLine.arguments.count >= 3,
+if CommandLine.arguments.contains("--external-native-probe") {
+    ExternalNativeProbe.run()
+} else if CommandLine.arguments.count >= 3,
    CommandLine.arguments[1] == "--ax-resolver-probe" {
     AXResolverProbe.run(processIDString: CommandLine.arguments[2])
 } else if CommandLine.arguments.count >= 3,

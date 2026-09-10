@@ -10,6 +10,8 @@ let package = Package(
         .executable(name: "RuSwitcherInputMethod", targets: ["RuSwitcherInputMethod"]),
         .executable(name: "RuSwitcherSimulator", targets: ["RuSwitcherSimulator"]),
         .executable(name: "RuSwitcherTypingSimulator", targets: ["RuSwitcherTypingSimulator"]),
+        .executable(name: "RuSwitcherNativeEditorHost", targets: ["RuSwitcherNativeEditorHost"]),
+        .executable(name: "RuSwitcherNativeDriver", targets: ["RuSwitcherNativeDriver"]),
     ],
     targets: [
         .target(
@@ -61,6 +63,16 @@ let package = Package(
             name: "RuSwitcherTestSupport",
             dependencies: ["RuSwitcherCore", "RuSwitcherAppSupport"],
             path: "Tests/Support"
+        ),
+        .executableTarget(
+            name: "RuSwitcherNativeEditorHost",
+            dependencies: ["RuSwitcherAppSupport", "RuSwitcherCore"],
+            path: "Tests/NativeEditorHost"
+        ),
+        .executableTarget(
+            name: "RuSwitcherNativeDriver",
+            dependencies: ["RuSwitcherCore", "RuSwitcherAppSupport", "RuSwitcherTestSupport"],
+            path: "Tests/NativeDriver"
         ),
         .testTarget(
             name: "RuSwitcherTypingTests",

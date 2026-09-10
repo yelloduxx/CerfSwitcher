@@ -106,6 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startMonitoring(offerSetup: false)
     }
 
+    var probeEventTapEnabled: Bool { keyboardMonitor.eventTapEnabled }
+    var probeModelAvailable: Bool { languageModel != nil }
+    var probeTargetProcessID: pid_t?
+
     private func setupSettingsCallbacks() {
         settingsController.onAutoSwitchChanged = { [weak self] _ in
             // Не адресуем пункт по индексу: с 2.5.0 item(at: 0) — строка версии, а со списком
@@ -456,6 +460,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !keyboardMonitor.start(
             onAltTap: { [weak self] in
                 guard let self else { return }
+                if let target = self.probeTargetProcessID,
+                   NSWorkspace.shared.frontmostApplication?.processIdentifier != target { return }
                 guard SettingsManager.shared.autoSwitchEnabled else { return }
                 self.cancelDeferredManualLearning()
                 if AutoSwitchPolicy.shouldDeferToRemoteClient {
@@ -959,6 +965,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ snapshot: TokenSnapshot,
         proxy: CGEventTapProxy
     ) -> TokenHandlingResult {
+        if let target = probeTargetProcessID, snapshot.focus.processID != target { return .passThrough }
         rslog("auto: fired")
         // Reaching the next completed token without Backspace/Undo is a soft
         // positive signal for the previous correction.

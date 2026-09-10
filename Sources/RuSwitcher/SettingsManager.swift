@@ -64,7 +64,8 @@ final class SettingsManager: @unchecked Sendable {
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV3")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV4Mode")
         defaults.removeObject(forKey: "com.ruswitcher.personalizationAdapterV4")
-        if let support = FileManager.default.urls(
+        if RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments) == nil,
+           let support = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first {

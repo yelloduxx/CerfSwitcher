@@ -21,10 +21,12 @@ struct ManualTokenSnapshot {
 /// поток обработки событий (event tap висит на главном run loop, а лог пишется
 /// для каждого нажатия при включённом debug).
 private let rsLogQueue = DispatchQueue(label: "com.ruswitcher.log")
+private let rsLogSuiteName = RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments)
 
 func rslog(_ msg: StaticString) {
     // Thread-safe: читаем UserDefaults напрямую (без MainActor)
-    guard UserDefaults.standard.bool(forKey: "com.ruswitcher.debugLog") else { return }
+    let defaults = rsLogSuiteName.flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    guard defaults.bool(forKey: "com.ruswitcher.debugLog") else { return }
 
     let line = "\(Date()): \(String(describing: msg))\n"
     rsLogQueue.async {
@@ -92,6 +94,7 @@ final class KeyboardMonitor: @unchecked Sendable {
     fileprivate var eventTap: CFMachPort?
     fileprivate private(set) var activeTap = false
     private var runLoopSource: CFRunLoopSource?
+    var eventTapEnabled: Bool { eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
     private var inputSession = InputSession(contextLimit: InputContextLimits.maximumTokens)
     private var observedFrontmostProcessID: pid_t?
     private var physicalTranslation = KeyboardLayoutTranslationState()

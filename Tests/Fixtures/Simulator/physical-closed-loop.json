@@ -172,6 +172,15 @@
     ]
   },
   "oracle": {
+    "automaticOff": {
+      "text": "ctujlyz vs jnghfdbv gbcmvj? and keep the final draft, а завтра обсудим детали. ",
+      "finalLayoutID": "com.apple.keylayout.RussianWin",
+      "transactions": 0,
+      "selectedRange": [79, 0],
+      "checkpoints": [
+        {"actionIndex": 16, "layoutIDBefore": "com.apple.keylayout.US"}
+      ]
+    },
     "text": "сегодня мы отправим письмо, and keep the final draft, а завтра обсудим детали. ",
     "finalLayoutID": "com.apple.keylayout.RussianWin",
     "transactions": 1,
