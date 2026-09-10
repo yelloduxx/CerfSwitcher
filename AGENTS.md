@@ -754,6 +754,30 @@ bash scripts/run_native_release_smoke.sh
   then complete the native negative control and fast-overlap case. A correct
   normal-speed phrase does not prove all editors or fast input are safe.
 
+### Deletion-span safety checkpoint (September 10, unreleased)
+
+- Windowless `NSTextView` tests reproduced destructive editing: UTF-16-based
+  Backspace counts erased preceding prose for emoji/combining text; an inflated
+  physical-key count also erased prose for an ASCII suffix. The pre-fix run
+  failed with 14 assertions in two tests. This is real AppKit editing, not
+  AX/CGEvent transport or a visible test window.
+- Automatic and manual keyboard-deletion paths now use the suffix, never an
+  inflated stroke count. Nonempty suffixes are accepted only when grapheme and
+  UTF-16 counts match; otherwise posting is refused. AX-less opt-in cannot bypass
+  this guard. Real AX selection replacement is unchanged. Complex Unicode is
+  unsupported by this fallback rather than guessing editor deletion semantics.
+- `ambiguous-unicode-deletion.json` exercises a real V3 conversion proposal in
+  prose: the legacy CLI records `ambiguous-deletion`, preserves the text and
+  posts nothing. A dictionary keep cannot falsely satisfy this regression check.
+- Verified: 298 Swift tests passed with warnings-as-errors; 20 focused tests
+  passed under ASan. All 20 CLI harness checks (physical plus legacy controls)
+  passed in `.build/physical-runs/closed-loop-e9h47mjj`; expected-failing overlap
+  controls remain detected failures, not release acceptance.
+- Legacy 5,000-phrase audit: 58,938/59,388 exact tokens, 450 safe misses, zero
+  wrong replacements or duplicate transactions (`event-stream-68kv9zmx` under
+  `.build/corpus-runs`). This is not native-delivery proof. Installed build 130
+  and user rules are unchanged; native release gates remain pending.
+
 ## Build, Signing and Installation
 
 Before installation:

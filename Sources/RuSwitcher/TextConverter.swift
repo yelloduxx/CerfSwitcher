@@ -441,10 +441,15 @@ final class TextConverter {
         }
 
         // AX-readable hosts keep the established targeted Unicode path.
-        let plan = EventReplacementPlan(
-            backspaceCount: max(expected.count, expected.utf16.count),
+        guard let plan = EventReplacementPlan(
+            replacingSuffix: expected,
             replacementText: replacement
-        )
+        ) else {
+            rslog("manual_keyboard_ambiguous_deletion")
+            isConverting = false
+            completion.callback(.failed)
+            return
+        }
         guard post(plan, to: focus.processID, delivery: delivery) else {
             isConverting = false
             completion.callback(.failed)

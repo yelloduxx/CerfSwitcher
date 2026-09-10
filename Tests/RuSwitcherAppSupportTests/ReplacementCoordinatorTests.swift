@@ -95,6 +95,17 @@ final class ReplacementCoordinatorTests: XCTestCase {
         XCTAssertTrue(poster.plans.isEmpty)
     }
 
+    func testAXlessOptInCannotBypassAmbiguousDeletionGuard() {
+        let reader = Reader(preflight: .unavailable)
+        let poster = Poster(result: true)
+        let coordinator = NativeReplacementCoordinator(reader: reader, poster: poster)
+        XCTAssertEqual(coordinator.submit(request(allowUnavailablePost: true, original: "word\u{1F642}")) { _ in
+            XCTFail("Unsafe deletion must not be posted or verified")
+        }, .blocked(.ambiguousDeletion))
+        XCTAssertTrue(poster.plans.isEmpty)
+        XCTAssertTrue(reader.verificationDeadlines.isEmpty)
+    }
+
     func testOptInStillHonorsFocusAndRevisionGates() {
         let reader = Reader(preflight: .unavailable)
         let poster = Poster(result: true)
@@ -132,12 +143,13 @@ final class ReplacementCoordinatorTests: XCTestCase {
 
     private func request(
         allowUnavailablePost: Bool = false,
-        currentRevision: UInt64 = 3
+        currentRevision: UInt64 = 3,
+        original: String = "ghbdtn"
     ) -> ReplacementRequest {
         let focus = FocusedElementIdentity(processID: 42, bundleID: "test.host", identifier: "field")
         return ReplacementRequest(
             transaction: ConversionTransaction(
-                original: "ghbdtn",
+                original: original,
                 replacement: "привет",
                 boundary: .space(count: 1),
                 focus: focus,
@@ -145,10 +157,10 @@ final class ReplacementCoordinatorTests: XCTestCase {
                 targetLayoutID: "ru",
                 sequence: 7,
                 editRevision: 3,
-                expectedOriginalSuffix: "ghbdtn",
+                expectedOriginalSuffix: original,
                 automatic: true
             ),
-            deliveredKeyCount: 6,
+            deliveredKeyCount: original.count,
             currentFocus: focus,
             currentRevision: currentRevision,
             allowUnavailablePost: allowUnavailablePost

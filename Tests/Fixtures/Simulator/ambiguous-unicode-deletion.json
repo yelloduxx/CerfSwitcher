@@ -1,0 +1,6 @@
+{
+  "name": "ambiguous unicode deletion keeps surrounding prose",
+  "phases": [{"sourceLanguage": "en", "text": "keep this note: ghbdtn\ud83d\ude42 "}],
+  "expectedText": "keep this note: ghbdtn\ud83d\ude42 ",
+  "expectedTransactions": 0
+}

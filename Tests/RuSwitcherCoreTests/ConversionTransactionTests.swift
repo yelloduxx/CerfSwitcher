@@ -48,7 +48,7 @@ final class ConversionTransactionTests: XCTestCase {
         XCTAssertEqual(snapshot.deliveredKeyCount, 6)
     }
 
-    func testEventReplacementPlanHasOneInsertionPayload() {
+    func testEventReplacementPlanHasOneInsertionPayload() throws {
         let transaction = ConversionTransaction(
             original: "ghbdtn",
             replacement: "привет",
@@ -60,7 +60,7 @@ final class ConversionTransactionTests: XCTestCase {
             automatic: true
         )
 
-        let plan = EventReplacementPlan(transaction: transaction, deliveredKeyCount: 6)
+        let plan = try XCTUnwrap(EventReplacementPlan(transaction: transaction, deliveredKeyCount: 6))
 
         XCTAssertEqual(plan.backspaceCount, 6)
         XCTAssertEqual(plan.replacementText, "привет")
@@ -68,7 +68,7 @@ final class ConversionTransactionTests: XCTestCase {
         XCTAssertEqual(plan.insertedText, "привет ")
     }
 
-    func testBackspaceCountUsesExpectedSuffixWhenLargerThanDeliveredKeys() {
+    func testBackspaceCountUsesExpectedSuffixWhenLargerThanDeliveredKeys() throws {
         let transaction = ConversionTransaction(
             original: "ghbdtn",
             replacement: "привет",
@@ -81,20 +81,26 @@ final class ConversionTransactionTests: XCTestCase {
             automatic: true
         )
         // Undercounted delivered keys must not leave the leading character.
-        let plan = EventReplacementPlan(transaction: transaction, deliveredKeyCount: 5)
+        let plan = try XCTUnwrap(EventReplacementPlan(transaction: transaction, deliveredKeyCount: 5))
         XCTAssertEqual(plan.backspaceCount, 6)
     }
 
-    func testExplicitManualPlanHasNoImplicitBoundary() {
-        let plan = EventReplacementPlan(
-            backspaceCount: 11,
+    func testValidatedManualPlanHasNoImplicitBoundary() throws {
+        let plan = try XCTUnwrap(EventReplacementPlan(
+            replacingSuffix: "ghbdtncnde.",
             replacementText: "приветствую"
-        )
+        ))
 
         XCTAssertEqual(plan.backspaceCount, 11)
         XCTAssertEqual(plan.replacementText, "приветствую")
         XCTAssertEqual(plan.replayText, "")
         XCTAssertEqual(plan.insertedText, "приветствую")
+    }
+
+    func testManualSuffixCannotCreateAnAmbiguousOrEmptyDeletionPlan() {
+        XCTAssertNil(EventReplacementPlan(replacingSuffix: "", replacementText: "text"))
+        XCTAssertNil(EventReplacementPlan(replacingSuffix: "word\u{1F642}", replacementText: "text"))
+        XCTAssertNil(EventReplacementPlan(replacingSuffix: "cafe\u{0301}", replacementText: "text"))
     }
 
     func testExecutionGateRejectsOnlyCommittedDuplicate() {

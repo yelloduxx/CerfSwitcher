@@ -163,6 +163,25 @@ def main() -> int:
         if actual[0] != actual[1]:
             raise ValueError("legacy oracle verdict changed input language or decisions")
         summary["checks"].append({"name": "legacy-oracle-isolation", "status": "passed"})
+
+        # The decoder must actually propose a change; an ordinary dictionary
+        # keep would not exercise the shared deletion safety guard.
+        deletion_fixture = root / "Tests/Fixtures/Simulator/ambiguous-unicode-deletion.json"
+        deletion_output = directory / "legacy-unicode-deletion-safety.json"
+        subprocess.run([str(binary), "--input", str(deletion_fixture), "--output", str(deletion_output)],
+                       cwd=root, stdout=subprocess.DEVNULL, check=True, timeout=60)
+        report = json.loads(deletion_output.read_text())
+        expected = json.loads(deletion_fixture.read_text())["expectedText"]
+        last = report["traces"][-1]
+        if (not report["passed"] or report["actualText"] != expected
+                or report["transactionCount"] != 0
+                or last["verdict"] != "switchToConverted"
+                or last.get("blockedReason") != "ambiguous-deletion"
+                or last["backspaceCount"] != 0
+                or last["resolvedText"] != last["typedText"]):
+            raise ValueError("ambiguous Unicode deletion was not safely refused after a decoder proposal")
+        summary["checks"].append({"name": "legacy-unicode-deletion-safety", "status": "passed",
+                                  "report": str(deletion_output)})
         summary["status"] = "passed"
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         summary["error"] = str(error)

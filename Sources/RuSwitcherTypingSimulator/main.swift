@@ -43,6 +43,7 @@ private struct TokenTrace: Codable, Sendable {
     let verdict: String
     let reason: String
     let backspaceCount: Int
+    let blockedReason: String?
 }
 
 private struct Report: Codable, Sendable {
@@ -196,6 +197,8 @@ private struct HeadlessTypingSession {
 
         let replacement = evaluation.decision.candidate.replacement
         var backspaceCount = 0
+        var replacementApplied = false
+        var blockedReason: String?
         if evaluation.decision.verdict == .switchToConverted {
             let transaction = ConversionTransaction(
                 original: typed,
@@ -211,16 +214,18 @@ private struct HeadlessTypingSession {
             )
             if gate.isDuplicate(transaction) {
                 duplicateTransactionCount += 1
-            } else {
-                let plan = EventReplacementPlan(
-                    transaction: transaction,
-                    deliveredKeyCount: snapshot.deliveredKeyCount
-                )
+                replacementApplied = true
+            } else if let plan = EventReplacementPlan(transaction: transaction, deliveredKeyCount: snapshot.deliveredKeyCount) {
                 backspaceCount = plan.backspaceCount
                 editor.apply(plan)
                 gate.recordCommitted(transaction)
                 transactionCount += 1
+                replacementApplied = true
+            } else {
+                blockedReason = "ambiguous-deletion"
             }
+        }
+        if replacementApplied {
             let staged = input.stageCompletion(
                 resolvedText: replacement,
                 language: targetLanguage,
@@ -243,14 +248,15 @@ private struct HeadlessTypingSession {
 
         traces.append(TokenTrace(
             typedText: typed,
-            resolvedText: evaluation.decision.verdict == .switchToConverted ? replacement : typed,
+            resolvedText: replacementApplied ? replacement : typed,
             typedLength: typed.count,
             replacementLength: replacement.count,
             sourceLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
             verdict: String(describing: evaluation.decision.verdict),
             reason: String(describing: evaluation.decision.reason),
-            backspaceCount: backspaceCount
+            backspaceCount: backspaceCount,
+            blockedReason: blockedReason
         ))
     }
 

@@ -15,6 +15,7 @@ public enum ReplacementBlockReason: Equatable, Sendable {
     case duplicateTransaction
     case secureInput
     case deniedApplication
+    case ambiguousDeletion
 }
 
 public enum ReplacementFailure: Equatable, Sendable {
@@ -180,10 +181,10 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
             return .blocked(.contextUnavailable)
         }
 
-        let plan = EventReplacementPlan(
+        guard let plan = EventReplacementPlan(
             transaction: transaction,
             deliveredKeyCount: request.deliveredKeyCount
-        )
+        ) else { return .blocked(.ambiguousDeletion) }
         let delivery: KeyboardEventDelivery = anchor == nil
             ? .globalEventStream
             : .targetedProcess

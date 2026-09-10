@@ -115,15 +115,21 @@ public struct EventReplacementPlan: Equatable, Sendable {
         self.replayText = replayText
     }
 
-    public init(transaction: ConversionTransaction, deliveredKeyCount: Int) {
-        // Prefer the larger of physical keys and the preflight suffix length so a
-        // single dropped backspace or key/text length skew cannot leave the first
-        // wrong-layout character in the editor ("g" + "привет").
-        let suffixUnits = transaction.expectedOriginalSuffix.utf16.count
+    public init?(replacingSuffix suffix: String, replacementText: String, replayText: String = "") {
+        // UTF-16 offsets are not Backspace counts. For composed or supplementary
+        // characters the deletion unit can also vary between editors; do not
+        // risk deleting surrounding text through an unverified keyboard path.
+        let units = suffix.utf16.count
+        guard units > 0, units == suffix.count else { return nil }
         self.init(
-            backspaceCount: max(deliveredKeyCount, suffixUnits),
-            replacementText: transaction.replacement,
-            replayText: transaction.boundary.replayText
+            backspaceCount: units, replacementText: replacementText, replayText: replayText
         )
+    }
+
+    public init?(transaction: ConversionTransaction, deliveredKeyCount _: Int) {
+        // Stroke metadata is retained at the call boundary, but must never
+        // expand deletion beyond the actual suffix validated in the editor.
+        self.init(replacingSuffix: transaction.expectedOriginalSuffix,
+                  replacementText: transaction.replacement, replayText: transaction.boundary.replayText)
     }
 }
