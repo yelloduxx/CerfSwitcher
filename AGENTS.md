@@ -874,6 +874,25 @@ bash scripts/run_native_release_smoke.sh
   build 130 was restored with unchanged hash as PID 23679. No new build was
   installed; the model and user's rules remain unchanged.
 
+### Independent text preparation (September 11, not evaluated)
+
+- `Tests/Fixtures/Independent/flores200-clean-v1` freezes 2,009 EN/RU sentence
+  pairs from 562 FLORES-200 source articles under CC BY-SA 4.0. Full license,
+  attribution, article URLs, upstream/member hashes and reproduction instructions
+  accompany the 436 KiB test-only artifact. It is not an app resource or training
+  input, and no user text is collected.
+- `scripts/prepare_independent_corpus.py` verifies the pinned archive/license,
+  groups whole articles and exact normalized translation duplicates, then assigns
+  groups by fixed hash to development/calibration/test. It preserves sentence
+  strings and refuses to overwrite an existing corpus. Two independent output
+  directories produced byte-identical compressed data and manifests; 3 unit
+  tests cover grouping, reproducibility, checksum failure and overwrite refusal.
+- Split sizes: 1,222/400/387 pairs in 339/113/110 groups. Test has 8,225 EN and
+  7,555 RU whitespace tokens, below the planned 50,000-per-language gate. These
+  are news/explanatory/travel texts, not full chat/work/code or OOV coverage.
+  No decoder evaluation or synthetic error profiles were run yet. Never tune on
+  the frozen test split or silently normalize its punctuation for physical input.
+
 ## Build, Signing and Installation
 
 Before installation:

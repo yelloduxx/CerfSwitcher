@@ -1,0 +1,71 @@
+{
+  "formatVersion": 1,
+  "corpusID": "flores200-clean-en-ru-v1",
+  "status": "frozenNotEvaluated",
+  "usage": "evaluation-only; not model training",
+  "sourceURL": "https://dl.fbaipublicfiles.com/nllb/flores200_dataset.tar.gz",
+  "sourceArchiveSHA256": "b8b0b76783024b85797e5cc75064eb83fc5288b41e9654dabc7be6ae944011f6",
+  "sourceRevision": "a6c830c6e1051fb4ac1a44b32358f00463f332bd",
+  "license": "CC-BY-SA-4.0",
+  "licenseSHA256": "fe38377ee0e52dc6c9c78554055a4e5e78781d73022df4508c9cf284e0f462e9",
+  "sourceMembers": {
+    "metadata_dev.tsv": "26e7b00913809be16aa2590e5e252f0a54832eef2de96b3948876878995ec771",
+    "dev/eng_Latn.dev": "51a25f527fd81f428b6933d85a2f5e5544af92aa82042c7fbf0c4120327fba0a",
+    "dev/rus_Cyrl.dev": "3cad8426c208a2d5f5ccb1bbf5b5284129ffc30636cff4f4421f5f6f31d891a5",
+    "metadata_devtest.tsv": "8edac47f861fcf6b54dad2068c10ba8f741da8b8676861c6bc27fcd9f5483b36",
+    "devtest/eng_Latn.devtest": "612e9fbe87997617c0fa8fa8929654a4f49b728d96738112c2b86ef6a1d78d88",
+    "devtest/rus_Cyrl.devtest": "cdc706ed862d1d35d8d67cfda0b396766646885434958b18291aa760ff1bb59e"
+  },
+  "partition": {
+    "seed": "ruswitch-independent-v1:20260911",
+    "method": "SHA256(document duplicate-component) mod 100; 60/20/20",
+    "duplicates": "NFC, casefold and collapsed whitespace; links whole source documents",
+    "textTransform": "none; original sentence strings retained"
+  },
+  "files": {
+    "clean.jsonl.gz": "5949f7940a9e14a96a6dfe2d21204c22132f801a9ffaa7bf3e941bfbeac1dbc4"
+  },
+  "counts": {
+    "pairs": 2009,
+    "phrases": 4018,
+    "documents": 562,
+    "documentGroups": 562,
+    "bySplit": {
+      "development": {
+        "pairs": 1222,
+        "documentGroups": 339,
+        "whitespaceTokens": {
+          "en": 26146,
+          "ru": 23599
+        }
+      },
+      "calibration": {
+        "pairs": 400,
+        "documentGroups": 113,
+        "whitespaceTokens": {
+          "en": 8484,
+          "ru": 7662
+        }
+      },
+      "test": {
+        "pairs": 387,
+        "documentGroups": 110,
+        "whitespaceTokens": {
+          "en": 8225,
+          "ru": 7555
+        }
+      }
+    },
+    "domains": {
+      "wikibooks": 652,
+      "wikinews": 689,
+      "wikivoyage": 668
+    }
+  },
+  "limitations": [
+    "Translation benchmark: news, encyclopedia and travel; not chat/work/code coverage",
+    "Not an OOV-family split and not a physical keyboard fixture",
+    "Test token volume is below 50000 per language; no false-positive confidence claim",
+    "No corruption profiles or decoder decisions have been generated yet"
+  ]
+}

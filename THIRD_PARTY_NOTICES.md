@@ -50,3 +50,15 @@ word and phrase frequencies plus synthetic keyboard-layout corruptions. The
 checked bootstrap artifact does not contain Wikipedia, Tatoeba, user text, or
 other source sentences. Exact inputs, seed and artifact checksum are recorded
 in `scripts/v4_training_sources.json`.
+
+## FLORES-200 Evaluation Corpus (Tests Only)
+
+`Tests/Fixtures/Independent/flores200-clean-v1` contains an evaluation-only
+EN/RU derivative of FLORES-200, NLLB Team / Meta, 2022. Dataset text and the
+derived corpus representation are licensed under CC BY-SA 4.0, separately
+from application code. The full license, attribution, source article URLs,
+transformation description and pinned hashes accompany that corpus.
+
+- Source: https://github.com/facebookresearch/flores/tree/a6c830c6e1051fb4ac1a44b32358f00463f332bd/flores200
+- Citation: NLLB Team, *No Language Left Behind: Scaling Human-Centered Machine Translation*, 2022.
+- The corpus is not included in the application bundle or used to train its model.
