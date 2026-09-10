@@ -986,108 +986,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let keys = snapshot.keys
         guard !keys.isEmpty else { rslog("auto: bail empty-keys"); return .passThrough }
         guard let pair = DynamicKeyMapping.convertKeys(keys) else { rslog("auto: bail convertKeys-nil"); return .passThrough }
-        if AutoSwitchPolicy.isDeniedWord(pair.original, pair.converted) {
-            rslog("auto: bail denied-word")
-            return TokenHandlingResult(
-                consumeBoundary: false,
-                resolvedText: pair.original,
-                resolvedLanguage: SmartTokenizer.languageHint(for: pair.original),
-                wasConverted: false
-            )
-        }
-
         // Язык для детектора. Для проброшенного через удалёнку текста (все символы — char)
         // направление определяем по СКРИПТУ набранного, а не по раскладке офисной машины:
         // на офисе раскладка может не соответствовать тому, что напечатали на контроллере,
         // и тогда decide ошибочно даёт keep (это и есть «авто в удалёнке не работает»).
-        guard let langs = layoutLanguages(
+        let langs = layoutLanguages(
             keys: keys,
             pair: pair,
             sourceLayoutID: snapshot.sourceLayoutID
-        ) else {
-            rslog("auto: bail langs-nil"); return .passThrough
-        }
-
-        let targetLang = langs.opposite
-        let contextWords = snapshot.context.map(\.text)
-        let capsLock = keys.contains { $0.caps }
+        )
         let policy = AutoConvertPolicy(
             neverConvert: SettingsManager.shared.deniedWordsSet,
             alwaysConvert: SettingsManager.shared.alwaysConvertWordsSet
         )
-        let languagePair = Set([String(langs.current.lowercased().prefix(2)), String(targetLang.lowercased().prefix(2))])
-        let decision: AutoConvertDecision
-        if languagePair == Set(["en", "ru"]), let languageModel {
-            let evaluation = LayoutDecoder.evaluate(
-                typed: pair.original,
-                converted: pair.converted,
-                currentLanguage: langs.current,
-                targetLanguage: targetLang,
-                capsLock: capsLock,
-                contextWords: contextWords,
-                languageBelief: snapshot.languageBelief,
-                integrity: snapshot.integrity,
-                policy: policy,
-                adaptiveBias: { original, converted in
-                    let persisted = ManualLearningPolicy.isLikelyReverseConversion(
-                        original: original,
-                        converted: converted,
-                        model: self.languageModel
-                    ) ? 0 : SettingsManager.shared.adaptiveBias(
-                            original: original,
-                            converted: converted,
-                            appBundleID: frontID
-                        )
-                    let sessionPenalty = self.sessionNegativePairs.contains(self.learningKey(
-                        original: original,
-                        converted: converted,
-                        appBundleID: frontID
-                    )) ? -12.0 : 0.0
-                    return persisted + sessionPenalty
-                },
-                isConfirmed: { original, converted in
-                    !ManualLearningPolicy.isLikelyReverseConversion(
-                        original: original,
-                        converted: converted,
-                        model: self.languageModel
-                    ) && SettingsManager.shared.isAdaptiveConfirmed(
-                            original: original,
-                            converted: converted,
-                            appBundleID: frontID
-                        )
-                },
-                model: languageModel
-            )
-            decision = evaluation.decision
-        } else {
-            // V3 is the only production automatic decoder and currently supports
-            // EN/RU. Missing model data or another language pair must keep text.
-            return TokenHandlingResult(
-                consumeBoundary: false,
-                resolvedText: pair.original,
-                resolvedLanguage: langs.current,
-                wasConverted: false
-            )
-        }
-        let candidate = decision.candidate
+        let plan = AutomaticConversionPlanner.prepare(
+            snapshot: snapshot, original: pair.original, converted: pair.converted,
+            currentLanguage: langs?.current, targetLanguage: langs?.opposite,
+            targetLayoutID: deferToRemote ? nil : (
+                pair.sourceWasOpposite ? snapshot.sourceLayoutID : oppositeLayoutID(for: snapshot.sourceLayoutID)
+            ),
+            policy: policy,
+            allowUnavailablePost: SettingsManager.shared.axlessConversion,
+            adaptiveBias: { original, converted in
+                let persisted = ManualLearningPolicy.isLikelyReverseConversion(
+                    original: original, converted: converted, model: self.languageModel
+                ) ? 0 : SettingsManager.shared.adaptiveBias(
+                    original: original, converted: converted, appBundleID: frontID
+                )
+                let sessionPenalty = self.sessionNegativePairs.contains(self.learningKey(
+                    original: original, converted: converted, appBundleID: frontID
+                )) ? -12.0 : 0.0
+                return persisted + sessionPenalty
+            },
+            isConfirmed: { original, converted in
+                !ManualLearningPolicy.isLikelyReverseConversion(
+                    original: original, converted: converted, model: self.languageModel
+                ) && SettingsManager.shared.isAdaptiveConfirmed(
+                    original: original, converted: converted, appBundleID: frontID
+                )
+            },
+            model: languageModel
+        )
         rslog("auto_decision_completed")
-        guard decision.verdict == .switchToConverted else {
-            let finalizeToken: Bool
-            if case .punctuation = snapshot.boundary, decision.verdict == .undecided {
-                // It may be a layout letter inside an unfinished unknown word. Keep
-                // collecting until a non-ambiguous boundary arrives.
-                finalizeToken = false
-            } else {
-                finalizeToken = true
-            }
-            return TokenHandlingResult(
-                consumeBoundary: false,
-                finalizeToken: finalizeToken,
-                resolvedText: pair.original,
-                resolvedLanguage: langs.current,
-                wasConverted: false
-            )
+        let request: ReplacementRequest
+        switch plan {
+        case let .keep(handling, _): return handling
+        case let .replace(prepared, _): request = prepared
         }
+        guard let langs else { return .passThrough }
+        let targetLang = langs.opposite
+        let transaction = request.transaction
 
         if deferToRemote {
             // Удалёнка: текст конвертит офисный инстанс по реальным проброшенным символам.
@@ -1097,38 +1045,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rslog("auto: local layout switched, conversion handled by controlled instance")
             return TokenHandlingResult(
                 consumeBoundary: false,
-                resolvedText: candidate.replacement,
+                resolvedText: transaction.replacement,
                 resolvedLanguage: targetLang,
                 wasConverted: true
             )
         }
 
-        let undeliveredCount = snapshot.boundary.isIncludedInTokenKeys ? 1 : 0
-        let expectedSuffix = String(pair.original.dropLast(undeliveredCount))
-        let targetLayoutID = pair.sourceWasOpposite
-            ? snapshot.sourceLayoutID
-            : oppositeLayoutID(for: snapshot.sourceLayoutID)
-        let transaction = ConversionTransaction(
-            original: pair.original,
-            replacement: candidate.replacement,
-            boundary: snapshot.boundary,
-            focus: snapshot.focus,
-            sourceLayoutID: snapshot.sourceLayoutID,
-            targetLayoutID: targetLayoutID,
-            sequence: snapshot.sequence,
-            editRevision: snapshot.editRevision,
-            expectedOriginalSuffix: expectedSuffix,
-            automatic: true
-        )
         let stagedSequence = snapshot.sequence &+ 1
         let submission = automaticReplacementDriver.submit(
-            ReplacementRequest(
-                transaction: transaction,
-                deliveredKeyCount: snapshot.deliveredKeyCount,
-                currentFocus: snapshot.focus,
-                currentRevision: snapshot.editRevision,
-                allowUnavailablePost: SettingsManager.shared.axlessConversion
-            ),
+            request,
             sourceLanguage: langs.current,
             targetLanguage: targetLang,
             switchLayout: applyTargetLayout
@@ -1136,7 +1061,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.finishAutomaticReplacement(
                 outcome: outcome,
                 transaction: transaction,
-                replacement: candidate.replacement,
+                replacement: transaction.replacement,
                 targetLanguage: targetLang,
                 appBundleID: frontID,
                 stagedSequence: stagedSequence

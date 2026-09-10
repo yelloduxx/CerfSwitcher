@@ -667,6 +667,27 @@ bash scripts/run_native_release_smoke.sh
   external editor behavior and the modeled overlapping-input failure remain
   unverified/unresolved; no new app has been installed.
 
+### Shared automatic preparation (September 10)
+
+- `AutomaticConversionPlanner` is now the same decoder-to-request path for
+  AppDelegate and the scheduled physical runner. It preserves raw never checks,
+  EN/RU/model availability, snapshot context/belief/Caps/integrity, adaptive
+  callbacks, keep/finalize handling and exact transaction fields. The old
+  `AutoSwitchPolicy.isDeniedWord` helper has no remaining callers and was removed.
+- Target-layout resolution is lazy: keep, missing-model and denied-word paths
+  do not resolve the target input source. Remote switch-only handling still
+  stays in AppDelegate and does not require that lookup.
+- 294 Swift tests passed with warnings-as-errors, including seven planner
+  characterization tests. All 19 physical-suite harness checks passed. The
+  complete positive execution JSON before/after the refactor is identical:
+  `.build/physical-runs/closed-loop-f8hk3xsu/positive.json` and
+  `.build/physical-runs/closed-loop-1z40xkqi/positive.json`.
+- This is shared preparation, not full runtime parity. OS host/secure/remote
+  gates, physical mapping adapters and learning persistence still have native
+  wrappers; physical fixtures do not yet model user preferences/learning. The
+  overlapping-delivery failure remains unresolved. Decoder weights, dictionary,
+  installed build and user rules were not changed.
+
 ## Build, Signing and Installation
 
 Before installation:

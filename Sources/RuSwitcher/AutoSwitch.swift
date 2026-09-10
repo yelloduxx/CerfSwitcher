@@ -100,13 +100,6 @@ enum AutoSwitchPolicy {
         return false
     }
 
-    /// Слово в списке never-convert (обе стороны пары, без регистра).
-    static func isDeniedWord(_ typed: String, _ converted: String) -> Bool {
-        let set = SettingsManager.shared.deniedWordsSet
-        guard !set.isEmpty else { return false }
-        return set.contains(typed.lowercased()) || set.contains(converted.lowercased())
-    }
-
     /// Слово в списке always-convert — матчим по СКОНВЕРТИРОВАННОЙ (целевой) форме.
     /// В список кладётся «целевое» слово (что должно получиться), а не мусор раскладки —
     /// иначе правильно набранное слово конвертилось бы обратно (пинг-понг).

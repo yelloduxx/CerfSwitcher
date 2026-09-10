@@ -344,31 +344,28 @@ private final class PhysicalTypingSession {
             guard !value.isEmpty else { throw PhysicalTypingError.unsupportedAction(index, "target dead-key composition") }
             converted += value
         }
-        let decision = LayoutDecoder.evaluate(
-            typed: original, converted: converted,
+        let plan = AutomaticConversionPlanner.prepare(
+            snapshot: snapshot, original: original, converted: converted,
             currentLanguage: source.language, targetLanguage: target.language,
-            capsLock: snapshot.keys.contains(where: \.caps),
-            contextWords: snapshot.context.map(\.text), languageBelief: snapshot.languageBelief,
-            integrity: snapshot.integrity, policy: .empty, model: model
-        ).decision
-        decisions.append(.init(actionIndex: index, original: original, replacement: decision.candidate.replacement,
-                               verdict: String(describing: decision.verdict), reason: String(describing: decision.reason)))
-        guard decision.verdict == .switchToConverted else {
-            editor.insert(boundary.text)
-            input.applyTokenHandlingResult(.init(consumeBoundary: false, resolvedText: original,
-                                                resolvedLanguage: source.language, wasConverted: false), snapshot: snapshot)
-            return
-        }
-        let transaction = ConversionTransaction(
-            original: original, replacement: decision.candidate.replacement, boundary: boundary,
-            focus: focus, sourceLayoutID: sourceID, targetLayoutID: targetID,
-            sequence: snapshot.sequence, editRevision: snapshot.editRevision,
-            createdAt: Date(timeIntervalSince1970: Double(clock.now) / 1_000_000), automatic: true
+            targetLayoutID: targetID, model: model,
+            at: Date(timeIntervalSince1970: Double(clock.now) / 1_000_000)
         )
+        if let decision = plan.evaluation?.decision {
+            decisions.append(.init(actionIndex: index, original: original, replacement: decision.candidate.replacement,
+                                   verdict: String(describing: decision.verdict), reason: String(describing: decision.reason)))
+        }
+        let request: ReplacementRequest
+        switch plan {
+        case let .keep(handling, _):
+            editor.insert(boundary.text)
+            input.applyTokenHandlingResult(handling, snapshot: snapshot)
+            return
+        case let .replace(prepared, _): request = prepared
+        }
+        let transaction = request.transaction
         postedTransactionSequence = transaction.sequence
         let submission = driver.submit(
-            .init(transaction: transaction, deliveredKeyCount: snapshot.deliveredKeyCount,
-                  currentFocus: focus, currentRevision: input.editRevision),
+            request,
             sourceLanguage: source.language, targetLanguage: target.language,
             switchLayout: { [unowned self] id in requestLayout(id, actionIndex: index, sequence: transaction.sequence) }
         ) { [weak self] outcome in

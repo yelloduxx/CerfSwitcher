@@ -193,6 +193,8 @@ The runner uses the production local-key classifier, replacement coordinator/dri
 
 Native event-construction tests additionally allocate real CGEvent objects without posting them. The complete replacement, including replay boundaries, must be prepared before publication; an allocation failure on the final event cannot start a partial replacement.
 
+The app and scheduled physical simulator now share `AutomaticConversionPlanner`: V3 evaluation, keep handling and exact replacement-request preparation. Seven focused tests cover context, punctuation, policy precedence, confirmed acronyms, missing prerequisites and transaction identity. This removes duplicated preparation, but does not make virtual delivery or learning equivalent to the native app.
+
 An external three-process harness is available via `python3 scripts/run_external_native_suite.py --prepare-only`. Preparation opens no windows and is **not** a native pass. Live execution needs explicit focus permission and OS event access, and uses a separate NSTextView receiver plus a timestamp-driven producer. The first authorized attempt was blocked by macOS preflight before opening a window; external native parity remains unverified.
 
 `--preflight-only` builds/signs and reads access flags without opening an editor or stopping the installed app. Even granted access is reported as `permissionsReadyNotRun`, not a test pass. The native assessor matches individual action markers and requires the auto-off control to match its own literal-text oracle; lost or duplicated input cannot serve as a successful negative control. Final host snapshots recheck the actual editor and focus before reporting completion.
@@ -399,6 +401,8 @@ swift run -c release RuSwitcherTypingSimulator \
 Он переводит физические клавиши системными таблицами macOS и использует фактическую раскладку симулируемой сессии. Эталон доступен только проверяющему компоненту. Подключены общий классификатор локальных клавиш, coordinator/driver замены и staging InputSession из приложения. Виртуальные часы отдельно планируют доставку каждого события, переключение раскладки, чтение результата и подтверждение; редактор учитывает каретку, выделение, UTF-16 и графемы. Отчёт содержит полную трассу, контекст, подтверждения и хеши входа, модели и таблиц раскладок. Окна не открываются, системная раскладка пользователя не меняется.
 
 Отдельные проверки создают настоящие объекты CGEvent, но никуда их не отправляют. Теперь весь пакет замены, включая пробел/Enter/Tab, готовится до отправки: ошибка создания последнего события не запускает частичное удаление текста.
+
+Приложение и физический симулятор теперь используют общий `AutomaticConversionPlanner`: оценку V3, решение оставить текст и подготовку запроса замены. Семь отдельных проверок покрывают контекст, пунктуацию, приоритет правил, подтверждённые аббревиатуры, отсутствие модели и точность транзакции. Подготовка больше не дублируется, но виртуальная доставка и обучение ещё не равнозначны работе нативного приложения.
 
 Внешний стенд из трёх процессов готовится командой `python3 scripts/run_external_native_suite.py --prepare-only`. Подготовка не открывает окон и **не считается нативным успехом**. Реальный прогон использует отдельный NSTextView и генератор с независимым расписанием; для него нужны явное разрешение забрать фокус и системный доступ к событиям. Первая разрешённая попытка остановилась на проверке доступа macOS, до открытия окна. Нативная эквивалентность пока не подтверждена.
 
