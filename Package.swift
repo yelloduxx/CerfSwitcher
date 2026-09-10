@@ -74,7 +74,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RuSwitcherAppSupportTests",
-            dependencies: ["RuSwitcherAppSupport", "RuSwitcherCore"],
+            dependencies: ["RuSwitcherAppSupport", "RuSwitcherCore", "RuSwitcherTestSupport"],
             path: "Tests/RuSwitcherAppSupportTests"
         )
     ]

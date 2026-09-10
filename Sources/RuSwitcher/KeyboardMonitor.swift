@@ -308,24 +308,20 @@ final class KeyboardMonitor: @unchecked Sendable {
         let result = SettingsManager.shared.autoConvert
             ? (onTokenCompleted?(snapshot, proxy) ?? .passThrough)
             : .passThrough
-        let resolved = result.resolvedText ?? snapshot.producedText
-        if result.invalidateSession {
-            inputSession.invalidate(clearContext: true)
-        } else if result.stageCompletion {
-            inputSession.stageCompletion(
-                resolvedText: result.resolvedText,
-                language: result.resolvedLanguage,
-                wasConverted: result.wasConverted
-            )
-        } else if result.finalizeToken {
-            inputSession.complete(
-                resolvedText: resolved,
-                language: result.resolvedLanguage ?? resolved.flatMap(SmartTokenizer.languageHint),
-                wasConverted: result.wasConverted
-            )
-        }
-        if result.wasConverted { keysTypedSinceConversion = false }
+        let applied = inputSession.applyTokenHandlingResult(result, snapshot: snapshot)
+        if applied, result.wasConverted { keysTypedSinceConversion = false }
         return result
+    }
+
+    func automaticReplacementState() -> AutomaticReplacementState {
+        let app = NSWorkspace.shared.frontmostApplication
+        let focus = app.map {
+            FocusedElementIdentity(processID: $0.processIdentifier, bundleID: $0.bundleIdentifier,
+                                   identifier: focusedElementIdentifier(processID: $0.processIdentifier))
+        }
+        return AutomaticReplacementState(focus: focus, sequence: inputSession.sequence,
+                                         editRevision: inputSession.editRevision, integrity: inputSession.integrity,
+                                         hasCurrentToken: !inputSession.currentKeys.isEmpty)
     }
 
     func confirmStagedConversion(
@@ -524,14 +520,16 @@ final class KeyboardMonitor: @unchecked Sendable {
         observedFrontmostProcessID = frontmostProcessID
         triggerArmed = false
         lastTapTime = nil
-        let spaceDisposition = InputEventClassifier.classifySpaceKey(
-            isSpaceKey: keyCode == KC.space,
-            producedText: producedText
+        let localDisposition = InputEventClassifier.classifyLocalKeyDown(
+            key: TypedKey(keyCode: keyCode, shift: flags.contains(.maskShift), caps: flags.contains(.maskAlphaShift),
+                          producedCharacter: producedCharacter, producedText: producedText, sourceLayoutID: sourceLayoutID),
+            command: flags.contains(.maskCommand), control: flags.contains(.maskControl), option: flags.contains(.maskAlternate)
         )
+        let spaceIsBoundary = localDisposition == .boundary(.space(count: 1))
         let hadRecentCorrection = !keysTypedSinceConversion
         let passiveBoundaryAfterConversion = hadRecentCorrection
             && currentWordLength == 0
-            && (spaceDisposition == .boundary || keyCode == KC.enter || keyCode == KC.tab)
+            && (spaceIsBoundary || keyCode == KC.enter || keyCode == KC.tab)
         if !passiveBoundaryAfterConversion { keysTypedSinceConversion = true }
         if caretFlagEnabled { DispatchQueue.main.async { [weak self] in self?.onUserInput?() } }   // issue #10: спрятать флаг при печати
 
@@ -566,12 +564,12 @@ final class KeyboardMonitor: @unchecked Sendable {
         // A dead-key layout can emit a quote or accent from physical Space. The
         // preceding dead key is already represented in the token, so this commit
         // event must pass through without becoming a boundary or a second key.
-        if spaceDisposition == .textComposition {
+        if localDisposition == .compositionCommit {
             return false
         }
 
         // A Space event whose actual payload is a space is a token boundary.
-        if spaceDisposition == .boundary {
+        if spaceIsBoundary {
             if hadRecentCorrection { onUserContinuedAfterConversion?() }
             if currentWordLength > 0 {
                 wordBeforeBoundaryLength = currentWordLength
@@ -581,7 +579,7 @@ final class KeyboardMonitor: @unchecked Sendable {
                 return completeToken(boundary: .space(count: 1), proxy: proxy).consumeBoundary
             } else {
                 boundaryCount += 1
-                inputSession.noteExternalEvent()
+                inputSession.handle(.boundary(.space(count: 1)))
             }
             return false
         }
@@ -589,14 +587,14 @@ final class KeyboardMonitor: @unchecked Sendable {
         // If a replacement is posted, Enter/Tab are consumed and replayed to the
         // validated target PID. Passing the original event through can let it overtake
         // targeted Backspaces and corrupt the following line.
-        if keyCode == KC.enter || keyCode == KC.tab {
+        if case let .boundary(boundary) = localDisposition {
             if hadRecentCorrection { onUserContinuedAfterConversion?() }
             var handling = TokenHandlingResult.passThrough
             if currentWordLength > 0 {
                 wordBeforeBoundaryLength = currentWordLength
                 prevWordKeys = currentWordKeys
                 prevWordBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                handling = completeToken(boundary: keyCode == KC.enter ? .enter : .tab, proxy: proxy)
+                handling = completeToken(boundary: boundary, proxy: proxy)
             }
             if handling.consumeBoundary {
                 keysTypedSinceConversion = true
@@ -610,28 +608,16 @@ final class KeyboardMonitor: @unchecked Sendable {
             return false
         }
 
-        // Стрелки (Left…Up) — полный сброс
-        if (keyCode >= KC.left && keyCode <= KC.up)
-            || [KC.home, KC.end, KC.pageUp, KC.pageDown].contains(keyCode) {
-            fullReset(invalidated: true)
-            onEditingInvalidated?()
-            return false
-        }
-
-        let modifiers = flags.intersection([.maskCommand, .maskControl, .maskAlternate])
-
-        // Modified deletion changes an unknown number of characters in the target
-        // editor. Treating it as one Backspace is the classic stale-buffer bug.
-        if keyCode == KC.backspace || keyCode == KC.deleteForward {
+        if case let .editing(event) = localDisposition,
+           event == .plainBackspace || event == .modifiedDeletion {
             if hadRecentCorrection { onManualConversionRejected?() }
-            if !modifiers.isEmpty || keyCode == KC.deleteForward {
-                inputSession.handle(.modifiedDeletion)
+            inputSession.handle(event)
+            if event == .modifiedDeletion {
                 wordBeforeBoundaryLength = 0
                 boundaryCount = 0
                 prevWordKeys = []
                 onEditingInvalidated?()
             } else {
-                inputSession.handle(.plainBackspace)
                 notifyTokenChanged()
                 if currentWordLength == 0 {
                     wordBeforeBoundaryLength = 0
@@ -642,16 +628,7 @@ final class KeyboardMonitor: @unchecked Sendable {
             return false
         }
 
-        // (Cmd+A, Cmd+C, Cmd+X и т.п.) могло изменить выделение — сбрасываем наш буфер.
-        if !modifiers.isEmpty {
-            let event: InputEvent
-            if flags.contains(.maskCommand), keyCode == KC.letterZ {
-                event = .undo
-            } else if flags.contains(.maskCommand), [KC.letterA, KC.letterC, KC.letterV, KC.letterX].contains(keyCode) {
-                event = .clipboardCommand
-            } else {
-                event = .navigation
-            }
+        if case let .editing(event) = localDisposition {
             if event == .undo, hadRecentCorrection { onCorrectionEdited?() }
             if event == .undo, hadRecentCorrection { onManualConversionRejected?() }
             if event == .clipboardCommand,
@@ -667,16 +644,9 @@ final class KeyboardMonitor: @unchecked Sendable {
             return false
         }
 
-        if KeyMapping.keycodeToEN[keyCode] != nil {
+        if case let .printable(key) = localDisposition {
             if hadRecentCorrection { onUserContinuedAfterConversion?() }
-            inputSession.append(TypedKey(
-                keyCode: keyCode,
-                shift: flags.contains(.maskShift),
-                caps: flags.contains(.maskAlphaShift),
-                producedCharacter: producedCharacter,
-                producedText: producedText,
-                sourceLayoutID: sourceLayoutID
-            ))
+            inputSession.handle(.printable(key))
             notifyTokenChanged()
             wordBeforeBoundaryLength = 0
             boundaryCount = 0
@@ -686,10 +656,6 @@ final class KeyboardMonitor: @unchecked Sendable {
             // on the first punctuation key changes the layout while repeated marks
             // and the following boundary are still arriving, which can turn `...`
             // into `.//` or race the replacement transaction.
-        } else {
-            // Esc, F-клавиши, и т.д. — полный сброс
-            fullReset(invalidated: true)
-            onEditingInvalidated?()
         }
         return false
     }

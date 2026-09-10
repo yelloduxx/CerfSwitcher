@@ -149,7 +149,7 @@ private final class Reader: FocusedTextContextReading {
     let preflight: TextContextValidation
     private(set) var validationDeadlines: [Int] = []
     private(set) var verificationDeadlines: [Int] = []
-    private var completion: ((TextContextValidation) -> Void)?
+    private var completion: (@MainActor (TextContextValidation) -> Void)?
 
     init(preflight: TextContextValidation) { self.preflight = preflight }
 
@@ -158,12 +158,12 @@ private final class Reader: FocusedTextContextReading {
         return preflight
     }
 
-    func verify(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int, completion: @escaping (TextContextValidation) -> Void) {
+    func verify(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int, completion: @escaping @MainActor (TextContextValidation) -> Void) {
         verificationDeadlines.append(deadlineMilliseconds)
         self.completion = completion
     }
 
-    func complete(_ result: TextContextValidation) { completion?(result) }
+    @MainActor func complete(_ result: TextContextValidation) { completion?(result) }
 }
 
 @MainActor

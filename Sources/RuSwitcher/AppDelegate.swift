@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         reader: textContextReader,
         poster: textConverter
     )
+    private lazy var automaticReplacementDriver = AutomaticReplacementDriver(coordinator: replacementCoordinator)
     private let languageModel = LanguageModelStore.bundled
     private lazy var textContextReader = FocusedTextContextReader(
         focusedElementResolver: focusedElementResolver
@@ -1113,14 +1114,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             automatic: true
         )
         let stagedSequence = snapshot.sequence &+ 1
-        let execution = replacementCoordinator.submit(
+        let submission = automaticReplacementDriver.submit(
             ReplacementRequest(
                 transaction: transaction,
                 deliveredKeyCount: snapshot.deliveredKeyCount,
                 currentFocus: snapshot.focus,
                 currentRevision: snapshot.editRevision,
                 allowUnavailablePost: SettingsManager.shared.axlessConversion
-            )
+            ),
+            sourceLanguage: langs.current,
+            targetLanguage: targetLang,
+            switchLayout: applyTargetLayout
         ) { [weak self] outcome in
             self?.finishAutomaticReplacement(
                 outcome: outcome,
@@ -1131,42 +1135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 stagedSequence: stagedSequence
             )
         }
-        switch execution {
-        case .postedUnverified:
+        if submission.isNewPost {
             postedAutomaticReplacementCount += 1
             // The posted pair is immediately available to the explicit manual
             // trigger. This prevents stale physical keys from converting the
             // already-corrected word to the same text again while AX verifies it.
             textConverter.recordCommittedTransaction(transaction)
-            // Switch layout NOW — before the event callback returns. Waiting for
-            // async AX verification left the first letter of the next word on the
-            // previous layout whenever the user typed quickly after Space.
-            applyTargetLayout(transaction.targetLayoutID)
-            return TokenHandlingResult(
-                consumeBoundary: snapshot.boundary.shouldConsumeOriginalEvent,
-                stageCompletion: true,
-                resolvedText: candidate.replacement,
-                resolvedLanguage: targetLang,
-                wasConverted: true
-            )
-        case .blocked(.duplicateTransaction):
-            applyTargetLayout(transaction.targetLayoutID)
-            return TokenHandlingResult(
-                consumeBoundary: snapshot.boundary.shouldConsumeOriginalEvent,
-                stageCompletion: true,
-                resolvedText: candidate.replacement,
-                resolvedLanguage: targetLang,
-                wasConverted: true
-            )
-        case .verified, .switchedOnly, .blocked, .failed:
-            return TokenHandlingResult(
-                consumeBoundary: false,
-                resolvedText: pair.original,
-                resolvedLanguage: langs.current,
-                wasConverted: false,
-                invalidateSession: execution != .verified
-            )
         }
+        return submission.handling
     }
 
     private func finishAutomaticReplacement(
@@ -1177,25 +1153,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appBundleID: String?,
         stagedSequence: UInt64
     ) {
-        guard let front = NSWorkspace.shared.frontmostApplication,
-              front.processIdentifier == transaction.focus.processID,
-              front.bundleIdentifier == transaction.focus.bundleID else {
-            textConverter.discardTransactionIfCurrent(transaction)
-            keyboardMonitor.invalidateStagedCompletion(expectedSequence: stagedSequence)
-            return
-        }
-
-        switch outcome {
-        case .verified:
+        let completion = AutomaticReplacementDriver.completion(
+            for: outcome, transaction: transaction, state: keyboardMonitor.automaticReplacementState()
+        )
+        switch completion {
+        case .confirm:
             guard keyboardMonitor.confirmStagedConversion(
                 text: replacement,
                 language: targetLanguage,
                 expectedSequence: stagedSequence
             ) else { return }
             verifiedAutomaticReplacementCount += 1
-            // Layout was already switched on post; re-apply in case another app
-            // changed input source during verification.
-            applyTargetLayout(transaction.targetLayoutID)
             textConverter.recordCommittedTransaction(transaction)
             lastAutoConverted = AutoLearningEvent(
                 original: transaction.original,
@@ -1203,19 +1171,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 appBundleID: appBundleID,
                 at: Date()
             )
-        case .postedUnverified:
+        case .retainUnverified:
             // Post already succeeded and layout already switched. AX only failed
             // to read the result back — do not undo the staged conversion.
             guard keyboardMonitor.isStagedCompletionCurrent(
                 expectedSequence: stagedSequence
             ) else { return }
             keyboardMonitor.finishUnverifiedPostedConversion(expectedSequence: stagedSequence)
-            applyTargetLayout(transaction.targetLayoutID)
-        case .failed(.verificationMismatch):
+        case .invalidate, .discard:
             textConverter.discardTransactionIfCurrent(transaction)
             keyboardMonitor.invalidateStagedCompletion(expectedSequence: stagedSequence)
-        case .failed, .blocked, .switchedOnly:
-            textConverter.discardTransactionIfCurrent(transaction)
+        case .ignore:
+            break
         }
     }
 

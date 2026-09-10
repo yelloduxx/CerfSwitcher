@@ -81,11 +81,12 @@ public protocol FocusedTextContextReading: AnyObject {
         deadlineMilliseconds: Int
     ) -> TextContextValidation
 
+    @MainActor
     func verify(
         expectedSuffix: String,
         focus: FocusedElementIdentity,
         deadlineMilliseconds: Int,
-        completion: @escaping (TextContextValidation) -> Void
+        completion: @escaping @MainActor (TextContextValidation) -> Void
     )
 }
 
@@ -116,7 +117,7 @@ public protocol ReplacementCoordinating: AnyObject {
     @discardableResult
     func submit(
         _ request: ReplacementRequest,
-        completion: @escaping (ReplacementOutcome) -> Void
+        completion: @escaping @MainActor (ReplacementOutcome) -> Void
     ) -> ReplacementOutcome
 }
 
@@ -135,7 +136,7 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
     @discardableResult
     public func submit(
         _ request: ReplacementRequest,
-        completion: @escaping (ReplacementOutcome) -> Void
+        completion: @escaping @MainActor (ReplacementOutcome) -> Void
     ) -> ReplacementOutcome {
         let transaction = request.transaction
         guard transaction.focus == request.currentFocus else {

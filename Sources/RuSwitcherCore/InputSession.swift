@@ -336,6 +336,25 @@ public struct InputSession: Equatable, Sendable {
         state = .idle(revision: editRevision)
     }
 
+    /// Apply the synchronous boundary-handler result only to its source revision.
+    /// Shared by the native monitor and replacement-lifecycle contract tests.
+    @discardableResult
+    public mutating func applyTokenHandlingResult(_ result: TokenHandlingResult, snapshot: TokenSnapshot) -> Bool {
+        guard sequence == snapshot.sequence, editRevision == snapshot.editRevision else { return false }
+        if result.invalidateSession {
+            invalidate(clearContext: true)
+        } else if result.stageCompletion {
+            stageCompletion(resolvedText: result.resolvedText, language: result.resolvedLanguage,
+                            wasConverted: result.wasConverted)
+        } else if result.finalizeToken {
+            let resolved = result.resolvedText ?? snapshot.producedText
+            complete(resolvedText: resolved,
+                     language: result.resolvedLanguage ?? resolved.flatMap(SmartTokenizer.languageHint),
+                     wasConverted: result.wasConverted)
+        }
+        return true
+    }
+
     /// Publishes the expected editor state immediately so the next token can use
     /// it as provisional phrase context. Persistent learning still waits for the
     /// asynchronous read-back performed outside this state machine.

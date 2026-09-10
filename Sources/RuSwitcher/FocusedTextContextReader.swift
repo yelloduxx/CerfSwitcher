@@ -25,9 +25,9 @@ final class FocusedTextContextReader: FocusedTextContextReading, @unchecked Send
     }
 
     private final class CallbackBox: @unchecked Sendable {
-        let callback: (TextContextValidation) -> Void
+        let callback: @MainActor (TextContextValidation) -> Void
 
-        init(_ callback: @escaping (TextContextValidation) -> Void) {
+        init(_ callback: @escaping @MainActor (TextContextValidation) -> Void) {
             self.callback = callback
         }
     }
@@ -127,7 +127,7 @@ final class FocusedTextContextReader: FocusedTextContextReading, @unchecked Send
         expectedSuffix: String,
         focus: FocusedElementIdentity,
         deadlineMilliseconds: Int,
-        completion: @escaping (TextContextValidation) -> Void
+        completion: @escaping @MainActor (TextContextValidation) -> Void
     ) {
         let callback = CallbackBox(completion)
         verificationQueue.async { [self] in

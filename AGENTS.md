@@ -506,7 +506,7 @@ bash scripts/run_native_release_smoke.sh
 
 ### Unreleased validation work (September 10)
 
-- Verified locally: 213 Swift tests passed with no skips; 11 Python artifact
+- First checkpoint: 213 Swift tests passed with no skips; 11 Python artifact
   checks passed. The existing international-layout test now runs rather than
   skipping an installed-but-disabled source. Both legacy corpus paths retain
   58,938/59,388 exact tokens, 450 safe misses and zero false/wrong replacements.
@@ -534,9 +534,25 @@ bash scripts/run_native_release_smoke.sh
   matching exit status/counts. Empty corpora are invalid. Event-stream quality
   still permits the baseline 450 safe misses; the strict decoder wrapper returns
   1 for those completed mismatches. `invalidRun` is a different failure class.
-- Next work: share the production classification/auto-replacement lifecycle,
-  introduce virtual scheduling, then compare a short identical scenario in an
-  external native host. No installed app or production decoder changed here.
+- Second checkpoint: 240 Swift tests passed with no skips; the app builds with
+  warnings treated as errors. `InputEventClassifier.classifyLocalKeyDown` now
+  drives local production key classification; remote Unicode handling is still
+  separate. `InputSession.applyTokenHandlingResult` rejects stale synchronous
+  results before they can clear a newer token.
+- `AutomaticReplacementDriver` is connected to AppDelegate and the native
+  coordinator. It queues acknowledgements until staging can finish and ignores
+  duplicate acknowledgements/submissions. Confirmation checks app/known field,
+  revision, sequence and token integrity. The target layout changes only on a
+  new post, never again on a delayed acknowledgement.
+- Ten new lifecycle tests use the real coordinator, driver and InputSession
+  with controlled reader/poster fakes and a virtual scheduler; 17 additional
+  tests cover local classification. These are contract tests, not native-event
+  delivery evidence. Virtual scheduling is not yet wired into the physical CLI.
+- Paused here at the user's request. Next: connect the physical runner to the
+  same classifier/driver with scheduled delivery and acknowledgement, align its
+  context capacity with production, then compare a short identical scenario in
+  an external native host. No installed app or production decoder changed;
+  native checks and installation remain pending.
 
 ## Build, Signing and Installation
 
