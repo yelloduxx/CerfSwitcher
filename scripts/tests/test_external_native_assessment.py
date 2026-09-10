@@ -15,7 +15,10 @@ class NativeAssessmentTests(unittest.TestCase):
         self.fixture = {"oracle": {"text": "done ", "finalLayoutID": "en", "transactions": 1},
                         "stimulus": {"actions": [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]}}
         self.host = dict(pid=10, status="complete", unexpectedInputCount=0, text="done ", selection=[5, 0],
-                         eventTrace=[], receivedEvents=[dict(kind="keyUp", keyCode=49, marker=125)])
+                         eventTrace=[], receivedEvents=[dict(kind="keyUp", keyCode=49, marker=125)],
+                         quartzTapAvailable=True, quartzTapInterrupted=False,
+                         quartzEvents=[dict(kind="keyUp", keyCode=49, marker=125,
+                                            atNanoseconds=3, eventTimestampNanoseconds=2)])
         self.app = dict(pid=20, status="complete", automaticConversion=True, modelAvailable=True, posted=1, verified=1, targetProcessID=10)
         self.driver = dict(pid=30, status="complete", finalLayoutID="en", restoredLayout=True,
                            maximumLatenessMicroseconds=0,
@@ -75,6 +78,7 @@ class NativeAssessmentTests(unittest.TestCase):
         self.fixture["stimulus"]["actions"] += [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]
         self.driver["records"] += [dict(actionIndex=i, plannedNanoseconds=i, postedNanoseconds=i) for i in (2, 3)]
         self.host["receivedEvents"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
+        self.host["quartzEvents"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
         self.assertEqual(self.assess(), [])
         self.host["receivedEvents"][-1]["marker"] = 125
         failures = self.assess()
@@ -90,6 +94,7 @@ class NativeAssessmentTests(unittest.TestCase):
         self.host.update(text="wrong ", selection=[6, 0], receivedEvents=[dict(kind="keyDown", keyCode=49, marker=124),
                                                                      dict(kind="keyUp", keyCode=49, marker=125)])
         self.app.update(automaticConversion=False, posted=0, verified=0)
+        self.host["quartzEvents"] = self.host["receivedEvents"][:]
 
         def result():
             control = dict(self.fixture, oracle=self.fixture["oracle"]["automaticOff"])
@@ -113,6 +118,37 @@ class NativeAssessmentTests(unittest.TestCase):
         self.assertIn("delivered-keyup-count-mismatch", self.assess())
         del self.host["receivedEvents"]
         self.assertEqual(self.assess(), ["malformed-native-evidence"])
+
+    def testQuartzObservationCannotStandInForAppKitReceipt(self):
+        self.host.update(quartzTapAvailable=True, quartzTapInterrupted=False,
+                         quartzEvents=[dict(kind="keyUp", keyCode=49, marker=125,
+                                            atNanoseconds=3, eventTimestampNanoseconds=2)])
+        self.host["receivedEvents"] = []
+        self.assertIn("delivered-keyup-count-mismatch", self.assess())
+        diagnosis = SUITE.delivery_diagnostics(self.fixture, self.host, 123)
+        self.assertEqual(diagnosis["unobservedReleaseActionsAtQuartz"], [])
+        self.assertEqual(diagnosis["releaseActionsMissingAtAppKit"], [1])
+        self.host["quartzEvents"] = []
+        diagnosis = SUITE.delivery_diagnostics(self.fixture, self.host, 123)
+        self.assertEqual(diagnosis["unobservedReleaseActionsAtQuartz"], [1])
+        self.assertEqual(diagnosis["releaseActionsMissingAtAppKit"], [])
+
+    def testUnavailableOrInterruptedQuartzObserverCannotPass(self):
+        self.host.update(quartzTapAvailable=False, quartzTapInterrupted=False, quartzEvents=[])
+        self.assertIn("quartz-observation-unavailable", self.assess())
+        self.assertFalse(SUITE.delivery_diagnostics(self.fixture, self.host, 123)["observationComplete"])
+        self.host.update(quartzTapAvailable=True, quartzTapInterrupted=True)
+        self.assertIn("quartz-observation-interrupted", self.assess())
+        self.assertFalse(SUITE.delivery_diagnostics(self.fixture, self.host, 123)["observationComplete"])
+
+    def testHostSchemaCannotBeMistakenForLegacyReceiptEvidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "host-state.json"
+            SUITE.write_json(path, dict(schemaVersion=1, runID="same"))
+            with self.assertRaisesRegex(ValueError, "foreign/stale"):
+                SUITE.read_state(path, "same", schema_version=2)
+            SUITE.write_json(path, dict(schemaVersion=2, runID="same"))
+            self.assertIsNotNone(SUITE.read_state(path, "same", schema_version=2))
 
     def testCompletedPositiveFailureStillCollectsTheNegativeControl(self):
         summary = dict(cases=[])

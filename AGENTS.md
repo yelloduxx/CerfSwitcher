@@ -778,6 +778,26 @@ bash scripts/run_native_release_smoke.sh
   `.build/corpus-runs`). This is not native-delivery proof. Installed build 130
   and user rules are unchanged; native release gates remain pending.
 
+### Process-level delivery observation (September 10, not run live)
+
+- The external host now observes its own PID with a listen-only Quartz tap
+  before AppKit dispatch. Host schema 2 records key type/code, exact action
+  marker, event timestamp and callback timestamp, never key text in that trace.
+  Creation failure exits 77 before opening a window; tap interruption or trace
+  overflow interrupts the case. No global input or production code was changed.
+- The assessor retains the separate AppKit receipt gate. A Quartz-only keyUp
+  cannot make missing AppKit delivery pass. Diagnostics distinguish releases
+  unobserved at the process tap from releases observed there but absent at
+  AppKit; neither alone proves why an event disappeared. Both positive and
+  auto-off cases require the observer and preserve the prior exact-text gates.
+- 20 Python native-harness checks passed. Release compilation with
+  warnings-as-errors and no-window serialization self-checks passed in native
+  preparation `044a7aae-5fd3-4988-9aa8-99b2df254628` (`preparedNotRun`). The
+  process tap itself has not yet been exercised live. Next critical check is
+  the same short automatic RU/EN/RU fixture plus its independent auto-off case,
+  with fresh permission to use a visible editor. Do not infer native overlap
+  corruption from the deliberately delayed virtual transport alone.
+
 ## Build, Signing and Installation
 
 Before installation:

@@ -86,13 +86,13 @@ def archive_run(root, runtime, summary):
         raise
 
 
-def read_state(path, run_id):
+def read_state(path, run_id, schema_version=1):
     try:
         data = json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return None
     if (not isinstance(data, dict) or type(data.get("schemaVersion")) is not int
-            or data["schemaVersion"] != 1 or str(data.get("runID", "")).lower() != run_id.lower()):
+            or data["schemaVersion"] != schema_version or str(data.get("runID", "")).lower() != run_id.lower()):
         raise ValueError(f"foreign/stale state: {Path(path).name}")
     return data
 
@@ -112,10 +112,17 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
             or type(app.get("automaticConversion")) is not bool or type(app.get("modelAvailable")) is not bool
             or type(driver.get("restoredLayout")) is not bool
             or type(host.get("eventTrace")) is not list or type(host.get("receivedEvents")) is not list
+            or type(host.get("quartzEvents")) is not list
+            or type(host.get("quartzTapAvailable")) is not bool or type(host.get("quartzTapInterrupted")) is not bool
             or type(driver.get("records")) is not list
-            or not all(isinstance(x, dict) for x in host["eventTrace"] + host["receivedEvents"] + driver["records"])):
+            or not all(isinstance(x, dict) for x in host["eventTrace"] + host["receivedEvents"]
+                       + host["quartzEvents"] + driver["records"])):
         return ["malformed-native-evidence"]
     failures = []
+    if not host["quartzTapAvailable"]:
+        failures.append("quartz-observation-unavailable")
+    if host["quartzTapInterrupted"]:
+        failures.append("quartz-observation-interrupted")
     for data, name, pid in [(host, "host", pids[0]), (app, "app", pids[1]), (driver, "driver", pids[2])]:
         if data.get("pid") != pid or data.get("status") != "complete":
             failures.append(name + "-not-complete")
@@ -151,11 +158,18 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
         index = checkpoint["actionIndex"]
         if index >= len(records) or records[index].get("layoutID") != checkpoint["layoutIDBefore"]:
             failures.append("layout-checkpoint-mismatch")
-    events = host["receivedEvents"]
+    failures += input_delivery_failures(actions, host["receivedEvents"], app["posted"], input_marker)
+    failures += ["quartz-" + failure for failure in
+                 input_delivery_failures(actions, host["quartzEvents"], app["posted"], input_marker)]
+    return failures
+
+
+def input_delivery_failures(actions, events, posted_count, input_marker):
+    failures = []
     inputs = [e for e in events if type(e.get("marker")) is int and input_marker < e["marker"] <= input_marker + 10_000]
     downs = sum(e.get("kind") == "keyDown" for e in inputs)
     ups = sum(e.get("kind") == "keyUp" for e in inputs)
-    if downs != sum(a["kind"] == "keyDown" for a in actions) - app.get("posted", 0):
+    if downs != sum(a["kind"] == "keyDown" for a in actions) - posted_count:
         failures.append("delivered-keydown-count-mismatch")
     if ups != sum(a["kind"] == "keyUp" for a in actions):
         failures.append("delivered-keyup-count-mismatch")
@@ -169,10 +183,33 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
     missing = [a for index, a in enumerate(actions) if a["kind"] in ("keyDown", "keyUp") and index not in delivered]
     # Only a consumed conversion boundary may be absent from the editor stream.
     # Every other event retains its unique action index, including repeated keys.
-    if (not valid_sequence or len(missing) != app["posted"]
+    if (not valid_sequence or len(missing) != posted_count
             or any(a["kind"] != "keyDown" or a.get("keyCode") not in (36, 48, 49) for a in missing)):
         failures.append("input-delivery-sequence-mismatch")
     return failures
+
+
+def delivery_diagnostics(fixture, host, input_marker):
+    releases = {i for i, action in enumerate(fixture["stimulus"]["actions"]) if action["kind"] == "keyUp"}
+
+    def observed(field):
+        events = host.get(field, [])
+        if not isinstance(events, list):
+            return set()
+        return {event["marker"] - input_marker - 1 for event in events
+                if isinstance(event, dict) and event.get("kind") == "keyUp" and type(event.get("marker")) is int
+                and event["marker"] - input_marker - 1 in releases}
+
+    quartz, appkit, responder = (observed(field) for field in ("quartzEvents", "receivedEvents", "eventTrace"))
+    complete = (host.get("quartzTapAvailable") is True and host.get("quartzTapInterrupted") is False
+                and host.get("status") == "complete" and isinstance(host.get("quartzEvents"), list)
+                and all(isinstance(event, dict) for event in host["quartzEvents"]))
+    # Absence is not upstream-loss proof: even a complete observer is only one
+    # point in the route. These labels locate observations, not a root cause.
+    return dict(observationComplete=complete,
+                unobservedReleaseActionsAtQuartz=sorted(releases - quartz),
+                releaseActionsMissingAtAppKit=sorted(quartz - appkit),
+                releaseActionsNotHandled=sorted(appkit - responder))
 
 
 def case_accepted(result, automatic):
@@ -237,10 +274,12 @@ def run_case(root, fixture, executables, automatic):
         host = launch(executables[1], ["--session", str(root / "session.json")], "host")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            state = read_state(root / "host-state.json", run_id)
+            state = read_state(root / "host-state.json", run_id, schema_version=2)
             if state and state.get("active") and state.get("keyWindow"):
                 break
             if host.poll() is not None:
+                if host.returncode == 77:
+                    raise BlockedEnvironment("host cannot install process-scoped Quartz observation")
                 raise RuntimeError("host exited before ready")
             time.sleep(0.02)
         else:
@@ -262,7 +301,7 @@ def run_case(root, fixture, executables, automatic):
         (root / "record").touch()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
-            state = read_state(root / "host-state.json", run_id)
+            state = read_state(root / "host-state.json", run_id, schema_version=2)
             if state and state.get("status") == "recording":
                 break
             time.sleep(0.02)
@@ -272,7 +311,7 @@ def run_case(root, fixture, executables, automatic):
                                          "--host-pid", str(host.pid)], "driver")
         deadline = time.monotonic() + config["timeoutSeconds"]
         while driver.poll() is None and time.monotonic() < deadline:
-            state = read_state(root / "host-state.json", run_id)
+            state = read_state(root / "host-state.json", run_id, schema_version=2)
             if (state and state.get("status") == "interrupted") or app.poll() is not None or host.poll() is not None:
                 raise RuntimeError("native run interrupted")
             time.sleep(0.02)
@@ -285,7 +324,7 @@ def run_case(root, fixture, executables, automatic):
             if any(p.returncode == 77 for p in (app, host, driver)):
                 raise BlockedEnvironment("native process lacks required access or enabled layout")
             raise RuntimeError(f"native process exits: {[p.returncode for p in (app, host, driver)]}")
-        host_result = read_state(root / "host-result.json", run_id)
+        host_result = read_state(root / "host-result.json", run_id, schema_version=2)
         app_result = read_state(root / "app-result.json", run_id)
         driver_result = read_state(root / "driver-result.json", run_id)
         if not all([host_result, app_result, driver_result]):
@@ -298,7 +337,8 @@ def run_case(root, fixture, executables, automatic):
             control_failures = assess(control_fixture, host_result, app_result, driver_result,
                                       [host.pid, app.pid, driver.pid], False, input_marker)
         result = dict(runID=run_id, automaticConversion=automatic, failures=failures,
-                      controlFailures=control_failures, passed=not failures, directory=str(root))
+                      controlFailures=control_failures, passed=not failures, directory=str(root),
+                      deliveryDiagnostics=delivery_diagnostics(fixture, host_result, input_marker))
         write_json(root / "assessment.json", result)
         return result
     finally:
@@ -314,7 +354,9 @@ def run_cases(directory, fixture, executables, summary):
     accepted = True
     quality_failures = {"text-mismatch", "selection-mismatch", "layout-mismatch", "layout-checkpoint-mismatch",
                         "transaction-count-mismatch", "delivered-keydown-count-mismatch",
-                        "delivered-keyup-count-mismatch", "input-delivery-sequence-mismatch"}
+                        "delivered-keyup-count-mismatch", "input-delivery-sequence-mismatch",
+                        "quartz-delivered-keydown-count-mismatch", "quartz-delivered-keyup-count-mismatch",
+                        "quartz-input-delivery-sequence-mismatch"}
     for name, enabled in [("positive", True), ("auto-off-control", False)]:
         result = run_case(directory / name, fixture, executables, enabled)
         summary["cases"].append(result)

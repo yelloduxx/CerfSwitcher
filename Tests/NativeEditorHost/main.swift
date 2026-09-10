@@ -26,8 +26,16 @@ private struct ReceivedEvent: Codable, Equatable {
     let atNanoseconds: UInt64
 }
 
+private struct QuartzEvent: Codable, Equatable {
+    let kind: String
+    let keyCode: Int
+    let marker: Int64
+    let atNanoseconds: UInt64
+    let eventTimestampNanoseconds: UInt64
+}
+
 private struct HostSnapshot: Codable, Equatable {
-    var schemaVersion = 1
+    var schemaVersion = 2
     let runID: String
     let pid: Int
     let status: HostStatus
@@ -38,6 +46,9 @@ private struct HostSnapshot: Codable, Equatable {
     let unexpectedInputCount: Int
     let eventTrace: [HostEvent]
     let receivedEvents: [ReceivedEvent]
+    let quartzEvents: [QuartzEvent]
+    let quartzTapAvailable: Bool
+    let quartzTapInterrupted: Bool
 
     func write(to root: URL, final: Bool) throws {
         let encoder = JSONEncoder()
@@ -114,6 +125,11 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private var unexpectedInputCount = 0
     private var eventTrace: [HostEvent] = []
     private var receivedEvents: [ReceivedEvent] = []
+    private var quartzEvents: [QuartzEvent] = []
+    private var quartzTapAvailable = false
+    private var quartzTapInterrupted = false
+    private var quartzTap: CFMachPort?
+    private var quartzSource: CFRunLoopSource?
     private var window: NSWindow?
     private var textView: ProbeTextView?
     private var timer: Timer?
@@ -126,6 +142,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard startQuartzObservation() else {
+            finish(.interrupted, terminate: false)
+            exit(77)
+        }
         let window = NSWindow(
             contentRect: NSRect(x: 120, y: 120, width: 720, height: 360),
             styleMask: [.titled, .closable, .resizable],
@@ -210,6 +230,64 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if !finished { finish(.interrupted, terminate: false) }
         return .terminateNow
+    }
+
+    private func startQuartzObservation() -> Bool {
+        let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+            | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+            | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+        guard let tap = CGEvent.tapCreateForPid(
+            pid: ProcessInfo.processInfo.processIdentifier,
+            place: .headInsertEventTap, options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: { _, type, event, pointer in
+                if let pointer {
+                    MainActor.assumeIsolated {
+                        Unmanaged<NativeEditorHost>.fromOpaque(pointer).takeUnretainedValue()
+                            .recordQuartzReceipt(type: type, event: event)
+                    }
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return false }
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return false
+        }
+        quartzTap = tap
+        quartzSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        quartzTapAvailable = CGEvent.tapIsEnabled(tap: tap)
+        return quartzTapAvailable
+    }
+
+    private func recordQuartzReceipt(type: CGEventType, event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            quartzTapInterrupted = true
+            finish(.interrupted)
+            return
+        }
+        guard status == .recording, !finished else { return }
+        let marker = event.getIntegerValueField(.eventSourceUserData)
+        guard config.inputActionIndex(eventMarker: marker) != nil || marker == config.replacementMarker else {
+            unexpectedInput()
+            return
+        }
+        guard quartzEvents.count < 10_000 else { finish(.interrupted); return }
+        let kind: String
+        switch type {
+        case .keyDown: kind = "keyDown"
+        case .keyUp: kind = "keyUp"
+        case .flagsChanged: kind = "flagsChanged"
+        default: return
+        }
+        // Process-scoped, listen-only observation. Never read the key's text,
+        // mutate an event, or touch files in the ordinary callback path.
+        quartzEvents.append(.init(kind: kind,
+                                  keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+                                  marker: marker, atNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                                  eventTimestampNanoseconds: event.timestamp))
     }
 
     func acceptKeyboard(_ event: NSEvent) -> Bool {
@@ -321,7 +399,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             selection: selection,
             unexpectedInputCount: unexpectedInputCount,
             eventTrace: eventTrace,
-            receivedEvents: receivedEvents
+            receivedEvents: receivedEvents,
+            quartzEvents: quartzEvents,
+            quartzTapAvailable: quartzTapAvailable,
+            quartzTapInterrupted: quartzTapInterrupted
         )
         do {
             try snapshot.write(to: root, final: final)
@@ -346,6 +427,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         timer?.invalidate()
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
         eventMonitor = nil
+        if let quartzSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), quartzSource, .commonModes) }
+        if let quartzTap { CFMachPortInvalidate(quartzTap) }
+        quartzSource = nil
+        quartzTap = nil
         write(final: true)
         if terminate { NSApp.terminate(nil) }
     }
@@ -363,7 +448,11 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL) thro
         selection: [0, 0],
         unexpectedInputCount: 0,
         eventTrace: [],
-        receivedEvents: []
+        receivedEvents: [],
+        quartzEvents: [.init(kind: "keyUp", keyCode: 49, marker: config.inputMarker + 1,
+                             atNanoseconds: UInt64.max, eventTimestampNanoseconds: UInt64.max)],
+        quartzTapAvailable: false,
+        quartzTapInterrupted: false
     )
     // Exercise exact integer encoding without allocating any native event.
     guard let sampleMarker = config.inputEventMarker(actionIndex: 0) else { throw HostError.invalidOutput }
