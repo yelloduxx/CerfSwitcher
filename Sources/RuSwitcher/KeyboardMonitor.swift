@@ -8,6 +8,15 @@ import RuSwitcherCore
 /// Branch-specific so parallel RuSwitcher installs do not treat each other as user input.
 let kRuSwitcherEventMarker: Int64 = ProductIdentity.eventMarker
 
+struct KeyboardCallbackTiming {
+    let eventType: CGEventType
+    let keyCode: UInt16
+    let marker: Int64
+    let startedNanoseconds: UInt64
+    let finishedNanoseconds: UInt64
+    let consumed: Bool
+}
+
 struct ManualTokenSnapshot {
     let keys: [TypedKey]
     let boundary: InputBoundary
@@ -94,6 +103,7 @@ final class KeyboardMonitor: @unchecked Sendable {
     fileprivate var eventTap: CFMachPort?
     fileprivate private(set) var activeTap = false
     private var runLoopSource: CFRunLoopSource?
+    var onCallbackTiming: ((KeyboardCallbackTiming) -> Void)?
     var eventTapEnabled: Bool { eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
     private var inputSession = InputSession(contextLimit: InputContextLimits.maximumTokens)
     private var observedFrontmostProcessID: pid_t?
@@ -834,6 +844,21 @@ private func keyboardCallback(
     }
 
     let monitor = Unmanaged<KeyboardMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+    let timingObserver = monitor.onCallbackTiming
+    let started = timingObserver.map { _ in DispatchTime.now().uptimeNanoseconds }
+    var consumed = false
+    defer {
+        // Normal runs install no observer and read no clock. The measured span
+        // excludes the marker guards above and the observer's own recording.
+        if let timingObserver, let started {
+            timingObserver(.init(eventType: type,
+                                 keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+                                 marker: event.getIntegerValueField(.eventSourceUserData),
+                                 startedNanoseconds: started,
+                                 finishedNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                                 consumed: consumed))
+        }
+    }
 
     if monitor.shouldDeferToCompanionInputMethod() {
         return Unmanaged.passRetained(event)
@@ -873,6 +898,7 @@ private func keyboardCallback(
                 activeTap: monitor.activeTap,
                 key: repeatedKey
             ) == .suppress {
+                consumed = true
                 return nil
             }
         }
@@ -885,10 +911,11 @@ private func keyboardCallback(
             producedText: producedText,
             sourceLayoutID: sourceLayoutID
         )
-        if consume { return nil }
+        if consume { consumed = true; return nil }
     } else if type == .flagsChanged {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         if monitor.handleFlagsChanged(flags: event.flags, keyCode: keyCode) {
+            consumed = true
             return nil  // съедаем Caps Lock, чтобы не переключался регистр
         }
     } else if type == .leftMouseDown || type == .rightMouseDown {

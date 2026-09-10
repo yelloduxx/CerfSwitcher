@@ -19,7 +19,9 @@ class NativeAssessmentTests(unittest.TestCase):
                          quartzTapAvailable=True, quartzTapInterrupted=False,
                          quartzEvents=[dict(kind="keyUp", keyCode=49, marker=125,
                                             atNanoseconds=3, eventTimestampNanoseconds=2)])
-        self.app = dict(pid=20, status="complete", automaticConversion=True, modelAvailable=True, posted=1, verified=1, targetProcessID=10)
+        self.app = dict(pid=20, status="complete", automaticConversion=True, modelAvailable=True, posted=1, verified=1, targetProcessID=10,
+                        callbackTimingOverflow=False, callbackTimings=[dict(actionIndex=0, keyCode=49,
+                                                                           startedNanoseconds=1, finishedNanoseconds=2, consumed=True)])
         self.driver = dict(pid=30, status="complete", finalLayoutID="en", restoredLayout=True,
                            maximumLatenessMicroseconds=0,
                            records=[dict(actionIndex=0, plannedNanoseconds=1, postedNanoseconds=1),
@@ -77,6 +79,8 @@ class NativeAssessmentTests(unittest.TestCase):
         self.host["receivedEvents"][0]["keyCode"] = 49
         self.fixture["stimulus"]["actions"] += [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]
         self.driver["records"] += [dict(actionIndex=i, plannedNanoseconds=i, postedNanoseconds=i) for i in (2, 3)]
+        self.app["callbackTimings"].append(dict(actionIndex=2, keyCode=49, startedNanoseconds=3,
+                                                finishedNanoseconds=4, consumed=False))
         self.host["receivedEvents"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
         self.host["quartzEvents"] += [dict(kind="keyDown", keyCode=49, marker=126), dict(kind="keyUp", keyCode=49, marker=127)]
         self.assertEqual(self.assess(), [])
@@ -94,6 +98,7 @@ class NativeAssessmentTests(unittest.TestCase):
         self.host.update(text="wrong ", selection=[6, 0], receivedEvents=[dict(kind="keyDown", keyCode=49, marker=124),
                                                                      dict(kind="keyUp", keyCode=49, marker=125)])
         self.app.update(automaticConversion=False, posted=0, verified=0)
+        self.app["callbackTimings"][0]["consumed"] = False
         self.host["quartzEvents"] = self.host["receivedEvents"][:]
 
         def result():
@@ -149,6 +154,31 @@ class NativeAssessmentTests(unittest.TestCase):
                 SUITE.read_state(path, "same", schema_version=2)
             SUITE.write_json(path, dict(schemaVersion=2, runID="same"))
             self.assertIsNotNone(SUITE.read_state(path, "same", schema_version=2))
+
+    def testMissingOrInvalidCallbackTimingsCannotPass(self):
+        self.app["callbackTimings"] = []
+        self.assertIn("callback-input-sequence-mismatch", self.assess())
+        self.app["callbackTimings"] = [dict(actionIndex=0, keyCode=49, startedNanoseconds=20,
+                                            finishedNanoseconds=10, consumed=True)]
+        self.assertIn("callback-timing-invalid", self.assess())
+        self.app["callbackTimings"][0].update(startedNanoseconds=1, finishedNanoseconds=2, keyCode=0)
+        self.assertIn("callback-input-sequence-mismatch", self.assess())
+        self.app["callbackTimingOverflow"] = True
+        self.assertIn("callback-timing-overflow", self.assess())
+
+    def testConsumedFlagMustAgreeWithObservedInput(self):
+        self.app["callbackTimings"] = [dict(actionIndex=0, keyCode=49, startedNanoseconds=1,
+                                            finishedNanoseconds=2, consumed=False)]
+        self.assertIn("callback-consumption-mismatch", self.assess())
+
+    def testCallbackTimingSummaryReportsSamplesNotAClaimedPopulationPercentile(self):
+        self.app["callbackTimings"] = [dict(actionIndex=0, keyCode=49, startedNanoseconds=2**63,
+                                            finishedNanoseconds=2**63 + 7_000_000, consumed=True)]
+        summary = SUITE.callback_timing_diagnostics(self.app)
+        self.assertEqual(summary["samples"], 1)
+        self.assertEqual(summary["maximumMicroseconds"], 7000)
+        self.assertEqual(summary["consumedMaximumMicroseconds"], 7000)
+        self.assertNotIn("p99", summary)
 
     def testCompletedPositiveFailureStillCollectsTheNegativeControl(self):
         summary = dict(cases=[])

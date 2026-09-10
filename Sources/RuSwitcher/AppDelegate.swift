@@ -110,6 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var probeModelAvailable: Bool { languageModel != nil }
     var probeTargetProcessID: pid_t?
 
+    func observeProbeCallbacks(_ observer: @escaping (KeyboardCallbackTiming) -> Void) {
+        keyboardMonitor.onCallbackTiming = observer
+    }
+
     private func setupSettingsCallbacks() {
         settingsController.onAutoSwitchChanged = { [weak self] _ in
             // Не адресуем пункт по индексу: с 2.5.0 item(at: 0) — строка версии, а со списком

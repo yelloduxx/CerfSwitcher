@@ -110,6 +110,7 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
             or type(host.get("text")) is not str or type(host.get("selection")) is not list
             or len(host["selection"]) != 2 or any(type(x) is not int for x in host["selection"])
             or type(app.get("automaticConversion")) is not bool or type(app.get("modelAvailable")) is not bool
+            or type(app.get("callbackTimingOverflow")) is not bool
             or type(driver.get("restoredLayout")) is not bool
             or type(host.get("eventTrace")) is not list or type(host.get("receivedEvents")) is not list
             or type(host.get("quartzEvents")) is not list
@@ -158,10 +159,52 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
         index = checkpoint["actionIndex"]
         if index >= len(records) or records[index].get("layoutID") != checkpoint["layoutIDBefore"]:
             failures.append("layout-checkpoint-mismatch")
+    failures += callback_timing_failures(actions, app, host, input_marker)
     failures += input_delivery_failures(actions, host["receivedEvents"], app["posted"], input_marker)
     failures += ["quartz-" + failure for failure in
                  input_delivery_failures(actions, host["quartzEvents"], app["posted"], input_marker)]
     return failures
+
+
+def valid_callback_timings(timings):
+    return (isinstance(timings, list) and all(
+        isinstance(row, dict) and type(row.get("consumed")) is bool
+        and all(type(row.get(key)) is int and 0 <= row[key] <= 2**64 - 1
+                for key in ("actionIndex", "keyCode", "startedNanoseconds", "finishedNanoseconds"))
+        and row["finishedNanoseconds"] >= row["startedNanoseconds"] for row in timings))
+
+
+def callback_timing_failures(actions, app, host, input_marker):
+    timings = app.get("callbackTimings")
+    failures = ["callback-timing-overflow"] if app["callbackTimingOverflow"] else []
+    if not valid_callback_timings(timings):
+        return failures + ["callback-timing-invalid"]
+    expected = [i for i, action in enumerate(actions) if action["kind"] == "keyDown"]
+    if ([row["actionIndex"] for row in timings] != expected
+            or any(row["actionIndex"] >= len(actions)
+                   or actions[row["actionIndex"]].get("keyCode") != row["keyCode"] for row in timings)):
+        failures.append("callback-input-sequence-mismatch")
+    consumed = {row["actionIndex"] for row in timings if row["consumed"]}
+    for layer in ("receivedEvents", "quartzEvents"):
+        delivered = {e["marker"] - input_marker - 1 for e in host[layer]
+                     if e.get("kind") == "keyDown" and type(e.get("marker")) is int
+                     and input_marker < e["marker"] <= input_marker + 10_000}
+        if consumed != set(expected) - delivered:
+            failures.append("callback-consumption-mismatch")
+            break
+    return failures
+
+
+def callback_timing_diagnostics(app):
+    timings = app.get("callbackTimings")
+    if not valid_callback_timings(timings):
+        return dict(valid=False)
+    durations = [row["finishedNanoseconds"] - row["startedNanoseconds"] for row in timings]
+    consumed = [duration for row, duration in zip(timings, durations) if row["consumed"]]
+    return dict(valid=True, samples=len(timings), overflow=app.get("callbackTimingOverflow"),
+                scope="after-marker-guards-before-observer",
+                maximumMicroseconds=max(durations) / 1_000 if durations else None,
+                consumedMaximumMicroseconds=max(consumed) / 1_000 if consumed else None)
 
 
 def input_delivery_failures(actions, events, posted_count, input_marker):
@@ -288,7 +331,7 @@ def run_case(root, fixture, executables, automatic):
                                       "--host-pid", str(host.pid)], "app")
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            state = read_state(root / "app-state.json", run_id)
+            state = read_state(root / "app-state.json", run_id, schema_version=2)
             if state and state.get("tapEnabled") and state.get("modelAvailable"):
                 break
             if app.poll() is not None:
@@ -325,7 +368,7 @@ def run_case(root, fixture, executables, automatic):
                 raise BlockedEnvironment("native process lacks required access or enabled layout")
             raise RuntimeError(f"native process exits: {[p.returncode for p in (app, host, driver)]}")
         host_result = read_state(root / "host-result.json", run_id, schema_version=2)
-        app_result = read_state(root / "app-result.json", run_id)
+        app_result = read_state(root / "app-result.json", run_id, schema_version=2)
         driver_result = read_state(root / "driver-result.json", run_id)
         if not all([host_result, app_result, driver_result]):
             raise RuntimeError("missing final native result")
@@ -338,7 +381,8 @@ def run_case(root, fixture, executables, automatic):
                                       [host.pid, app.pid, driver.pid], False, input_marker)
         result = dict(runID=run_id, automaticConversion=automatic, failures=failures,
                       controlFailures=control_failures, passed=not failures, directory=str(root),
-                      deliveryDiagnostics=delivery_diagnostics(fixture, host_result, input_marker))
+                      deliveryDiagnostics=delivery_diagnostics(fixture, host_result, input_marker),
+                      callbackTiming=callback_timing_diagnostics(app_result))
         write_json(root / "assessment.json", result)
         return result
     finally:
@@ -356,7 +400,8 @@ def run_cases(directory, fixture, executables, summary):
                         "transaction-count-mismatch", "delivered-keydown-count-mismatch",
                         "delivered-keyup-count-mismatch", "input-delivery-sequence-mismatch",
                         "quartz-delivered-keydown-count-mismatch", "quartz-delivered-keyup-count-mismatch",
-                        "quartz-input-delivery-sequence-mismatch"}
+                        "quartz-input-delivery-sequence-mismatch", "callback-input-sequence-mismatch",
+                        "callback-consumption-mismatch"}
     for name, enabled in [("positive", True), ("auto-off-control", False)]:
         result = run_case(directory / name, fixture, executables, enabled)
         summary["cases"].append(result)

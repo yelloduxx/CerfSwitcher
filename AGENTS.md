@@ -836,6 +836,24 @@ bash scripts/run_native_release_smoke.sh
   callback work, whereas a real callback may hold later input in the tap queue.
   Do not hide the modeled failure or switch delivery APIs based on this grid.
 
+### Callback timing preparation (September 11, not run live)
+
+- Only `--external-native-probe` installs `KeyboardMonitor.onCallbackTiming`.
+  Normal runs leave it nil and do not read the clock for this measurement.
+  The span starts after marker/userInfo guards and ends before the observer;
+  it includes synchronous conversion work, not observer recording or OS delivery.
+- App-probe schema 2 exports trusted test action indices, keycodes, start/end
+  nanoseconds and consumed flags. No text is read for this trace. Detailed rows
+  are exported only at stop, avoiding repeated serialization during input.
+  Overflow, missing/invalid timing rows and disagreement with actual consumed
+  keys reject acceptance. Reports give sample counts/maxima, not a claimed p99.
+- 298 Swift tests and 37 Python checks passed. Release compilation and
+  no-window preparation passed for the rolling-Space fixture in native run
+  `fa1528f7-0007-448f-82c7-c3ebda4670a0` (`preparedNotRun`). The timing hook itself
+  has not yet been validated by native input. Installed build 130/hash/PID 16207
+  are unchanged. A short authorized live run is needed before interpreting the
+  virtual overlap as a native race or changing replacement delivery.
+
 ## Build, Signing and Installation
 
 Before installation:

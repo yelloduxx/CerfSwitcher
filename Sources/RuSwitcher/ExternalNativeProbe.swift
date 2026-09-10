@@ -49,6 +49,8 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
     private let production = AppDelegate()
     private let started = ProcessInfo.processInfo.systemUptime
     private var timer: Timer?
+    private var callbackTimings: [[String: Any]] = []
+    private var callbackTimingOverflow = false
 
     init(config: ExternalNativeProbeConfiguration, root: URL, hostPID: pid_t) {
         self.config = config
@@ -68,6 +70,9 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         settings.keySound = false
         settings.debugLogEnabled = false
         settings.remoteDesktopMode = false
+        production.observeProbeCallbacks { [weak self] timing in
+            MainActor.assumeIsolated { self?.recordCallback(timing) }
+        }
         production.startHIDProbeMonitoring()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -75,15 +80,30 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         tick()
     }
 
+    private func recordCallback(_ timing: KeyboardCallbackTiming) {
+        guard timing.eventType == .keyDown,
+              let index = config.inputActionIndex(eventMarker: timing.marker) else { return }
+        guard callbackTimings.count < ExternalNativeProbeConfiguration.maximumActions else {
+            callbackTimingOverflow = true
+            return
+        }
+        callbackTimings.append([
+            "actionIndex": index, "keyCode": timing.keyCode,
+            "startedNanoseconds": timing.startedNanoseconds,
+            "finishedNanoseconds": timing.finishedNanoseconds,
+            "consumed": timing.consumed,
+        ])
+    }
+
     private func tick() {
         let requestedStop = FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path)
         let timedOut = ProcessInfo.processInfo.systemUptime - started >= config.timeoutSeconds
-        let stopping = requestedStop || timedOut
+        let stopping = requestedStop || timedOut || callbackTimingOverflow
         let snapshot: [String: Any] = [
-            "schemaVersion": 1, "runID": config.runID.uuidString,
+            "schemaVersion": 2, "runID": config.runID.uuidString,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "bundleID": Bundle.main.bundleIdentifier ?? "",
-            "status": requestedStop ? "complete" : timedOut ? "interrupted" : "running",
+            "status": callbackTimingOverflow || timedOut ? "interrupted" : requestedStop ? "complete" : "running",
             "atNanoseconds": DispatchTime.now().uptimeNanoseconds,
             "tapEnabled": production.probeEventTapEnabled,
             "modelAvailable": production.probeModelAvailable,
@@ -92,6 +112,11 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
             "verified": production.verifiedAutomaticReplacementCount,
             "preferencesDomain": config.preferencesDomain,
             "targetProcessID": production.probeTargetProcessID ?? 0,
+            // Export the detailed trace once, after input has stopped. Rewriting
+            // a growing timing trace on every poll would distort the measurement.
+            "callbackTimings": stopping ? callbackTimings : [],
+            "callbackTimingSampleCount": callbackTimings.count,
+            "callbackTimingOverflow": callbackTimingOverflow,
         ]
         do {
             let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
