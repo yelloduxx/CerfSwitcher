@@ -423,6 +423,7 @@ private func runBatch(inputPath: String, model: LanguageModelStore) throws -> Ne
     exit(summary.passed ? 0 : 1)
 }
 
+@MainActor
 private func run() throws -> Never {
     if let inputPath = argument(after: "--physical-input") {
         return runPhysical(inputPath: inputPath, outputPath: argument(after: "--output"), faultName: argument(after: "--fault"))

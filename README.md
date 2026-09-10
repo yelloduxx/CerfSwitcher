@@ -180,7 +180,7 @@ python3 scripts/run_mixed_layout_event_stream_suite.py corpus.tsv --jobs 8
 
 Corpus wrappers use unique run directories and validate fresh complete results before publishing an audit. Missing, stale, truncated or empty results cannot count as a successful run. The original TSV and the physically reconstructed test input are distinct: this legacy importer reconstructs wrong-layout tokens from the intended text. The 5,000-phrase corpus is a regression set with a small repeated vocabulary, not a broad independent language-quality benchmark.
 
-The new **physical-key/ideal-delivery** mode reads keyDown/keyUp, modifiers and explicit user layout changes. The next character comes from the actual simulated active layout using macOS layout data; the expected answer is passed only to a separate assessor:
+The **physical-key/scheduled-delivery** mode reads keyDown/keyUp, explicit user layout changes, caret movement, focus changes and tap recovery. The next character comes from the actual simulated active layout using macOS layout data; the expected answer is passed only to a separate assessor:
 
 ```bash
 python3 scripts/run_physical_typing_suite.py
@@ -189,7 +189,11 @@ swift run -c release RuSwitcherTypingSimulator \
   --output .build/physical-report.json
 ```
 
-The suite detects a missing layout switch after a successful first correction, disabled conversion, missing/duplicate insertion and oracle-dependent input. Reports include every input action, expected/actual text, layout checkpoints, and model/layout/fixture hashes. No desktop layout is selected. This mode still assumes synchronous delivery: timestamps are recorded, not an asynchronous schedule, and automatic dead-key composition currently fails explicitly as unsupported. It does not yet verify AppDelegate orchestration, AX, CGEvent delivery or manual learning. Native delivery needs an external host in an isolated macOS session; an in-process NSTextView result cannot establish compatibility with Electron or terminals. V4 remains separate: `swift test --package-path Experimental/V4`.
+The runner uses the production local-key classifier, replacement coordinator/driver and staged InputSession transitions. A virtual clock independently schedules each synthetic event, layout delivery, read-back and acknowledgement. A UTF-16/grapheme-aware editor tracks text, selection and revision. Reports include the complete synthetic trace, context, confirmations, layout checkpoints, and model/layout/fixture hashes. No desktop layout is selected.
+
+The suite detects missing layout switches, disabled conversion, lost deletion/insertion, duplication and oracle-dependent input. It also records two **unfixed modeled failures**: a suffix-only read-back can confirm an extra prefix, and delayed replacement events can damage the next word. A passing harness means these intentionally broken runs were detected, not that production delivery is reliable. `stimulus.timing` accepts microsecond delays for delivery, synthetic-event intervals, layout changes, verification reads and acknowledgements; it models an environment, not measured macOS timings.
+
+Preflight is still synchronous. Modified host commands, automatic dead-key composition and manual learning remain unsupported here; this is not the complete AppDelegate/AX/CGEvent path. Native delivery needs an external host in an isolated macOS session; an in-process NSTextView result cannot establish compatibility with Electron or terminals. V4 remains separate: `swift test --package-path Experimental/V4`.
 
 Source baseline for build 130 (`de45597`, before the new validation work):
 
@@ -386,9 +390,11 @@ swift run -c release RuSwitcherTypingSimulator \
   --output .build/physical-report.json
 ```
 
-Он переводит физические клавиши системными таблицами macOS и использует фактическую раскладку симулируемой сессии. Эталон доступен только проверяющему компоненту. Контроли обнаруживают отсутствие смены раскладки после первой успешной замены, выключенную автозамену, пропавшую/повторную вставку и влияние эталона на ввод. Отчёт содержит трассу, текст, раскладки и хеши входа, модели и таблиц раскладок. Окна не открываются, системная раскладка пользователя не меняется.
+Он переводит физические клавиши системными таблицами macOS и использует фактическую раскладку симулируемой сессии. Эталон доступен только проверяющему компоненту. Подключены общий классификатор локальных клавиш, coordinator/driver замены и staging InputSession из приложения. Виртуальные часы отдельно планируют доставку каждого события, переключение раскладки, чтение результата и подтверждение; редактор учитывает каретку, выделение, UTF-16 и графемы. Отчёт содержит полную трассу, контекст, подтверждения и хеши входа, модели и таблиц раскладок. Окна не открываются, системная раскладка пользователя не меняется.
 
-Ограничения: доставка пока мгновенная; временные отметки сохраняются, но задержки редактора не моделируются. Автоматическая dead-key композиция явно отклоняется как неподдержанная. Этот режим ещё не проверяет полную цепочку AppDelegate, AX/CGEvent и ручное обучение. Успех встроенного NSTextView также нельзя переносить на Electron или терминалы: для этого нужен внешний тестовый редактор в изолированной macOS-сессии.
+Контроли обнаруживают выключенную автозамену, пропавшие удаления/вставки, дублирование и отсутствие смены раскладки. Выявлены две **ещё не исправленные проблемы в моделируемой среде**: проверка только конца текста может подтвердить лишний префикс, а запоздалая доставка замены может повредить следующее слово. Успех стенда означает, что такие намеренно сломанные прогоны обнаружены, а не что приложение уже защищено от них. Задержки задаются в `stimulus.timing`; это модель условий, а не измеренные задержки macOS.
+
+Ограничения: preflight пока синхронный; команды редактирования с модификаторами и автоматическая dead-key композиция явно отклоняются как неподдержанные. Этот режим ещё не проверяет полную цепочку AppDelegate, AX/CGEvent и ручное обучение. Успех встроенного NSTextView также нельзя переносить на Electron или терминалы: для этого нужен внешний тестовый редактор в изолированной macOS-сессии.
 
 Корпусные скрипты сохраняют отдельный каталог каждого запуска. Старые, неполные и пустые отчёты не принимаются за успех. Исходный TSV и производный физический ввод различаются: старый импортёр пересоздаёт ошибочные токены из намеренного текста. Корпус 5000 фраз содержит небольшой повторяющийся словарь и служит проверкой регрессий, а не независимой оценкой всей переписки. V4 проверяется отдельно: `swift test --package-path Experimental/V4`.
 

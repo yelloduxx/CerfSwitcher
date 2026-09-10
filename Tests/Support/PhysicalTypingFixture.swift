@@ -7,6 +7,7 @@ public struct PhysicalTypingStimulus: Codable, Equatable, Sendable {
     public let initialLayoutID: String
     public let keyboardType: UInt32
     public let actions: [PhysicalTypingAction]
+    public let timing: PhysicalTypingTiming?
 
     public init(
         id: String,
@@ -14,7 +15,8 @@ public struct PhysicalTypingStimulus: Codable, Equatable, Sendable {
         initialLayoutID: String,
         keyboardType: UInt32 = 40,
         actions: [PhysicalTypingAction],
-        version: Int = 1
+        version: Int = 1,
+        timing: PhysicalTypingTiming? = nil
     ) {
         self.version = version
         self.id = id
@@ -22,12 +24,13 @@ public struct PhysicalTypingStimulus: Codable, Equatable, Sendable {
         self.initialLayoutID = initialLayoutID
         self.keyboardType = keyboardType
         self.actions = actions
+        self.timing = timing
     }
 }
 
 public struct PhysicalTypingAction: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        case keyDown, keyUp, selectLayout
+        case keyDown, keyUp, selectLayout, focusChange, tapRecovery
     }
 
     public let kind: Kind
@@ -37,6 +40,10 @@ public struct PhysicalTypingAction: Codable, Equatable, Sendable {
     public let capsLock: Bool
     public let autorepeat: Bool
     public let layoutID: String?
+    public let command: Bool
+    public let control: Bool
+    public let option: Bool
+    public let fieldID: String?
 
     public init(
         kind: Kind,
@@ -45,7 +52,11 @@ public struct PhysicalTypingAction: Codable, Equatable, Sendable {
         shift: Bool = false,
         capsLock: Bool = false,
         autorepeat: Bool = false,
-        layoutID: String? = nil
+        layoutID: String? = nil,
+        command: Bool = false,
+        control: Bool = false,
+        option: Bool = false,
+        fieldID: String? = nil
     ) {
         self.kind = kind
         self.atMicroseconds = atMicroseconds
@@ -54,6 +65,55 @@ public struct PhysicalTypingAction: Codable, Equatable, Sendable {
         self.capsLock = capsLock
         self.autorepeat = autorepeat
         self.layoutID = layoutID
+        self.command = command
+        self.control = control
+        self.option = option
+        self.fieldID = fieldID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, atMicroseconds, keyCode, shift, capsLock, autorepeat, layoutID, command, control, option, fieldID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try values.decode(Kind.self, forKey: .kind),
+                  atMicroseconds: try values.decode(UInt64.self, forKey: .atMicroseconds),
+                  keyCode: try values.decodeIfPresent(UInt16.self, forKey: .keyCode),
+                  shift: try values.decodeIfPresent(Bool.self, forKey: .shift) ?? false,
+                  capsLock: try values.decodeIfPresent(Bool.self, forKey: .capsLock) ?? false,
+                  autorepeat: try values.decodeIfPresent(Bool.self, forKey: .autorepeat) ?? false,
+                  layoutID: try values.decodeIfPresent(String.self, forKey: .layoutID),
+                  command: try values.decodeIfPresent(Bool.self, forKey: .command) ?? false,
+                  control: try values.decodeIfPresent(Bool.self, forKey: .control) ?? false,
+                  option: try values.decodeIfPresent(Bool.self, forKey: .option) ?? false,
+                  fieldID: try values.decodeIfPresent(String.self, forKey: .fieldID))
+    }
+}
+
+/// An explicit test environment, not a measurement of macOS scheduling.
+public struct PhysicalTypingTiming: Codable, Equatable, Sendable {
+    public var deliveryDelayMicroseconds: UInt64 = 0
+    public var syntheticEventIntervalMicroseconds: UInt64 = 0
+    public var layoutDelayMicroseconds: UInt64 = 0
+    public var verificationReadDelayMicroseconds: UInt64 = 1_000
+    public var acknowledgementDelayMicroseconds: UInt64 = 0
+
+    public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case deliveryDelayMicroseconds, syntheticEventIntervalMicroseconds, layoutDelayMicroseconds
+        case verificationReadDelayMicroseconds, acknowledgementDelayMicroseconds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        deliveryDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .deliveryDelayMicroseconds) ?? 0
+        syntheticEventIntervalMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .syntheticEventIntervalMicroseconds) ?? 0
+        layoutDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .layoutDelayMicroseconds) ?? 0
+        verificationReadDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .verificationReadDelayMicroseconds) ?? 1_000
+        acknowledgementDelayMicroseconds = try values.decodeIfPresent(UInt64.self, forKey: .acknowledgementDelayMicroseconds) ?? 0
     }
 }
 
@@ -73,12 +133,17 @@ public struct PhysicalTypingOracle: Codable, Equatable, Sendable {
     public let finalLayoutID: String
     public let transactions: Int
     public let checkpoints: [PhysicalTypingCheckpoint]
+    public let selectedRange: NSRange?
+    public let verifiedCompletions: Int?
 
-    public init(text: String, finalLayoutID: String, transactions: Int, checkpoints: [PhysicalTypingCheckpoint] = []) {
+    public init(text: String, finalLayoutID: String, transactions: Int, checkpoints: [PhysicalTypingCheckpoint] = [],
+                selectedRange: NSRange? = nil, verifiedCompletions: Int? = nil) {
         self.text = text
         self.finalLayoutID = finalLayoutID
         self.transactions = transactions
         self.checkpoints = checkpoints
+        self.selectedRange = selectedRange
+        self.verifiedCompletions = verifiedCompletions
     }
 }
 

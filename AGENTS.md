@@ -66,8 +66,9 @@ installed build changes.
   and atomic per-user registration.
 - `Sources/RuSwitcherSimulator`: parallel V3 corpus/phrase simulator.
 - `Sources/RuSwitcherTypingSimulator`: legacy literal-text/ideal-delivery checks
-  and an explicit `--physical-input` key-event mode. Both use V3 and replacement
-  plans, but neither yet reproduces asynchronous AppDelegate/AX/CGEvent delivery.
+  and an explicit `--physical-input` scheduled key-event mode. The physical mode
+  shares local classification and replacement lifecycle with production, but
+  uses virtual editor/AX transport, not native AppDelegate/AX/CGEvent delivery.
   Legacy independent phrase JSONL batches support `--jobs`.
 - `Tests/Support` (`RuSwitcherTestSupport`) and `Tests/RuSwitcherTypingTests`:
   read-only system-layout loading, physical fixtures, interpreter and independent
@@ -517,9 +518,9 @@ bash scripts/run_native_release_smoke.sh
 - System layouts are loaded read-only by exact input-source ID, including
   installed-but-disabled sources; tests do not enable/select them. Independent
   golden keys cover `,`/`б`, `.`/`ю`, shifted punctuation and Caps Lock.
-- The new physical mode models ideal synchronous delivery only. It records
-  event times but does not yet schedule delayed AX, posting or layout completion.
-  Automatic dead-key composition is explicitly unsupported, not a silent pass;
+- The first physical checkpoint modeled ideal synchronous delivery. The third
+  checkpoint below replaces it with a virtual schedule. Automatic dead-key
+  composition is explicitly unsupported, not a silent pass;
   the underlying stateful Carbon translator has a separate real-data unit test.
 - The release CLI suite checks auto-off, missing layout switch, drop/duplicate
   insertion, wrong oracle, missing input, absent layout and legacy oracle
@@ -527,8 +528,8 @@ bash scripts/run_native_release_smoke.sh
   synthetic-input traces. Missing layouts return 77/`blockedEnvironment`.
 - Legacy `--phrase-input` no longer reads an expected verdict to set the next
   source language. `manualLanguage` persists until the next explicit declaration.
-  Its report label is `legacy-text-ideal-delivery`; physical mode is
-  `physical-keys-ideal-delivery`. Neither is a full native parity claim.
+  Its report label is `legacy-text-ideal-delivery`; physical mode is now
+  `physical-keys-scheduled-delivery`. Neither is a full native parity claim.
 - Corpus wrappers archive each run under `.build/corpus-runs`, invalidate the
   previous audit before launch, and require fresh complete ordered results with
   matching exit status/counts. Empty corpora are invalid. Event-stream quality
@@ -547,12 +548,30 @@ bash scripts/run_native_release_smoke.sh
 - Ten new lifecycle tests use the real coordinator, driver and InputSession
   with controlled reader/poster fakes and a virtual scheduler; 17 additional
   tests cover local classification. These are contract tests, not native-event
-  delivery evidence. Virtual scheduling is not yet wired into the physical CLI.
-- Paused here at the user's request. Next: connect the physical runner to the
-  same classifier/driver with scheduled delivery and acknowledgement, align its
-  context capacity with production, then compare a short identical scenario in
-  an external native host. No installed app or production decoder changed;
-  native checks and installation remain pending.
+  delivery evidence. At that checkpoint scheduling was not wired into the CLI.
+- Third checkpoint: the physical CLI now uses the same local classifier,
+  NativeReplacementCoordinator, AutomaticReplacementDriver and staged session
+  result handling. Its context capacity matches production's
+  `InputContextLimits.maximumTokens` (16), not the legacy default (5).
+- VirtualTextEditor models UTF-16 selection/caret ranges, grapheme edits and
+  per-field revision. Physical timestamps drive a stable FIFO virtual scheduler;
+  each synthetic key event, layout switch, read-back and acknowledgement is
+  separate. Input continues without boundary waits. Synthetic events mutate
+  the editor but never feed back into InputSession.
+- Verified: 269 Swift tests passed; the physical CLI release suite passed all
+  19 harness checks, including expected failing fault runs. Those counts do not
+  certify native delivery, manual learning, modified host commands, asynchronous
+  preflight or a complete shared AppDelegate decoder/policy path.
+- Two modeled runtime limitations now have explicit traces: losing a Backspace
+  or duplicating insertion can leave extra text while suffix-only read-back
+  still reports verified; 16 ms delayed delivery during 1 ms key intervals can
+  corrupt following input. Independent whole-editor assertions reject both.
+  These are not fixed and must not be advertised as safe replacement passes.
+- Next: characterize native preflight/read-back anchors and overlapping event
+  delivery, finish sharing decoder/policy orchestration and missing simulated
+  event semantics, then compare one identical short scenario in an external
+  native host. No installed app or production decoder changed; native checks
+  and installation remain pending.
 
 ## Build, Signing and Installation
 

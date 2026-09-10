@@ -4,9 +4,10 @@ import RuSwitcherCore
 import RuSwitcherTestSupport
 
 private struct PhysicalRunReport: Encodable {
-    let simulator = "physical-keys-ideal-delivery"
+    let simulator = "physical-keys-scheduled-delivery"
     let engine = "v3"
-    let limitations = ["synchronous-delivery", "no-AX-or-CGEvent", "no-manual-learning", "no-asynchronous-timing"]
+    let limitations = ["modeled-editor-not-macOS", "no-AX-or-CGEvent", "no-manual-learning",
+                       "synchronous-preflight", "no-modified-host-commands", "no-automatic-dead-key-composition"]
     let runID: UUID
     var status = "invalidRun"
     var passed = false
@@ -39,6 +40,7 @@ private func digest(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+@MainActor
 func runPhysical(inputPath: String, outputPath: String?, faultName: String?) -> Never {
     var report = PhysicalRunReport(runID: UUID(), error: "run has not completed", fault: faultName)
     var exitCode: Int32 = 70
@@ -62,6 +64,11 @@ func runPhysical(inputPath: String, outputPath: String?, faultName: String?) -> 
         case "no-layout-switch": faults.disableLayoutSwitch = true
         case "drop-insertion": faults.dropInsertion = true
         case "duplicate-insertion": faults.duplicateInsertion = true
+        case "drop-backspace": faults.dropFirstBackspace = true
+        case "reject-post": faults.rejectPost = true
+        case "preflight-unavailable": faults.preflightUnavailable = true
+        case "verification-unavailable": faults.verificationUnavailable = true
+        case "duplicate-acknowledgement": faults.duplicateAcknowledgement = true
         default: throw PhysicalTypingError.invalidScenario("unknown injected fault")
         }
         // The interpreter receives no expected text, expected decisions or layout checkpoints.

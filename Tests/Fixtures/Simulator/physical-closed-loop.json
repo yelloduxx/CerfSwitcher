@@ -175,6 +175,7 @@
     "text": "сегодня мы отправим письмо, and keep the final draft, а завтра обсудим детали. ",
     "finalLayoutID": "com.apple.keylayout.RussianWin",
     "transactions": 1,
+    "selectedRange": [79, 0],
     "checkpoints": [
       {
         "actionIndex": 16,

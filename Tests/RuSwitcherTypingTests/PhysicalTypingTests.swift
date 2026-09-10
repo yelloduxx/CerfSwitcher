@@ -2,6 +2,7 @@ import XCTest
 import RuSwitcherCore
 import RuSwitcherTestSupport
 
+@MainActor
 final class PhysicalTypingTests: XCTestCase {
     private let en = "com.apple.keylayout.US"
     private let ru = "com.apple.keylayout.RussianWin"

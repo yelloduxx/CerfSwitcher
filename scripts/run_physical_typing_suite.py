@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import copy
 from pathlib import Path
 import subprocess
 import sys
@@ -59,13 +60,64 @@ def main() -> int:
             return report
 
         positive = run("positive", fixture_path, 0, "passed")
-        for fault in ["auto-off", "no-layout-switch", "drop-insertion", "duplicate-insertion"]:
+        for fault in ["auto-off", "no-layout-switch", "drop-insertion", "duplicate-insertion",
+                      "drop-backspace", "reject-post", "preflight-unavailable"]:
             report = run(fault, fixture_path, 1, "failed", fault)
+            if fault in ("drop-backspace", "duplicate-insertion"):
+                if ("text-mismatch" not in report["assessment"]["failures"]
+                        or report["execution"]["verifiedCompletions"] != 1):
+                    raise ValueError("suffix-only confirmation characterization changed; re-audit the known limitation")
             if fault == "no-layout-switch":
                 if "checkpoint-layout-mismatch-16" not in report["assessment"]["failures"]:
                     raise ValueError("layout-switch control did not detect divergence at the next physical key")
                 if report["execution"]["observations"][15]["textAfter"] != "сегодня ":
                     raise ValueError("control must successfully correct the first word before losing the layout switch")
+
+        duplicate_ack = run("duplicate-acknowledgement", fixture_path, 0, "passed", "duplicate-acknowledgement")
+        if duplicate_ack["execution"] != positive["execution"]:
+            raise ValueError("a duplicate acknowledgement changed the execution")
+        unavailable = run("verification-unavailable", fixture_path, 0, "passed", "verification-unavailable")
+        if unavailable["execution"]["verifiedCompletions"] != 0:
+            raise ValueError("unavailable verification was counted as confirmed")
+
+        # Same continuous physical phrase, independent clocks. No per-word
+        # sleep, language reset, or waiting for a conversion before typing on.
+        profiles = [
+            ("scheduled-normal", 1, {"deliveryDelayMicroseconds": 1_000,
+                                     "syntheticEventIntervalMicroseconds": 50,
+                                     "verificationReadDelayMicroseconds": 4_000,
+                                     "acknowledgementDelayMicroseconds": 16_000}, 0),
+            ("scheduled-fast-late-ack", 70, {"verificationReadDelayMicroseconds": 0,
+                                           "acknowledgementDelayMicroseconds": 50_000}, 0),
+            ("scheduled-read-timeout", 1, {"verificationReadDelayMicroseconds": 250_000}, 0),
+            ("overlapping-delivery-control", 70, {"deliveryDelayMicroseconds": 16_000,
+                                                  "syntheticEventIntervalMicroseconds": 100}, 1),
+            ("late-layout-control", 70, {"layoutDelayMicroseconds": 16_000}, 1),
+        ]
+        base_fixture = json.loads(fixture_path.read_text())
+        for name, speed, timing, expected_exit in profiles:
+            fixture = copy.deepcopy(base_fixture)
+            fixture["stimulus"]["timing"] = timing
+            for action in fixture["stimulus"]["actions"]:
+                action["atMicroseconds"] //= speed
+            path = directory / (name + "-input.json")
+            path.write_text(json.dumps(fixture))
+            report = run(name, path, expected_exit, "passed" if expected_exit == 0 else "failed")
+            if name in ("scheduled-fast-late-ack", "scheduled-read-timeout"):
+                if report["execution"]["verifiedCompletions"] != 0:
+                    raise ValueError(f"{name}: a stale or timed-out result acquired confirmation")
+            if name == "scheduled-read-timeout":
+                if not any(row["event"] == "readback-timeout" for row in report["execution"]["trace"]):
+                    raise ValueError("the late reader did not actually hit its deadline")
+            if name == "overlapping-delivery-control" and "text-mismatch" not in report["assessment"]["failures"]:
+                raise ValueError("overlapping-delivery control must detect actual text damage")
+
+        # These are observed limitations, not release passes. A green harness
+        # means the independent oracle detected each intentionally broken run.
+        summary["modeledRuntimeLimitations"] = [
+            {"issue": "suffix-only-readback-can-confirm-extra-prefix", "evidence": str(directory / "drop-backspace.json")},
+            {"issue": "delivery-can-overlap-next-user-word", "evidence": str(directory / "overlapping-delivery-control.json")},
+        ]
 
         fixture = json.loads(fixture_path.read_text())
         fixture["oracle"]["text"] = "intentionally wrong expected text"
