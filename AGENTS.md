@@ -65,9 +65,13 @@ installed build changes.
   `scripts/install_input_method.sh`: companion metadata, universal build/signing
   and atomic per-user registration.
 - `Sources/RuSwitcherSimulator`: parallel V3 corpus/phrase simulator.
-- `Sources/RuSwitcherTypingSimulator`: headless physical-event simulator over
-  `InputSession`, V3 and replacement transaction plans. It supports one
-  continuous fixture or independent phrase JSONL batches via `--jobs`.
+- `Sources/RuSwitcherTypingSimulator`: legacy literal-text/ideal-delivery checks
+  and an explicit `--physical-input` key-event mode. Both use V3 and replacement
+  plans, but neither yet reproduces asynchronous AppDelegate/AX/CGEvent delivery.
+  Legacy independent phrase JSONL batches support `--jobs`.
+- `Tests/Support` (`RuSwitcherTestSupport`) and `Tests/RuSwitcherTypingTests`:
+  read-only system-layout loading, physical fixtures, interpreter and independent
+  assessor. These are dependencies of the simulator/tests, never the app.
 - `Tests/RuSwitcherCoreTests`: unit, corpus, state-machine and transaction tests.
 - `Tests/RuSwitcherAppSupportTests`: native-contract tests with controlled fakes.
 - `Experimental/V4/Tests`: isolated V4 research tests.
@@ -204,18 +208,24 @@ and synthetic events before mutating the token state.
   setting, because it is explicit user intent.
 - A posted conversion immediately publishes provisional phrase context for the
   next token. AX read-back confirms learning and Undo state without duplicating
-  that context; stale verification never overrides newer input. An unavailable
-  or mismatching read-back invalidates the provisional state and does not switch
-  the layout.
+  that context. In build 130, layout switches immediately after a successful
+  post, before the event callback returns. An unavailable read-back keeps the
+  posted reconversion state but does not create verified automatic learning;
+  mismatch invalidates the current staged state without a destructive retry.
+  Stale confirmation is rejected by the staged sequence/current-token checks.
 
 The reliable build-68 transaction path is intentional:
 
 1. Consume the original Space only after the conversion decision succeeds.
 2. Build ordered Backspace keyDown/keyUp events and one Unicode replacement.
-3. Post the transaction directly to the validated target PID with
-   `CGEvent.postToPid`, not into the shared global event stream.
+3. For AX-readable fields, post directly to the validated target PID with
+   `CGEvent.postToPid`. The explicit AX-less opt-in chooses the global event
+   stream when preflight is unavailable; mismatch still blocks.
 4. Replay Space as one marked targeted key event.
-5. Switch layout and create learning/Undo state only after verified AX read-back.
+5. Switch layout and remember the manual-reconversion transaction on post.
+   Verified read-back confirms staged completion and automatic learning state;
+   it is not the first layout switch. Do not change this timing from older docs
+   without continuous-input characterization tests.
 
 Do not revert this to a burst through `tapPostEvent` or a Unicode payload ending
 in a space. Continuous CGEvent tests demonstrated lost Backspaces, missing spaces,
@@ -401,7 +411,7 @@ bash scripts/run_headless_native_parity_test.sh
 bash scripts/verify_v3_only_build.sh
 ```
 
-After removing V2, the root suite contains 202 tests. V4's 12 research tests run
+The build-130 baseline contains 202 tests. V4's 12 research tests run
 only from its separate package. The headless event-stream fixture must pass and
 its intentionally wrong expected output must fail.
 
@@ -480,9 +490,10 @@ bash scripts/run_native_release_smoke.sh
   boundary timeout. The native host disables macOS double-space period and
   automatic capitalization only through a volatile test-process defaults domain.
 - The headless typing simulator opens no window and does not touch the global
-  event stream. It validates production state and transaction planning, but not
-  macOS CGEvent/AX delivery; that final layer requires an isolated user session,
-  VM or the visible native host.
+  event stream. Its legacy mode feeds literal characters and ideal replacements;
+  it does not verify asynchronous state, layout-switch delivery or learning.
+  The native probe currently shares a process with AppDelegate/NSTextView, so
+  its local AX success does not establish external-editor compatibility.
 - HID probes use the isolated `com.ruswitcher.hidhost` preferences suite, reset
   at probe startup, so corpus runs cannot train or mutate the user's learned
   rules. The manual persistence script opts into the standard domain explicitly,
@@ -492,6 +503,40 @@ bash scripts/run_native_release_smoke.sh
   blocked because macOS did not grant the probe window focus, so it is not
   counted as a native pass. The normal installed process separately showed an
   enabled event tap; deterministic decoder/event-stream coverage passed.
+
+### Unreleased validation work (September 10)
+
+- Verified locally: 213 Swift tests passed with no skips; 11 Python artifact
+  checks passed. The existing international-layout test now runs rather than
+  skipping an installed-but-disabled source. Both legacy corpus paths retain
+  58,938/59,388 exact tokens, 450 safe misses and zero false/wrong replacements.
+- `python3 scripts/run_physical_typing_suite.py` runs one continuous RU/EN
+  physical fixture and negative controls without windows or desktop input.
+  `--physical-input` accepts a `stimulus` (keys/times/layout pair) plus a separate
+  `oracle` (expected text/layout/checkpoints). The runner cannot read the oracle.
+- System layouts are loaded read-only by exact input-source ID, including
+  installed-but-disabled sources; tests do not enable/select them. Independent
+  golden keys cover `,`/`б`, `.`/`ю`, shifted punctuation and Caps Lock.
+- The new physical mode models ideal synchronous delivery only. It records
+  event times but does not yet schedule delayed AX, posting or layout completion.
+  Automatic dead-key composition is explicitly unsupported, not a silent pass;
+  the underlying stateful Carbon translator has a separate real-data unit test.
+- The release CLI suite checks auto-off, missing layout switch, drop/duplicate
+  insertion, wrong oracle, missing input, absent layout and legacy oracle
+  isolation. JSON reports contain fixture/model/layout hashes and complete
+  synthetic-input traces. Missing layouts return 77/`blockedEnvironment`.
+- Legacy `--phrase-input` no longer reads an expected verdict to set the next
+  source language. `manualLanguage` persists until the next explicit declaration.
+  Its report label is `legacy-text-ideal-delivery`; physical mode is
+  `physical-keys-ideal-delivery`. Neither is a full native parity claim.
+- Corpus wrappers archive each run under `.build/corpus-runs`, invalidate the
+  previous audit before launch, and require fresh complete ordered results with
+  matching exit status/counts. Empty corpora are invalid. Event-stream quality
+  still permits the baseline 450 safe misses; the strict decoder wrapper returns
+  1 for those completed mismatches. `invalidRun` is a different failure class.
+- Next work: share the production classification/auto-replacement lifecycle,
+  introduce virtual scheduling, then compare a short identical scenario in an
+  external native host. No installed app or production decoder changed here.
 
 ## Build, Signing and Installation
 

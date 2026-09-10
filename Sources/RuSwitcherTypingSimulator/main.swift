@@ -160,7 +160,7 @@ private struct HeadlessTypingSession {
 
     func report(for fixture: Fixture) -> Report {
         Report(
-            simulator: "headless-physical-event-stream",
+            simulator: "legacy-text-ideal-delivery",
             engine: "v3",
             fixture: fixture.name,
             passed: editor.text == fixture.expectedText
@@ -300,11 +300,10 @@ private func loadPhraseFixtures(_ path: String) throws -> [Fixture] {
                 sourceLanguage: sourceLanguage,
                 text: step.typed + separator
             ))
-            if step.expected == .switchLayout {
-                currentLanguage = sourceLanguage == "ru" ? "en" : "ru"
-            } else {
-                currentLanguage = sourceLanguage
-            }
+            // Legacy fixtures contain literal text, not physical keys. Only
+            // explicit user actions may change their declared source language;
+            // an oracle verdict must never configure the next input step.
+            currentLanguage = sourceLanguage
         }
 
         var expectedText = phrase.expectedText.replacingOccurrences(of: "\\t", with: "\t")
@@ -389,7 +388,7 @@ private func runBatch(inputPath: String, model: LanguageModelStore) throws -> Ne
             + Double(elapsed.components.attoseconds) / 1e15
     )
     let summary = BatchSummary(
-        simulator: "headless-physical-event-stream",
+        simulator: "legacy-text-ideal-delivery",
         engine: "v3",
         passed: failed.isEmpty,
         fixtureTotal: reports.count,
@@ -425,6 +424,9 @@ private func runBatch(inputPath: String, model: LanguageModelStore) throws -> Ne
 }
 
 private func run() throws -> Never {
+    if let inputPath = argument(after: "--physical-input") {
+        return runPhysical(inputPath: inputPath, outputPath: argument(after: "--output"), faultName: argument(after: "--fault"))
+    }
     guard let model = LanguageModelStore.bundled else {
         FileHandle.standardError.write(Data("V3 language model unavailable\n".utf8))
         exit(70)
@@ -436,7 +438,7 @@ private func run() throws -> Never {
         try runBatch(inputPath: inputPath, model: model)
     }
     FileHandle.standardError.write(Data(
-        "usage: RuSwitcherTypingSimulator (--input fixture.json | --phrase-input phrases.jsonl) [--jobs N] [--output report.json] [--results results.jsonl]\n".utf8
+        "usage: RuSwitcherTypingSimulator (--input fixture.json | --phrase-input phrases.jsonl | --physical-input physical.json) [--jobs N] [--output report.json] [--results results.jsonl] [--fault auto-off|no-layout-switch|drop-insertion|duplicate-insertion]\n".utf8
     ))
     exit(64)
 }

@@ -12,7 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 SEPARATOR = re.compile(r"(?:\s+|\\t)")
 SOURCE_LANGUAGE = {
     "en_wrong": "ru",
@@ -131,6 +130,11 @@ def build_token_audit(traces: Path, patterns: list[str]) -> dict[str, object]:
     passed: collections.Counter[str] = collections.Counter()
     failure_kinds: collections.Counter[str] = collections.Counter()
     for pattern, step in zip(patterns, steps):
+        if (type(step["passed"]) is not bool
+                or step["expectedVerdict"] not in ("keep", "switch")
+                or not isinstance(step["typed"], str)
+                or not isinstance(step["actualResolved"], str)):
+            raise ValueError("invalid token result")
         totals[pattern] += 1
         if step["passed"]:
             passed[pattern] += 1
@@ -163,6 +167,12 @@ def build_token_audit(traces: Path, patterns: list[str]) -> dict[str, object]:
 
 
 def main() -> int:
+    # Keep convert_corpus importable on its own, including imports by file path.
+    if __package__:
+        from .corpus_run_artifacts import CorpusRunArtifacts
+    else:
+        from corpus_run_artifacts import CorpusRunArtifacts
+
     parser = argparse.ArgumentParser()
     parser.add_argument("tsv", type=Path)
     parser.add_argument("--jobs", type=int, default=8)
@@ -172,12 +182,29 @@ def main() -> int:
 
     root = Path(__file__).resolve().parent.parent
     build = root / ".build"
-    generated = build / "mixed-layout-5000-phrases.jsonl"
-    traces = build / "mixed-layout-5000-traces.jsonl"
-    report = args.report or build / "mixed-layout-5000-report.json"
-    audit_path = args.audit or build / "mixed-layout-5000-audit.json"
-    empty_words = build / "mixed-layout-empty-words.jsonl"
-    empty_words.parent.mkdir(parents=True, exist_ok=True)
+    run = CorpusRunArtifacts(build / "corpus-runs", "decoder", {
+        "input": build / "mixed-layout-5000-phrases.jsonl",
+        "results": build / "mixed-layout-5000-traces.jsonl",
+        "report": args.report or build / "mixed-layout-5000-report.json",
+        "audit": args.audit or build / "mixed-layout-5000-audit.json",
+        "empty_words": build / "mixed-layout-empty-words.jsonl",
+    })
+    try:
+        return run_suite(args, root, run)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return run.invalid(error)
+
+
+def run_suite(args: argparse.Namespace, root: Path, run) -> int:
+    if __package__:
+        from .corpus_run_artifacts import load_phrase_results, require_counts
+    else:
+        from corpus_run_artifacts import load_phrase_results, require_counts
+
+    generated = run.paths["input"]
+    traces = run.paths["results"]
+    report = run.paths["report"]
+    empty_words = run.paths["empty_words"]
     empty_words.write_text("", encoding="utf-8")
 
     phrase_count, token_patterns = convert_corpus(args.tsv, generated)
@@ -191,12 +218,20 @@ def main() -> int:
         "--phrase-results", str(traces),
     ]
     completed = subprocess.run(command, cwd=root, check=False, stdout=subprocess.DEVNULL)
-    if not report.exists():
-        return completed.returncode or 1
+    run.record_process(completed.returncode)
     summary = json.loads(report.read_text(encoding="utf-8"))
+    _, rows = load_phrase_results(generated, traces, identity="id", steps="steps")
+    phrase_passed = sum(row["passed"] for row in rows)
+    require_counts(summary, {
+        "phraseTotal": phrase_count, "phrasePassed": phrase_passed,
+        "total": phrase_count, "passed": phrase_passed, "failed": phrase_count - phrase_passed,
+    })
+    if len(summary["phraseFailures"]) != phrase_count - phrase_passed:
+        raise ValueError("report phrase failures differ from complete results")
+    run.require_exit_matches(summary["failed"] == 0)
     audit = build_token_audit(traces, token_patterns)
     audit.update({"phraseTotal": summary["phraseTotal"], "phrasePassed": summary["phrasePassed"]})
-    audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    audit = run.publish(audit, summary["failed"] == 0)
     print(
         json.dumps(
             {
@@ -209,9 +244,11 @@ def main() -> int:
                 "tokenPassed": audit["tokenPassed"],
                 "tokenAccuracy": audit["tokenAccuracy"],
                 "failureKinds": audit["failureKinds"],
-                "report": str(report),
-                "traces": str(traces),
-                "audit": str(audit_path),
+                "report": str(run.outputs["report"]),
+                "traces": str(run.outputs["results"]),
+                "audit": str(run.outputs["audit"]),
+                "runId": audit["runId"],
+                "status": audit["status"],
             },
             ensure_ascii=False,
             indent=2,

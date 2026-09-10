@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from corpus_run_artifacts import CorpusRunArtifacts, load_phrase_results, require_counts
 from run_mixed_layout_tsv_suite import convert_corpus
 
 
@@ -27,10 +28,22 @@ def main() -> int:
 
     root = Path(__file__).resolve().parent.parent
     build = root / ".build"
-    generated = build / "mixed-layout-5000-event-stream-input.jsonl"
-    report = args.report or build / "mixed-layout-5000-event-stream-report.json"
-    results = args.results or build / "mixed-layout-5000-event-stream-results.jsonl"
-    audit_path = args.audit or build / "mixed-layout-5000-event-stream-audit.json"
+    run = CorpusRunArtifacts(build / "corpus-runs", "event-stream", {
+        "input": build / "mixed-layout-5000-event-stream-input.jsonl",
+        "report": args.report or build / "mixed-layout-5000-event-stream-report.json",
+        "results": args.results or build / "mixed-layout-5000-event-stream-results.jsonl",
+        "audit": args.audit or build / "mixed-layout-5000-event-stream-audit.json",
+    })
+    try:
+        return run_suite(args, root, run)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return run.invalid(error)
+
+
+def run_suite(args: argparse.Namespace, root: Path, run: CorpusRunArtifacts) -> int:
+    generated = run.paths["input"]
+    report = run.paths["report"]
+    results = run.paths["results"]
 
     phrase_count, token_patterns = convert_corpus(args.tsv, generated)
     command = [
@@ -41,20 +54,14 @@ def main() -> int:
         "--results", str(results),
     ]
     completed = subprocess.run(command, cwd=root, stdout=subprocess.DEVNULL, check=False)
-    if completed.returncode not in (0, 1) or not report.exists() or not results.exists():
-        return completed.returncode or 1
+    run.record_process(completed.returncode)
 
-    traces: list[dict[str, object]] = []
-    with results.open(encoding="utf-8") as handle:
-        for line in handle:
-            traces.extend(json.loads(line)["traces"])
+    fixtures, rows = load_phrase_results(generated, results, identity="fixture", steps="traces")
+    traces = [trace for row in rows for trace in row["traces"]]
     if len(traces) != len(token_patterns):
         raise ValueError(f"trace contains {len(traces)} tokens for {len(token_patterns)} labels")
 
-    expected_steps: list[dict[str, object]] = []
-    with generated.open(encoding="utf-8") as handle:
-        for line in handle:
-            expected_steps.extend(json.loads(line)["steps"])
+    expected_steps = [step for fixture in fixtures for step in fixture["steps"]]
     if len(expected_steps) != len(traces):
         raise ValueError("generated fixture and event trace token counts differ")
 
@@ -62,6 +69,9 @@ def main() -> int:
     passed: collections.Counter[str] = collections.Counter()
     failure_kinds: collections.Counter[str] = collections.Counter()
     for pattern, step, trace in zip(token_patterns, expected_steps, traces):
+        if (trace["verdict"] not in ("keep", "undecided", "switchToConverted")
+                or not isinstance(trace["resolvedText"], str)):
+            raise ValueError("invalid token trace")
         totals[pattern] += 1
         expected_switch = step["expected"] == "switch"
         actual_switch = trace["verdict"] == "switchToConverted"
@@ -75,6 +85,18 @@ def main() -> int:
             passed[pattern] += 1
 
     summary = json.loads(report.read_text(encoding="utf-8"))
+    phrase_passed = sum(row["passed"] for row in rows)
+    require_counts(summary, {
+        "fixtureTotal": phrase_count,
+        "fixturePassed": phrase_passed,
+        "fixtureFailed": phrase_count - phrase_passed,
+        "tokenTotal": len(traces),
+        "actualTransactions": sum(row["transactionCount"] for row in rows),
+        "duplicateTransactionCount": sum(row["duplicateTransactionCount"] for row in rows),
+    })
+    if type(summary["passed"]) is not bool or summary["passed"] != (phrase_passed == phrase_count):
+        raise ValueError("report outcome differs from complete results")
+    run.require_exit_matches(summary["passed"])
     safe_misses = failure_kinds["safeMiss"]
     quality_passed = (
         failure_kinds["falsePositive"] == 0
@@ -103,7 +125,7 @@ def main() -> int:
             for pattern in sorted(totals)
         },
     }
-    audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    audit = run.publish(audit, quality_passed)
     print(json.dumps(audit, ensure_ascii=False, indent=2))
     return 0 if quality_passed else 1
 

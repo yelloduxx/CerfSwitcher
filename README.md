@@ -172,17 +172,28 @@ The app adds itself to the permission lists automatically — you only need to f
 swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 ```
 
-`--input fixtures.jsonl` accepts custom words, `--phrase-input phrases.jsonl` accepts stateful mixed-language phrases, and `--phrase-results results.jsonl` writes a complete step trace. `scripts/run_headless_typing_simulator.sh` additionally replays physical-key-style event streams through `InputSession`, V3 and replacement transactions without opening a window or stealing focus. Independent phrases can run in parallel while events inside each phrase remain ordered:
+`--input fixtures.jsonl` accepts custom words, `--phrase-input phrases.jsonl` accepts stateful mixed-language phrases, and `--phrase-results results.jsonl` writes a complete step trace. The existing `scripts/run_headless_typing_simulator.sh` is a **legacy text/ideal-delivery** check: it feeds literal characters through `InputSession`, V3 and replacement plans. It does not prove physical input, asynchronous delivery or manual learning. Its expected verdicts no longer set the next token's input language. Independent legacy phrases can run in parallel:
 
 ```bash
 python3 scripts/run_mixed_layout_event_stream_suite.py corpus.tsv --jobs 8
 ```
 
-This catches decoder, stale-state, punctuation and duplicate-transaction errors and applies explicit false-positive/recall gates. Native CGEvent/AX delivery still requires the separate visible host or an isolated macOS user/VM. V4 is tested only with `swift test --package-path Experimental/V4`.
+Corpus wrappers use unique run directories and validate fresh complete results before publishing an audit. Missing, stale, truncated or empty results cannot count as a successful run. The original TSV and the physically reconstructed test input are distinct: this legacy importer reconstructs wrong-layout tokens from the intended text. The 5,000-phrase corpus is a regression set with a small repeated vocabulary, not a broad independent language-quality benchmark.
 
-Latest source-tree checks for build 130 (also installed as production):
+The new **physical-key/ideal-delivery** mode reads keyDown/keyUp, modifiers and explicit user layout changes. The next character comes from the actual simulated active layout using macOS layout data; the expected answer is passed only to a separate assessor:
 
-- **202 tests:** 201 passed, 1 intentionally skipped, 0 failed.
+```bash
+python3 scripts/run_physical_typing_suite.py
+swift run -c release RuSwitcherTypingSimulator \
+  --physical-input Tests/Fixtures/Simulator/physical-closed-loop.json \
+  --output .build/physical-report.json
+```
+
+The suite detects a missing layout switch after a successful first correction, disabled conversion, missing/duplicate insertion and oracle-dependent input. Reports include every input action, expected/actual text, layout checkpoints, and model/layout/fixture hashes. No desktop layout is selected. This mode still assumes synchronous delivery: timestamps are recorded, not an asynchronous schedule, and automatic dead-key composition currently fails explicitly as unsupported. It does not yet verify AppDelegate orchestration, AX, CGEvent delivery or manual learning. Native delivery needs an external host in an isolated macOS session; an in-process NSTextView result cannot establish compatibility with Electron or terminals. V4 remains separate: `swift test --package-path Experimental/V4`.
+
+Source baseline for build 130 (`de45597`, before the new validation work):
+
+- **202 tests:** 201 passed, 1 skipped because the international layout was not enabled, 0 failed. Test-only layout lookup now also reads installed-but-disabled layouts without enabling them, so that quote-composition test can actually run.
 - **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,938 exact (99.2423%); all 450 failures were safe misses, with zero false or wrong replacements and zero duplicate transactions. A clean build-126 checkout produces the same 450 misses.
 - **New ranked-English gates:** at least 90% held-out recall in every SCOWL tier, plus zero false replacements across 50,000 frequent correct tokens, 50,000 extended English spellings and more than 3,000 generated Russian OOV forms.
 - **Native release gate:** probes verify the exact RuSwitcher Pro bundle ID, build and executable hash, stage app-facing files in `/tmp`, and report `blocked` unless an isolated session or explicit focus permission is provided.
@@ -364,11 +375,26 @@ Development или Developer ID. Многоразовый самоподписа
 swift run -c release RuSwitcherSimulator --jobs 8 --output simulation.json
 ```
 
-`--input fixtures.jsonl` принимает тесты слов, `--phrase-input phrases.jsonl` — последовательные смешанные фразы, а `--phrase-results results.jsonl` сохраняет полный пошаговый отчёт. `scripts/run_headless_typing_simulator.sh` дополнительно проводит непрерывный поток физических клавиш через `InputSession`, V3 и транзакции замены без окна и перехвата фокуса. Он ловит ошибки decoder, stale state, пунктуации и повторных транзакций. Настоящую доставку CGEvent/AX всё равно можно проверить только видимым host-приложением либо в отдельной macOS-сессии/VM. V4 проверяется отдельно командой `swift test --package-path Experimental/V4`.
+`--input fixtures.jsonl` принимает тесты слов, `--phrase-input phrases.jsonl` — последовательные смешанные фразы, а `--phrase-results results.jsonl` сохраняет пошаговый отчёт. Старый `scripts/run_headless_typing_simulator.sh` проверяет **готовый текст и идеальную доставку**, а не настоящие физические нажатия. Ожидаемый ответ больше не задаёт раскладку следующего токена.
 
-Последняя проверка исходников build 130 (эта же версия установлена как production):
+Для физических сценариев добавлен отдельный режим:
 
-- **202 теста:** 201 пройден, 1 намеренно пропущен, 0 ошибок.
+```bash
+python3 scripts/run_physical_typing_suite.py
+swift run -c release RuSwitcherTypingSimulator \
+  --physical-input Tests/Fixtures/Simulator/physical-closed-loop.json \
+  --output .build/physical-report.json
+```
+
+Он переводит физические клавиши системными таблицами macOS и использует фактическую раскладку симулируемой сессии. Эталон доступен только проверяющему компоненту. Контроли обнаруживают отсутствие смены раскладки после первой успешной замены, выключенную автозамену, пропавшую/повторную вставку и влияние эталона на ввод. Отчёт содержит трассу, текст, раскладки и хеши входа, модели и таблиц раскладок. Окна не открываются, системная раскладка пользователя не меняется.
+
+Ограничения: доставка пока мгновенная; временные отметки сохраняются, но задержки редактора не моделируются. Автоматическая dead-key композиция явно отклоняется как неподдержанная. Этот режим ещё не проверяет полную цепочку AppDelegate, AX/CGEvent и ручное обучение. Успех встроенного NSTextView также нельзя переносить на Electron или терминалы: для этого нужен внешний тестовый редактор в изолированной macOS-сессии.
+
+Корпусные скрипты сохраняют отдельный каталог каждого запуска. Старые, неполные и пустые отчёты не принимаются за успех. Исходный TSV и производный физический ввод различаются: старый импортёр пересоздаёт ошибочные токены из намеренного текста. Корпус 5000 фраз содержит небольшой повторяющийся словарь и служит проверкой регрессий, а не независимой оценкой всей переписки. V4 проверяется отдельно: `swift test --package-path Experimental/V4`.
+
+Исходная проверка build 130 (`de45597`, до новых изменений тестового стенда):
+
+- **202 теста:** 201 пройден, 1 пропущен из-за невключённой международной раскладки, 0 ошибок. Теперь тестовый загрузчик читает и установленные, но выключенные раскладки, не включая их: проверка композиции кавычек действительно выполняется.
 - **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 938 точных результатов (99,2423%); оставшиеся 450 случаев — безопасные пропуски, без ложных или неправильных замен и без повторных транзакций. Чистая сборка build 126 даёт те же 450 пропусков.
 - **Новые проверки ranked English:** не менее 90% recall на отложенной выборке каждого уровня SCOWL и ноль ложных замен на 50 000 частых корректных токенов, 50 000 дополнительных английских слов и более чем 3 000 сгенерированных русских OOV-форм.
 - **Нативный release-gate:** probe проверяет bundle ID, build и хеш именно RuSwitcher Pro, передаёт приложению файлы через `/tmp` и возвращает `blocked`, если нет отдельной сессии либо явного разрешения забрать фокус.

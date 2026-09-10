@@ -28,16 +28,13 @@ final class KeyboardLayoutTranslationStateTests: XCTestCase {
     }
 
     private func usInternationalLayoutData() -> Data? {
-        guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource],
-              let source = sources.first(where: { inputSourceID($0).contains("USInternational-PC") }),
+        let filter = [kTISPropertyInputSourceID as String: "com.apple.keylayout.USInternational-PC"] as CFDictionary
+        guard let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource],
+              let source = sources.first,
               let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
         }
         return Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
     }
 
-    private func inputSourceID(_ source: TISInputSource) -> String {
-        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return "" }
-        return Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
-    }
 }
