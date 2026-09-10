@@ -183,11 +183,18 @@ private final class Host: FocusedTextContextReading, KeyboardEventPosting {
 
     func switchLayout(_ id: String?) { layoutSwitches.append(id); layout = id ?? layout }
 
-    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextValidation {
-        preflight
+    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextPreflight {
+        switch preflight {
+        case .match:
+            return TextReplacementAnchor.capture(expectedSuffix: expectedSuffix, focus: focus,
+                selection: NSRange(location: expectedSuffix.utf16.count, length: 0),
+                capturedRange: NSRange(location: 0, length: expectedSuffix.utf16.count), capturedText: expectedSuffix)
+        case .mismatch: return .mismatch
+        case .unavailable: return .unavailable
+        }
     }
 
-    func verify(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int,
+    func verify(expectedSuffix: String, anchor: TextReplacementAnchor, deadlineMilliseconds: Int,
                 completion: @escaping @MainActor (TextContextValidation) -> Void) {
         if synchronousVerification { completion(verificationResult); return }
         clock.schedule(at: clock.now + 50_000) { [self] in

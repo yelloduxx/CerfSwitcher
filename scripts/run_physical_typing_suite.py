@@ -65,8 +65,8 @@ def main() -> int:
             report = run(fault, fixture_path, 1, "failed", fault)
             if fault in ("drop-backspace", "duplicate-insertion"):
                 if ("text-mismatch" not in report["assessment"]["failures"]
-                        or report["execution"]["verifiedCompletions"] != 1):
-                    raise ValueError("suffix-only confirmation characterization changed; re-audit the known limitation")
+                        or report["execution"]["verifiedCompletions"] != 0):
+                    raise ValueError("damaged text was not detected or acquired anchored confirmation")
             if fault == "no-layout-switch":
                 if "checkpoint-layout-mismatch-16" not in report["assessment"]["failures"]:
                     raise ValueError("layout-switch control did not detect divergence at the next physical key")
@@ -115,8 +115,11 @@ def main() -> int:
         # These are observed limitations, not release passes. A green harness
         # means the independent oracle detected each intentionally broken run.
         summary["modeledRuntimeLimitations"] = [
-            {"issue": "suffix-only-readback-can-confirm-extra-prefix", "evidence": str(directory / "drop-backspace.json")},
             {"issue": "delivery-can-overlap-next-user-word", "evidence": str(directory / "overlapping-delivery-control.json")},
+        ]
+        summary["detectedUnrepairedDamage"] = [
+            {"issue": "dropped-deletion-rejected-by-anchor", "evidence": str(directory / "drop-backspace.json")},
+            {"issue": "duplicate-insertion-rejected-by-anchor", "evidence": str(directory / "duplicate-insertion.json")},
         ]
 
         fixture = json.loads(fixture_path.read_text())

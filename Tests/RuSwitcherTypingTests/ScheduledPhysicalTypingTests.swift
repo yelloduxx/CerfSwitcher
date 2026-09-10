@@ -91,7 +91,7 @@ final class ScheduledPhysicalTypingTests: XCTestCase {
         XCTAssertFalse(actual.context.contains("сегодня"))
     }
 
-    func testDroppedBackspaceAndDuplicateInsertionExposeSuffixOnlyVerificationLimit() throws {
+    func testDroppedBackspaceAndDuplicateInsertionCannotReceiveAnchoredConfirmation() throws {
         let layouts = try layouts()
         let fixture = try phrase(layouts)
         var dropped = PhysicalTypingFaults()
@@ -102,11 +102,10 @@ final class ScheduledPhysicalTypingTests: XCTestCase {
             let actual = try runner(layouts).run(fixture.stimulus, faults: faults)
             XCTAssertFalse(PhysicalTypingAssessment.assess(actual, oracle: fixture.oracle).passed)
             XCTAssertNotEqual(actual.text, fixture.oracle.text)
-            // Characterization, NOT proof of a safe edit: the real coordinator
-            // accepts an expected suffix even when an extra prefix was left.
-            // The independent whole-editor oracle must reject that false green.
-            XCTAssertEqual(actual.verifiedCompletions, 1)
-            XCTAssertTrue(actual.trace.contains { $0.event == "completion-confirm" })
+            // Damage is observable, not destructively retried or accepted as a
+            // verified edit. Detection is not a claim that the text was repaired.
+            XCTAssertEqual(actual.verifiedCompletions, 0)
+            XCTAssertFalse(actual.trace.contains { $0.event == "completion-confirm" })
         }
     }
 

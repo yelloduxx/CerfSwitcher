@@ -414,15 +414,24 @@ private final class PhysicalTypingSession {
         record("completion-\(result)", actionIndex: actionIndex, sequence: transaction.sequence)
     }
 
-    fileprivate func validate(_ expected: String, focus expectedFocus: FocusedElementIdentity) -> TextContextValidation {
+    fileprivate func validate(_ expected: String, focus expectedFocus: FocusedElementIdentity) -> TextContextPreflight {
         if faults.preflightUnavailable { return .unavailable }
-        return compare(expected, focus: expectedFocus)
+        guard focus == expectedFocus else { return .mismatch }
+        let caret = editor.selectedRange
+        guard caret.length == 0, caret.location >= expected.utf16.count else { return .mismatch }
+        let start = max(0, caret.location - expected.utf16.count - TextReplacementAnchor.maximumPrefixUTF16Length)
+        let range = NSRange(location: start, length: caret.location - start)
+        return TextReplacementAnchor.capture(expectedSuffix: expected, focus: focus, selection: caret,
+                                             capturedRange: range, capturedText: (editor.text as NSString).substring(with: range))
     }
 
-    private func compare(_ expected: String, focus expectedFocus: FocusedElementIdentity) -> TextContextValidation {
-        guard focus == expectedFocus else { return .unavailable }
-        guard editor.selectedRange.length == 0 else { return .mismatch }
-        return editor.hasSuffixBeforeCaret(expected) ? .match : .mismatch
+    private func compare(_ expected: String, anchor: TextReplacementAnchor) -> TextContextValidation {
+        guard focus == anchor.focus, editor.selectedRange == anchor.expectedSelection(replacement: expected) else { return .mismatch }
+        guard let range = anchor.expectedRange(replacement: expected),
+              range.location <= editor.text.utf16.count,
+              range.length <= editor.text.utf16.count - range.location else { return .unavailable }
+        return anchor.verify(replacement: expected, focus: focus, selection: editor.selectedRange,
+                             capturedRange: range, capturedText: (editor.text as NSString).substring(with: range))
     }
 
     fileprivate func post(_ plan: EventReplacementPlan, processID: Int32) -> Bool {
@@ -459,7 +468,7 @@ private final class PhysicalTypingSession {
         return true
     }
 
-    fileprivate func verify(_ expected: String, focus expectedFocus: FocusedElementIdentity, deadlineMilliseconds: Int,
+    fileprivate func verify(_ expected: String, anchor: TextReplacementAnchor, deadlineMilliseconds: Int,
                             completion: @escaping @MainActor (TextContextValidation) -> Void) {
         let start = clock.now
         let deadline = start + UInt64(deadlineMilliseconds) * 1_000
@@ -475,17 +484,17 @@ private final class PhysicalTypingSession {
             }
             return
         }
-        pollVerification(expected, focus: expectedFocus,
+        pollVerification(expected, anchor: anchor,
                          at: start + timing.verificationReadDelayMicroseconds, deadline: deadline,
                          actionIndex: actionIndex, sequence: sequence, completion: completion)
     }
 
-    private func pollVerification(_ expected: String, focus expectedFocus: FocusedElementIdentity,
+    private func pollVerification(_ expected: String, anchor: TextReplacementAnchor,
                                   at time: UInt64, deadline: UInt64, actionIndex: Int, sequence: UInt64?,
                                   completion: @escaping @MainActor (TextContextValidation) -> Void) {
         clock.schedule(at: time) { [weak self] in
             guard let self else { return }
-            let result: TextContextValidation = self.faults.verificationUnavailable ? .unavailable : self.compare(expected, focus: expectedFocus)
+            let result: TextContextValidation = self.faults.verificationUnavailable ? .unavailable : self.compare(expected, anchor: anchor)
             self.record("readback-\(result)", actionIndex: actionIndex, sequence: sequence)
             if result == .match || self.clock.now == deadline {
                 self.clock.schedule(at: self.clock.now + self.timing.acknowledgementDelayMicroseconds) {
@@ -493,7 +502,7 @@ private final class PhysicalTypingSession {
                     if self.faults.duplicateAcknowledgement { completion(result) }
                 }
             } else {
-                self.pollVerification(expected, focus: expectedFocus, at: min(self.clock.now + 1_000, deadline),
+                self.pollVerification(expected, anchor: anchor, at: min(self.clock.now + 1_000, deadline),
                                       deadline: deadline, actionIndex: actionIndex, sequence: sequence, completion: completion)
             }
         }
@@ -516,13 +525,13 @@ private final class ScheduledEditorTransport: FocusedTextContextReading, Keyboar
     private unowned let session: PhysicalTypingSession
     init(session: PhysicalTypingSession) { self.session = session }
 
-    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextValidation {
+    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextPreflight {
         session.validate(expectedSuffix, focus: focus)
     }
 
-    func verify(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int,
+    func verify(expectedSuffix: String, anchor: TextReplacementAnchor, deadlineMilliseconds: Int,
                 completion: @escaping @MainActor (TextContextValidation) -> Void) {
-        session.verify(expectedSuffix, focus: focus, deadlineMilliseconds: deadlineMilliseconds, completion: completion)
+        session.verify(expectedSuffix, anchor: anchor, deadlineMilliseconds: deadlineMilliseconds, completion: completion)
     }
 
     func post(_ plan: EventReplacementPlan, to processID: Int32, delivery: KeyboardEventDelivery) -> Bool {

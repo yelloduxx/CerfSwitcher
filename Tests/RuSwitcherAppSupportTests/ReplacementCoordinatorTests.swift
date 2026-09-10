@@ -76,8 +76,10 @@ final class ReplacementCoordinatorTests: XCTestCase {
         XCTAssertEqual(outcome, .postedUnverified)
         XCTAssertEqual(poster.plans.count, 1)
         XCTAssertEqual(poster.deliveries, [.globalEventStream])
-        // Unavailable read-back keeps the edit unverified; it never "upgrades".
-        reader.complete(.unavailable)
+        // No preflight anchor means no later suffix-only "upgrade", even if
+        // the host becomes readable after publication.
+        XCTAssertTrue(reader.verificationDeadlines.isEmpty)
+        reader.complete(.match)
         XCTAssertEqual(completion, .postedUnverified)
     }
 
@@ -119,6 +121,15 @@ final class ReplacementCoordinatorTests: XCTestCase {
         XCTAssertEqual(poster.plans.count, 1)
     }
 
+    func testAnchorFromAnotherFieldBlocksEvenWhenTheOriginalSuffixMatches() {
+        let reader = Reader(preflight: .match)
+        reader.focusOverride = .init(processID: 42, bundleID: "test.host", identifier: "other-field")
+        let poster = Poster(result: true)
+        let coordinator = NativeReplacementCoordinator(reader: reader, poster: poster)
+        XCTAssertEqual(coordinator.submit(request()) { _ in XCTFail("must not verify another field") }, .blocked(.invalidFocus))
+        XCTAssertTrue(poster.plans.isEmpty)
+    }
+
     private func request(
         allowUnavailablePost: Bool = false,
         currentRevision: UInt64 = 3
@@ -147,18 +158,26 @@ final class ReplacementCoordinatorTests: XCTestCase {
 
 private final class Reader: FocusedTextContextReading {
     let preflight: TextContextValidation
+    var focusOverride: FocusedElementIdentity?
     private(set) var validationDeadlines: [Int] = []
     private(set) var verificationDeadlines: [Int] = []
     private var completion: (@MainActor (TextContextValidation) -> Void)?
 
     init(preflight: TextContextValidation) { self.preflight = preflight }
 
-    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextValidation {
+    func validate(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int) -> TextContextPreflight {
         validationDeadlines.append(deadlineMilliseconds)
-        return preflight
+        switch preflight {
+        case .match:
+            return TextReplacementAnchor.capture(expectedSuffix: expectedSuffix, focus: focusOverride ?? focus,
+                selection: NSRange(location: expectedSuffix.utf16.count, length: 0),
+                capturedRange: NSRange(location: 0, length: expectedSuffix.utf16.count), capturedText: expectedSuffix)
+        case .mismatch: return .mismatch
+        case .unavailable: return .unavailable
+        }
     }
 
-    func verify(expectedSuffix: String, focus: FocusedElementIdentity, deadlineMilliseconds: Int, completion: @escaping @MainActor (TextContextValidation) -> Void) {
+    func verify(expectedSuffix: String, anchor: TextReplacementAnchor, deadlineMilliseconds: Int, completion: @escaping @MainActor (TextContextValidation) -> Void) {
         verificationDeadlines.append(deadlineMilliseconds)
         self.completion = completion
     }

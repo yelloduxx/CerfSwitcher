@@ -562,14 +562,44 @@ bash scripts/run_native_release_smoke.sh
   19 harness checks, including expected failing fault runs. Those counts do not
   certify native delivery, manual learning, modified host commands, asynchronous
   preflight or a complete shared AppDelegate decoder/policy path.
-- Two modeled runtime limitations now have explicit traces: losing a Backspace
+- The third checkpoint exposed two modeled runtime limitations: losing a Backspace
   or duplicating insertion can leave extra text while suffix-only read-back
   still reports verified; 16 ms delayed delivery during 1 ms key intervals can
   corrupt following input. Independent whole-editor assertions reject both.
-  These are not fixed and must not be advertised as safe replacement passes.
-- Next: characterize native preflight/read-back anchors and overlapping event
-  delivery, finish sharing decoder/policy orchestration and missing simulated
-  event semantics, then compare one identical short scenario in an external
+- Fourth checkpoint: `TextContextPreflight.matched` carries an immutable
+  `TextReplacementAnchor` with the resolved field and up to 64 UTF-16 units of
+  preceding text. Native and simulated verification now require the expected
+  caret, exact anchored range and unchanged prefix plus replacement. No anchor
+  text is logged or persisted. Without a preflight anchor the explicit AX-less
+  opt-in remains `postedUnverified`, even if AX becomes readable later.
+- Native preflight retains the 4 ms outer deadline and one suffix-mismatch retry;
+  verification uses a 120 ms deadline set before queueing. Field-identity
+  mismatch never falls back to another field. Observed mismatch cannot become
+  AX-unavailable merely because its retry timed out. Local NSTextView reads and
+  polling run on the main actor without sleep; this local path also needs an
+  AX-resolved field identity and still awaits native-host verification.
+- The anchored verification checks and all 19 physical CLI harness checks pass. The
+  lost-Backspace/duplicate-insertion controls now have zero confirmations. Their
+  text still fails the independent oracle: detection does not repair damage.
+  Delivery overlapping the next input is not yet prevented. Native latency and
+  actual editor compatibility remain unverified; no new bundle was installed.
+- `NativeKeyboardEventBatch` now prepares deletion, Unicode and every replay
+  boundary before TextConverter posts the first event. Allocation failure on
+  the final boundary keyUp rejects the whole batch. The old private event
+  builders/postKey helper were removed after checking all call sites. Five
+  tests construct actual CGEvent objects without posting them, check order and
+  markers, and inject final-event/source allocation failure.
+- Native CGEvent inspection showed that setting an empty keyUp Unicode string
+  does not guarantee an empty getter result: Quartz can derive a character
+  from its keycode. Keep separate down/up objects and put the explicit full
+  replacement payload on down only; do not claim an empty keyUp or alter the
+  keycode just to satisfy a synthetic test. See Apple's
+  [Unicode event contract](https://developer.apple.com/documentation/coregraphics/cgevent/keyboardsetunicodestring(stringlength:unicodestring:)).
+- The expanded 283-test suite also passes AddressSanitizer; this covers memory
+  access in exercised paths, not external editor delivery or leak-free lifetime.
+- Next: characterize overlapping native event delivery, finish shared
+  decoder/policy orchestration and missing simulated event semantics, then
+  compare one identical short scenario in an external
   native host. No installed app or production decoder changed; native checks
   and installation remain pending.
 

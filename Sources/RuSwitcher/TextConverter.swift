@@ -1194,21 +1194,6 @@ final class TextConverter {
         isConverting = false
     }
 
-    nonisolated private func postKey(
-        keyCode: UInt16,
-        to processID: Int32,
-        delivery: KeyboardEventDelivery = .targetedProcess
-    ) -> Bool {
-        guard let source = makeSource(),
-              let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            return false
-        }
-        deliver(down, to: processID, via: delivery)
-        deliver(up, to: processID, via: delivery)
-        return true
-    }
-
     nonisolated private func postSelection(characterCount: Int, to processID: Int32) -> Bool {
         guard characterCount > 0, let source = makeSource() else { return false }
         guard let shiftDown = CGEvent(
@@ -1375,47 +1360,6 @@ final class TextConverter {
         case .globalEventStream:
             event.post(tap: .cghidEventTap)
         }
-    }
-
-    nonisolated private func backspaceEvents(count: Int) -> [CGEvent]? {
-        var events: [CGEvent] = []
-        events.reserveCapacity(count * 2)
-        for _ in 0..<count {
-            // A genuinely separate source per Backspace pair, not just the
-            // suppression filter: GPU terminals (Ghostty) coalesce identical
-            // key events from one source posted back-to-back, eating the first
-            // deletion and leaving the word's first character behind.
-            guard let pairSource = makeSource(),
-                  let down = CGEvent(keyboardEventSource: pairSource, virtualKey: KC.backspace, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: pairSource, virtualKey: KC.backspace, keyDown: false) else {
-                return nil
-            }
-            events.append(down)
-            events.append(up)
-        }
-        return events
-    }
-
-    nonisolated private func replacementEvents(for plan: EventReplacementPlan) -> [CGEvent]? {
-        guard let source = makeSource(),
-              var events = backspaceEvents(count: plan.backspaceCount) else { return nil }
-        source.setLocalEventsFilterDuringSuppressionState(
-            [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents],
-            state: .eventSuppressionStateSuppressionInterval
-        )
-        events.reserveCapacity(events.count + 2)
-        guard !plan.replacementText.isEmpty,
-              let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
-            return nil
-        }
-        let utf16 = Array(plan.replacementText.utf16)
-        utf16.withUnsafeBufferPointer { buffer in
-            down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
-        }
-        events.append(down)
-        events.append(up)
-        return events
     }
 
     func recordCommittedTransaction(_ transaction: ConversionTransaction) {
@@ -1877,19 +1821,9 @@ extension TextConverter: KeyboardEventPosting {
            NSWorkspace.shared.frontmostApplication?.processIdentifier != processID {
             return false
         }
-        guard let events = replacementEvents(for: plan) else { return false }
+        guard let events = NativeKeyboardEventBatch.build(plan, marker: kRuSwitcherEventMarker) else { return false }
         for event in events {
             deliver(event, to: processID, via: delivery)
-        }
-        for character in plan.replayText {
-            let keyCode: UInt16
-            switch character {
-            case " ": keyCode = KC.space
-            case "\n": keyCode = KC.enter
-            case "\t": keyCode = KC.tab
-            default: continue
-            }
-            guard postKey(keyCode: keyCode, to: processID, delivery: delivery) else { return false }
         }
         return true
     }

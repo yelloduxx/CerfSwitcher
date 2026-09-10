@@ -79,12 +79,12 @@ public protocol FocusedTextContextReading: AnyObject {
         expectedSuffix: String,
         focus: FocusedElementIdentity,
         deadlineMilliseconds: Int
-    ) -> TextContextValidation
+    ) -> TextContextPreflight
 
     @MainActor
     func verify(
         expectedSuffix: String,
-        focus: FocusedElementIdentity,
+        anchor: TextReplacementAnchor,
         deadlineMilliseconds: Int,
         completion: @escaping @MainActor (TextContextValidation) -> Void
     )
@@ -156,8 +156,19 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
             focus: transaction.focus,
             deadlineMilliseconds: ReplacementTiming.preflightDeadlineMilliseconds
         )
-        guard preflight != .mismatch else {
+        let anchor: TextReplacementAnchor?
+        switch preflight {
+        case let .matched(captured):
+            guard captured.focus.processID == transaction.focus.processID,
+                  captured.focus.bundleID == transaction.focus.bundleID,
+                  transaction.focus.identifier == nil || captured.focus.identifier == transaction.focus.identifier else {
+                return .blocked(.invalidFocus)
+            }
+            anchor = captured
+        case .mismatch:
             return .blocked(.expectedSuffixMismatch)
+        case .unavailable:
+            anchor = nil
         }
         // Unavailable AX normally hard-blocks: never post a destructive
         // replacement without a successful preflight match. Hosts that cannot
@@ -165,7 +176,7 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
         // request; the focus + revision match above is then the freshness gate.
         // A `.mismatch` never reaches here — AX that reads and disagrees stays
         // blocked regardless of the opt-in.
-        guard preflight != .unavailable || request.allowUnavailablePost else {
+        guard anchor != nil || request.allowUnavailablePost else {
             return .blocked(.contextUnavailable)
         }
 
@@ -173,7 +184,7 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
             transaction: transaction,
             deliveredKeyCount: request.deliveredKeyCount
         )
-        let delivery: KeyboardEventDelivery = preflight == .unavailable
+        let delivery: KeyboardEventDelivery = anchor == nil
             ? .globalEventStream
             : .targetedProcess
         guard poster.post(
@@ -192,9 +203,15 @@ public final class NativeReplacementCoordinator: ReplacementCoordinating {
         lock.unlock()
 
         let expected = transaction.replacement + transaction.boundary.replayText
+        // Without a preflight anchor, later suffix readability cannot prove
+        // that deletion preserved the original caret and surrounding text.
+        guard let anchor else {
+            completion(.postedUnverified)
+            return .postedUnverified
+        }
         reader.verify(
             expectedSuffix: expected,
-            focus: transaction.focus,
+            anchor: anchor,
             deadlineMilliseconds: ReplacementTiming.postedEventVerificationDeadlineMilliseconds
         ) { result in
             switch result {
