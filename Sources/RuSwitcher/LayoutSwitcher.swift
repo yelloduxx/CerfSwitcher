@@ -32,7 +32,6 @@ enum LayoutSwitcher {
         let targetID = (current == id1) ? id2 : id1
 
         if let target = sources.first(where: { sourceID($0) == targetID }) {
-            TISEnableInputSource(target)
             TISSelectInputSource(target)
         }
     }
@@ -41,12 +40,12 @@ enum LayoutSwitcher {
     static func switchTo(layoutID: String) {
         let sources = installedLayouts()
         if let target = sources.first(where: { sourceID($0) == layoutID }) {
-            TISEnableInputSource(target)
             TISSelectInputSource(target)
         }
     }
 
-    /// Все установленные раскладки
+    /// Enabled, selectable input sources. includeAllInstalled=false below
+    /// already excludes disabled sources; selecting one must not re-enable it.
     static func installedLayouts() -> [TISInputSource] {
         let conditions: CFDictionary = [
             kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as Any,
