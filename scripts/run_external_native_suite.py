@@ -145,7 +145,11 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
         failures.append("layout-not-restored")
     if app.get("automaticConversion") is not automatic or not app.get("modelAvailable"):
         failures.append("app-configuration-mismatch")
-    if app.get("posted") != oracle["transactions"] or app.get("verified") != oracle["transactions"]:
+    expected_verified = oracle.get("verifiedCompletions")
+    if expected_verified is not None and (type(expected_verified) is not int or expected_verified < 0):
+        return ["invalid-oracle-verification-count"]
+    if (app["posted"] != oracle["transactions"] or not 0 <= app["verified"] <= app["posted"]
+            or (expected_verified is not None and app["verified"] != expected_verified)):
         failures.append("transaction-count-mismatch")
     actions = fixture["stimulus"]["actions"]
     records = driver.get("records", [])
@@ -157,7 +161,15 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker):
         failures.append("input-schedule-too-late")
     for checkpoint in oracle.get("checkpoints", []):
         index = checkpoint["actionIndex"]
-        if index >= len(records) or records[index].get("layoutID") != checkpoint["layoutIDBefore"]:
+        # A press may wait behind an active callback. The producer's earlier
+        # source snapshot is diagnostic, not the layout used to process that key.
+        if index < len(actions) and actions[index]["kind"] == "keyDown":
+            timings = app.get("callbackTimings", [])
+            observed = next((row.get("sourceLayoutID") for row in timings
+                             if isinstance(row, dict) and row.get("actionIndex") == index), None) if isinstance(timings, list) else None
+        else:
+            observed = records[index].get("layoutID") if index < len(records) else None
+        if observed != checkpoint["layoutIDBefore"]:
             failures.append("layout-checkpoint-mismatch")
     failures += callback_timing_failures(actions, app, host, input_marker)
     failures += input_delivery_failures(actions, host["receivedEvents"], app["posted"], input_marker)

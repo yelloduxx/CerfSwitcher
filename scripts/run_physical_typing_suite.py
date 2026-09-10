@@ -151,6 +151,10 @@ def main() -> int:
 
         rolling = json.loads((root / "Tests/Fixtures/Simulator/physical-auto-code-switch.json").read_text())
         rolling["stimulus"]["id"] += "-rolling-space"
+        # Read-back may legitimately become stale when the next key is queued.
+        # Still require exact text/layout/delivery and valid confirmation counts;
+        # do not demand an acknowledgement while the token is no longer current.
+        rolling["oracle"].pop("verifiedCompletions", None)
         rolling["stimulus"]["actions"], new_indices = rolling_space_actions(rolling["stimulus"]["actions"])
         # Reindex observations only. Neither oracle controls the physical cadence.
         for oracle in [rolling["oracle"], rolling["oracle"]["automaticOff"]]:

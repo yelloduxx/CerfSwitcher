@@ -836,23 +836,43 @@ bash scripts/run_native_release_smoke.sh
   callback work, whereas a real callback may hold later input in the tap queue.
   Do not hide the modeled failure or switch delivery APIs based on this grid.
 
-### Callback timing preparation (September 11, not run live)
+### Callback timing and processing checkpoints (September 11)
 
 - Only `--external-native-probe` installs `KeyboardMonitor.onCallbackTiming`.
   Normal runs leave it nil and do not read the clock for this measurement.
   The span starts after marker/userInfo guards and ends before the observer;
   it includes synchronous conversion work, not observer recording or OS delivery.
 - App-probe schema 2 exports trusted test action indices, keycodes, start/end
-  nanoseconds and consumed flags. No text is read for this trace. Detailed rows
+  nanoseconds, consumed flags and the source layout already read by the normal
+  key-processing path. There is no extra TIS lookup. No text is read for this trace. Detailed rows
   are exported only at stop, avoiding repeated serialization during input.
   Overflow, missing/invalid timing rows and disagreement with actual consumed
   keys reject acceptance. Reports give sample counts/maxima, not a claimed p99.
-- 298 Swift tests and 37 Python checks passed. Release compilation and
-  no-window preparation passed for the rolling-Space fixture in native run
-  `fa1528f7-0007-448f-82c7-c3ebda4670a0` (`preparedNotRun`). The timing hook itself
-  has not yet been validated by native input. Installed build 130/hash/PID 16207
-  are unchanged. A short authorized live run is needed before interpreting the
-  virtual overlap as a native race or changing replacement delivery.
+- Native run `3c5dc4e6-92fd-4861-ac66-2ce0081ba0c7` produced exact rolling-Space
+  text and complete input delivery, but failed the old checkpoint assumptions:
+  the producer posted the next key while the previous callback was active,
+  whereas that key was processed only after the callback finished. Conversion
+  callbacks took 17.997-21.384 ms. The producer's earlier layout snapshot is not
+  the layout used at processing time; it remains diagnostic, not the oracle.
+- Native keyDown checkpoints now use the captured processing source. Missing
+  layout switching still fails. Confirmation counts follow the existing optional
+  `verifiedCompletions` oracle: always require 0 <= verified <= posted; require
+  the exact count when specified. The ordinary fixture explicitly requires 3;
+  rolling input permits stale confirmations to be ignored, as the production
+  completion contract requires after new input. Text and receipt gates remain
+  mandatory; old failed reports were not rewritten.
+- Rolling run `b6b9e8f3-9e81-4aa7-9a03-b4c61d8f298a` passed with 3 posts, exact
+  text/layout/receipts and 0 confirmations; its auto-off control matched exactly.
+  Ordinary run `3019ddf8-458c-4d1b-80eb-3bafe1641fb6` passed with the stricter 3/3
+  post/confirmation requirement and its auto-off control. These validate this
+  NSTextView fixture, not all editors, manual learning or arbitrary overlap.
+- Removed redundant TISEnableInputSource calls from LayoutSwitcher: its
+  TISCreateInputSourceList(..., false) already lists enabled sources only, per
+  Apple's SDK contract. Native selection still works. A speedup is not proven:
+  converted-key callbacks remain about 15-24 ms, above the target budget.
+- 298 Swift tests, 42 Python checks and 23 physical CLI checks passed. Installed
+  build 130 was restored with unchanged hash as PID 23679. No new build was
+  installed; the model and user's rules remain unchanged.
 
 ## Build, Signing and Installation
 

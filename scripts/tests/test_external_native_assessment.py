@@ -12,7 +12,7 @@ SPEC.loader.exec_module(SUITE)
 
 class NativeAssessmentTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = {"oracle": {"text": "done ", "finalLayoutID": "en", "transactions": 1},
+        self.fixture = {"oracle": {"text": "done ", "finalLayoutID": "en", "transactions": 1, "verifiedCompletions": 1},
                         "stimulus": {"actions": [{"kind": "keyDown", "keyCode": 49}, {"kind": "keyUp", "keyCode": 49}]}}
         self.host = dict(pid=10, status="complete", unexpectedInputCount=0, text="done ", selection=[5, 0],
                          eventTrace=[], receivedEvents=[dict(kind="keyUp", keyCode=49, marker=125)],
@@ -179,6 +179,26 @@ class NativeAssessmentTests(unittest.TestCase):
         self.assertEqual(summary["maximumMicroseconds"], 7000)
         self.assertEqual(summary["consumedMaximumMicroseconds"], 7000)
         self.assertNotIn("p99", summary)
+
+    def testLayoutCheckpointUsesProcessingNotEarlierProducerSnapshot(self):
+        self.fixture["oracle"]["checkpoints"] = [dict(actionIndex=0, layoutIDBefore="ru")]
+        self.driver["records"][0]["layoutID"] = "en"
+        self.app["callbackTimings"][0]["sourceLayoutID"] = "ru"
+        self.assertEqual(self.assess(), [])
+        self.app["callbackTimings"][0]["sourceLayoutID"] = "en"
+        self.assertIn("layout-checkpoint-mismatch", self.assess())
+
+    def testOptionalConfirmationCountDoesNotWeakenDeliveryOrTextChecks(self):
+        self.fixture["oracle"].pop("verifiedCompletions", None)
+        self.app["verified"] = 0
+        self.assertEqual(self.assess(), [])
+        self.app["verified"] = 2
+        self.assertIn("transaction-count-mismatch", self.assess())
+        self.app["verified"] = 0
+        self.host["text"] = "damaged"
+        self.assertIn("text-mismatch", self.assess())
+        self.fixture["oracle"]["verifiedCompletions"] = True
+        self.assertIn("invalid-oracle-verification-count", self.assess())
 
     def testCompletedPositiveFailureStillCollectsTheNegativeControl(self):
         summary = dict(cases=[])

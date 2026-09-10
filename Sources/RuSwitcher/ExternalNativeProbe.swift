@@ -92,6 +92,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
             "startedNanoseconds": timing.startedNanoseconds,
             "finishedNanoseconds": timing.finishedNanoseconds,
             "consumed": timing.consumed,
+            "sourceLayoutID": timing.sourceLayoutID ?? "",
         ])
     }
 

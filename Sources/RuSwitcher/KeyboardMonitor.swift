@@ -15,6 +15,7 @@ struct KeyboardCallbackTiming {
     let startedNanoseconds: UInt64
     let finishedNanoseconds: UInt64
     let consumed: Bool
+    let sourceLayoutID: String?
 }
 
 struct ManualTokenSnapshot {
@@ -847,6 +848,7 @@ private func keyboardCallback(
     let timingObserver = monitor.onCallbackTiming
     let started = timingObserver.map { _ in DispatchTime.now().uptimeNanoseconds }
     var consumed = false
+    var measuredSourceLayoutID: String?
     defer {
         // Normal runs install no observer and read no clock. The measured span
         // excludes the marker guards above and the observer's own recording.
@@ -856,7 +858,7 @@ private func keyboardCallback(
                                  marker: event.getIntegerValueField(.eventSourceUserData),
                                  startedNanoseconds: started,
                                  finishedNanoseconds: DispatchTime.now().uptimeNanoseconds,
-                                 consumed: consumed))
+                                 consumed: consumed, sourceLayoutID: measuredSourceLayoutID))
         }
     }
 
@@ -874,6 +876,7 @@ private func keyboardCallback(
         event.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &len, unicodeString: &buf)
         let eventProducedText = len > 0 ? String(utf16CodeUnits: buf, count: len) : nil
         let sourceLayoutID = remote && keyCode == 0 ? nil : LayoutSwitcher.currentLayoutID()
+        if timingObserver != nil { measuredSourceLayoutID = sourceLayoutID }
         let producedText = remote
             ? eventProducedText
             : monitor.interpretedProducedText(

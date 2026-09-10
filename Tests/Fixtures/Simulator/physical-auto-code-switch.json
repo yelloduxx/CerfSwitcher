@@ -198,6 +198,7 @@
     "text": "сегодня мы отправим письмо, please review plan B and the final draft, завтра обсудим детали! ",
     "finalLayoutID": "com.apple.keylayout.RussianWin",
     "transactions": 3,
+    "verifiedCompletions": 3,
     "selectedRange": [93,0],
     "checkpoints": [
       {"actionIndex":16,"layoutIDBefore":"com.apple.keylayout.RussianWin"},
