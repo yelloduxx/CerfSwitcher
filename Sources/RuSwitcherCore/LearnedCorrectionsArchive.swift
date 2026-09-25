@@ -28,6 +28,7 @@ public struct LearnedCorrectionsArchive: Codable, Equatable, Sendable {
     public static let currentFormatVersion = 1
     public static let maximumFileSize = 5 * 1_024 * 1_024
     public static let maximumRuleCount = 2_000
+    public static let maximumTokenLength = 256
 
     public let format: String
     public let formatVersion: Int
@@ -92,7 +93,7 @@ public struct LearnedCorrectionsArchive: Codable, Equatable, Sendable {
         let originals = [rule.original, rule.converted]
         guard originals.allSatisfy({
             !$0.isEmpty
-                && $0.count <= 256
+                && $0.count <= maximumTokenLength
                 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
         }) else { return false }
         guard rule.positiveCount >= 0, rule.positiveCount <= 1_000_000,

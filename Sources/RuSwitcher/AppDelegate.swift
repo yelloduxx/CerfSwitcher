@@ -208,22 +208,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func manualLearningIsEligible(
         original: String,
         converted: String,
+        frontID: String?,
         logFailure: Bool
     ) -> Bool {
-        guard ManualLearningPolicy.isLearnableTokenShape(original),
-              ManualLearningPolicy.isLearnableTokenShape(converted) else {
-            if logFailure { rslog("learning_nonlexical_skipped") }
-            return false
-        }
-        guard ManualLearningPolicy.shouldPersist(
-            original: original,
-            converted: converted,
-            model: languageModel
-        ) else {
-            if logFailure { rslog("learning_reverse_skipped") }
-            return false
-        }
-        return true
+        let decision = ManualLearningPolicy.decision(
+            original: original, converted: converted, appBundleID: frontID,
+            ruleBook: SettingsManager.shared.adaptiveRuleBook, model: languageModel
+        )
+        if decision == .ignore, logFailure { rslog("learning_ineligible_skipped") }
+        return decision != .ignore
     }
 
     @discardableResult
@@ -232,32 +225,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         converted: String,
         frontID: String?
     ) -> Bool {
-        guard manualLearningIsEligible(
-            original: original,
-            converted: converted,
-            logFailure: true
-        ) else {
+        let decision = SettingsManager.shared.recordManualLearning(
+            original: original, converted: converted, appBundleID: frontID, model: languageModel
+        )
+        switch decision {
+        case .ignore:
             lastAutoConverted = nil
+            rslog("learning_ineligible_skipped")
             return false
+        case .applicationException:
+            // This is not a new positive pair. A following token must not
+            // reinforce the deliberately rejected spelling globally.
+            lastAutoConverted = nil
+            rslog("learning_application_exception")
+            return true
+        case let .confirmation(source, target, _):
+            sessionNegativePairs.remove(learningKey(original: source, converted: target, appBundleID: frontID))
+            lastAutoConverted = AutoLearningEvent(original: source, converted: target, appBundleID: frontID, at: Date())
+            rslog("learning_confirmed")
+            return true
         }
-        SettingsManager.shared.recordAdaptiveConfirmed(
-            original: original,
-            converted: converted,
-            appBundleID: frontID
-        )
-        sessionNegativePairs.remove(learningKey(
-            original: original,
-            converted: converted,
-            appBundleID: frontID
-        ))
-        lastAutoConverted = AutoLearningEvent(
-            original: original,
-            converted: converted,
-            appBundleID: frontID,
-            at: Date()
-        )
-        rslog("learning_confirmed")
-        return true
     }
 
     private func stageDeferredManualLearning(frontID: String?) {
@@ -265,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               manualLearningIsEligible(
                 original: pair.original,
                 converted: pair.converted,
+                frontID: frontID,
                 logFailure: true
               ) else {
             lastAutoConverted = nil
@@ -282,10 +270,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func acceptDeferredManualLearning(expectedGeneration: UInt64? = nil) {
+    private func acceptDeferredManualLearning(expectedGeneration: UInt64) {
         guard let candidate = deferredManualLearning.accept(
             expectedGeneration: expectedGeneration
         ) else { return }
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == candidate.appBundleID,
+              !AutoSwitchPolicy.secureInputActive else {
+            rslog("learning_pending_cancelled")
+            return
+        }
         _ = persistManualLearning(
             original: candidate.original,
             converted: candidate.converted,
@@ -517,14 +510,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.learnFromUndo()
         }
         keyboardMonitor.onUserContinuedAfterConversion = { [weak self] in
-            DispatchQueue.main.async {
-                self?.acceptDeferredManualLearning()
+            guard let self, let generation = self.deferredManualLearning.pendingGeneration else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.acceptDeferredManualLearning(expectedGeneration: generation)
             }
         }
         keyboardMonitor.onManualConversionRejected = { [weak self] in
             self?.cancelDeferredManualLearning()
         }
         keyboardMonitor.onEditingInvalidated = { [weak self] in
+            self?.cancelDeferredManualLearning()
             self?.textConverter.clearState()
             self?.lastAutoConverted = nil
             self?.focusedElementResolver.invalidate()
@@ -908,7 +903,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         updateStatusIcon()
         if allowLearning {
-            learnFromUndo()
+            let source = reconversion.current.trimmingCharacters(in: .whitespacesAndNewlines)
+            let target = reconversion.replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+            let settings = SettingsManager.shared
+            if settings.isAdaptiveConfirmed(original: source, converted: target, appBundleID: nil)
+                || settings.isAdaptiveConfirmed(original: target, converted: source, appBundleID: nil) {
+                _ = persistManualLearning(original: source, converted: target, frontID: transaction.focus.bundleID)
+            } else if let last = lastAutoConverted,
+                      last.appBundleID == transaction.focus.bundleID,
+                      FrequentWordLexicon.normalize(source) == FrequentWordLexicon.normalize(last.converted),
+                      FrequentWordLexicon.normalize(target) == FrequentWordLexicon.normalize(last.original) {
+                learnFromUndo()
+            } else {
+                // Repeated forced toggles are not new evidence for an unknown
+                // opposite pair. Only a real prior correction can be rejected.
+                lastAutoConverted = nil
+            }
         } else {
             lastAutoConverted = nil
         }

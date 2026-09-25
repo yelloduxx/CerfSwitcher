@@ -55,4 +55,48 @@ final class ManualLearningPolicyTests: XCTestCase {
             ))
         }
     }
+
+    func testReversingAnExistingGlobalRuleCreatesOnlyAnApplicationException() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "cnhfybwf", converted: "страница")
+        // The old dictionary-only gate rejects this direction before the rule
+        // book gets a chance to record the user's application exception.
+        XCTAssertFalse(ManualLearningPolicy.shouldPersist(original: "страница", converted: "cnhfybwf", model: model))
+        let decision = ManualLearningPolicy.decision(original: "страница ", converted: "cnhfybwf ",
+                                                     appBundleID: "editor.second", ruleBook: book, model: model)
+        XCTAssertEqual(decision, .applicationException(original: "cnhfybwf", converted: "страница", appBundleID: "editor.second"))
+        decision.apply(to: &book)
+        XCTAssertFalse(book.isConfirmed(original: "cnhfybwf", converted: "страница", appBundleID: "editor.second"))
+        XCTAssertTrue(book.isConfirmed(original: "cnhfybwf", converted: "страница", appBundleID: "editor.first"))
+        XCTAssertFalse(book.rules.contains { $0.original == "страница" && $0.converted == "cnhfybwf" })
+        let reaffirmed = ManualLearningPolicy.decision(original: "cnhfybwf ", converted: "страница ",
+                                                       appBundleID: "editor.second", ruleBook: book, model: model)
+        reaffirmed.apply(to: &book)
+        XCTAssertTrue(book.isConfirmed(original: "cnhfybwf", converted: "страница", appBundleID: "editor.second"))
+    }
+
+    func testKnownWordReversalWithoutGlobalRuleDoesNotTeachGarbage() {
+        XCTAssertEqual(ManualLearningPolicy.decision(original: "страница", converted: "cnhfybwf",
+                                                     appBundleID: "editor.first", ruleBook: .init(), model: model), .ignore)
+    }
+
+    func testReversalWithoutApplicationIdentityCannotCreateOppositeGlobalRules() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ешдщьукфй", converted: "tilomeraq")
+        XCTAssertTrue(ManualLearningPolicy.shouldPersist(original: "tilomeraq", converted: "ешдщьукфй", model: model))
+        for app: String? in [nil, ""] {
+            XCTAssertEqual(ManualLearningPolicy.decision(original: "tilomeraq", converted: "ешдщьукфй",
+                                                         appBundleID: app, ruleBook: book, model: model), .ignore)
+        }
+    }
+
+    func testSentenceSelectionsAndSingleLettersAreNotStoredAsUnusableWordRules() {
+        for pair in [("b", "и"), ("vs e;t ljvf", "мы уже дома"), ("SEO_", "ЫУЩ_"), ("helloWorld", "руддщЦщкдв")] {
+            XCTAssertEqual(ManualLearningPolicy.decision(original: pair.0, converted: pair.1,
+                                                         appBundleID: "editor.first", ruleBook: .init(), model: model), .ignore)
+        }
+        let oversized = String(repeating: "a", count: LearnedCorrectionsArchive.maximumTokenLength + 1)
+        XCTAssertEqual(ManualLearningPolicy.decision(original: oversized, converted: KeyMapping.convert(oversized),
+                                                     appBundleID: "editor.first", ruleBook: .init(), model: model), .ignore)
+    }
 }

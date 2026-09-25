@@ -56,7 +56,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RuSwitcherTypingSimulator",
-            dependencies: ["RuSwitcherCore", "RuSwitcherTestSupport"],
+            dependencies: ["RuSwitcherCore", "RuSwitcherAppSupport", "RuSwitcherTestSupport"],
             path: "Sources/RuSwitcherTypingSimulator"
         ),
         .target(

@@ -6,15 +6,12 @@ import ServiceManagement
 /// Централизованное хранение настроек через UserDefaults
 /// Настройки приложения. Свойства thread-safe через UserDefaults.
 final class SettingsManager: @unchecked Sendable {
-    struct LearnedCorrectionsImportResult {
-        let imported: Int
-        let added: Int
-        let total: Int
-    }
+    typealias LearnedCorrectionsImportResult = LearnedRulesStore.ImportResult
 
     static let shared = SettingsManager(defaults: makeDefaults())
 
     private let defaults: UserDefaults
+    private let learnedRules: LearnedRulesStore
 
     private static func makeDefaults() -> UserDefaults {
         guard let suiteName = RuntimePreferencesDomain.isolatedSuiteName(
@@ -54,11 +51,12 @@ final class SettingsManager: @unchecked Sendable {
         static let deniedAppsRemoved = "com.ruswitcher.deniedAppsRemoved"
         static let deniedWords = "com.ruswitcher.deniedWords"
         static let alwaysConvertWords = "com.ruswitcher.alwaysConvertWords"
-        static let adaptiveRules = "com.ruswitcher.adaptiveRules.v1"
+        static let adaptiveRules = LearnedRulesStore.storageKey
     }
 
     private init(defaults: UserDefaults) {
         self.defaults = defaults
+        self.learnedRules = LearnedRulesStore(defaults: defaults)
         defaults.removeObject(forKey: "com.ruswitcher.shareAnonymousStatistics")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV2")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV3")
@@ -282,17 +280,8 @@ final class SettingsManager: @unchecked Sendable {
     var alwaysConvertWordsSet: Set<String> { Set(alwaysConvertWords.map { $0.lowercased() }) }
 
     var adaptiveRuleBook: AdaptiveRuleBook {
-        get {
-            guard let data = defaults.data(forKey: Keys.adaptiveRules),
-                  let book = try? JSONDecoder().decode(AdaptiveRuleBook.self, from: data) else {
-                return AdaptiveRuleBook()
-            }
-            return book
-        }
-        set {
-            guard let data = try? JSONEncoder().encode(newValue) else { return }
-            defaults.set(data, forKey: Keys.adaptiveRules)
-        }
+        get { learnedRules.snapshot }
+        set { learnedRules.snapshot = newValue }
     }
 
     func adaptiveBias(original: String, converted: String, appBundleID: String?) -> Double {
@@ -304,25 +293,15 @@ final class SettingsManager: @unchecked Sendable {
     }
 
     func recordAdaptivePositive(original: String, converted: String) {
-        var book = adaptiveRuleBook
-        book.recordPositive(original: original, converted: converted)
-        adaptiveRuleBook = book
+        learnedRules.recordPositive(original: original, converted: converted)
     }
 
     func recordAdaptiveNegative(original: String, converted: String, appBundleID: String?) {
-        var book = adaptiveRuleBook
-        book.recordNegative(original: original, converted: converted, appBundleID: appBundleID)
-        adaptiveRuleBook = book
+        learnedRules.recordNegative(original: original, converted: converted, appBundleID: appBundleID)
     }
 
-    func recordAdaptiveConfirmed(original: String, converted: String, appBundleID: String?) {
-        var book = adaptiveRuleBook
-        book.recordManualCorrection(
-            original: original,
-            converted: converted,
-            appBundleID: appBundleID
-        )
-        adaptiveRuleBook = book
+    func recordManualLearning(original: String, converted: String, appBundleID: String?, model: LanguageModelStore?) -> ManualLearningDecision {
+        learnedRules.recordManualCorrection(original: original, converted: converted, appBundleID: appBundleID, model: model)
     }
 
     func migrateAdaptiveRulesIfNeeded() {
@@ -334,40 +313,19 @@ final class SettingsManager: @unchecked Sendable {
     func removeAdaptiveConfirmedPairs(
         where shouldRemove: (_ original: String, _ converted: String) -> Bool
     ) -> Int {
-        var book = adaptiveRuleBook
-        let removed = book.removeConfirmedPairs(where: shouldRemove)
-        if removed > 0 {
-            adaptiveRuleBook = book
-        }
-        return removed
+        learnedRules.removeConfirmedPairs(where: shouldRemove)
     }
 
     func clearAdaptiveRules() {
-        defaults.removeObject(forKey: Keys.adaptiveRules)
+        learnedRules.clear()
     }
 
     func exportLearnedCorrections() throws -> Data {
-        try LearnedCorrectionsArchive(ruleBook: adaptiveRuleBook).encoded()
+        try learnedRules.exportRules()
     }
 
     func importLearnedCorrections(_ data: Data) throws -> LearnedCorrectionsImportResult {
-        let importedBook = try LearnedCorrectionsArchive.decode(data).ruleBook
-        var current = adaptiveRuleBook
-        let previousRules = current.rules
-        current.merge(importedBook)
-        adaptiveRuleBook = current
-        let added = current.rules.filter { rule in
-            !previousRules.contains {
-                $0.original == rule.original
-                    && $0.converted == rule.converted
-                    && $0.appBundleID == rule.appBundleID
-            }
-        }.count
-        return LearnedCorrectionsImportResult(
-            imported: importedBook.rules.count,
-            added: added,
-            total: current.rules.count
-        )
+        try learnedRules.importRules(data)
     }
 
     var donateURL: String { "https://boosty.to/ruswitcher" }

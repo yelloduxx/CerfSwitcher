@@ -31,9 +31,9 @@ public struct DeferredManualLearningGate: Sendable {
         return generation
     }
 
-    public mutating func accept(expectedGeneration: UInt64? = nil) -> DeferredManualLearningCandidate? {
+    public mutating func accept(expectedGeneration: UInt64) -> DeferredManualLearningCandidate? {
         guard let pending,
-              expectedGeneration.map({ $0 == pending.generation }) ?? true else {
+              expectedGeneration == pending.generation else {
             return nil
         }
         self.pending = nil
@@ -48,4 +48,6 @@ public struct DeferredManualLearningGate: Sendable {
     public var hasPendingCandidate: Bool {
         pending != nil
     }
+
+    public var pendingGeneration: UInt64? { pending?.generation }
 }

@@ -41,21 +41,13 @@ final class InputMethodPreferencesStore {
     }
 
     func recordManualCorrection(original: String, converted: String, appBundleID: String?) {
-        guard !original.contains(where: \.isWhitespace),
-              !converted.contains(where: \.isWhitespace),
-              let model = LanguageModelStore.bundled,
-              ManualLearningPolicy.shouldPersist(
-                  original: original,
-                  converted: converted,
-                  model: model
-              )
-        else { return }
         var rules = snapshot(appBundleID: appBundleID).adaptiveRules
-        rules.recordManualCorrection(
-            original: original,
-            converted: converted,
-            appBundleID: appBundleID
+        let decision = ManualLearningPolicy.decision(
+            original: original, converted: converted, appBundleID: appBundleID,
+            ruleBook: rules, model: LanguageModelStore.bundled
         )
+        guard decision != .ignore else { return }
+        decision.apply(to: &rules)
         guard let data = try? JSONEncoder().encode(rules) else { return }
         defaults.set(data, forKey: Keys.adaptiveRules)
     }

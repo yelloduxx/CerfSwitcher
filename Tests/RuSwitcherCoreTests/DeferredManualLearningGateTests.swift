@@ -2,6 +2,20 @@ import XCTest
 @testable import RuSwitcherCore
 
 final class DeferredManualLearningGateTests: XCTestCase {
+    func testContinuationCapturesOnlyTheCandidatePresentAtInputTime() throws {
+        var gate = DeferredManualLearningGate()
+        XCTAssertNil(gate.pendingGeneration)
+        gate.stage(.init(original: "one", converted: "щту", appBundleID: "editor.one"))
+        let captured = try XCTUnwrap(gate.pendingGeneration)
+        gate.cancel()
+        gate.stage(.init(original: "two", converted: "ецщ", appBundleID: "editor.two"))
+        XCTAssertNil(gate.accept(expectedGeneration: captured))
+        XCTAssertTrue(gate.hasPendingCandidate)
+        let current = try XCTUnwrap(gate.pendingGeneration)
+        XCTAssertEqual(gate.accept(expectedGeneration: current)?.original, "two")
+        XCTAssertNil(gate.pendingGeneration)
+    }
+
     func testContinuationAcceptsPostedManualCorrection() {
         var gate = DeferredManualLearningGate()
         let candidate = DeferredManualLearningCandidate(

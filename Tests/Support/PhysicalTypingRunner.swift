@@ -107,15 +107,21 @@ public struct PhysicalTypingAssessment: Codable, Equatable, Sendable {
 public struct PhysicalTypingRunner {
     private let layouts: SystemTypingLayouts
     private let model: LanguageModelStore
+    private let adaptiveRules: AdaptiveRuleBook
+    private let appBundleID: String
 
-    public init(layouts: SystemTypingLayouts, model: LanguageModelStore) {
+    public init(layouts: SystemTypingLayouts, model: LanguageModelStore,
+                adaptiveRules: AdaptiveRuleBook = .init(), appBundleID: String = "com.ruswitcher.physical-test") {
         self.layouts = layouts
         self.model = model
+        self.adaptiveRules = adaptiveRules
+        self.appBundleID = appBundleID
     }
 
     public func run(_ stimulus: PhysicalTypingStimulus, faults: PhysicalTypingFaults = .init()) throws -> PhysicalTypingExecution {
         try validate(stimulus)
-        let session = PhysicalTypingSession(stimulus: stimulus, layouts: layouts, model: model, faults: faults)
+        let session = PhysicalTypingSession(stimulus: stimulus, layouts: layouts, model: model, faults: faults,
+                                            adaptiveRules: adaptiveRules, appBundleID: appBundleID)
         for (index, action) in stimulus.actions.enumerated() {
             session.clock.schedule(at: action.atMicroseconds) {
                 guard session.error == nil else { return }
@@ -203,6 +209,8 @@ private final class PhysicalTypingSession {
     let layouts: SystemTypingLayouts
     let model: LanguageModelStore
     let faults: PhysicalTypingFaults
+    let adaptiveRules: AdaptiveRuleBook
+    let appBundleID: String
     let clock = VirtualEventScheduler()
     var error: Error?
     let timing: PhysicalTypingTiming
@@ -228,18 +236,21 @@ private final class PhysicalTypingSession {
         coordinator: NativeReplacementCoordinator(reader: transport, poster: transport), scheduler: callbackQueue
     )
     private var focus: FocusedElementIdentity {
-        .init(processID: 1, bundleID: "com.ruswitcher.physical-test", identifier: fieldID)
+        .init(processID: 1, bundleID: appBundleID, identifier: fieldID)
     }
     private var editor: VirtualTextEditor {
         get { editors[fieldID] ?? VirtualTextEditor() }
         set { editors[fieldID] = newValue }
     }
 
-    init(stimulus: PhysicalTypingStimulus, layouts: SystemTypingLayouts, model: LanguageModelStore, faults: PhysicalTypingFaults) {
+    init(stimulus: PhysicalTypingStimulus, layouts: SystemTypingLayouts, model: LanguageModelStore, faults: PhysicalTypingFaults,
+         adaptiveRules: AdaptiveRuleBook, appBundleID: String) {
         self.stimulus = stimulus
         self.layouts = layouts
         self.model = model
         self.faults = faults
+        self.adaptiveRules = adaptiveRules
+        self.appBundleID = appBundleID
         self.activeLayoutID = stimulus.initialLayoutID
         self.timing = stimulus.timing ?? .init()
     }
@@ -422,7 +433,16 @@ private final class PhysicalTypingSession {
         let plan = AutomaticConversionPlanner.prepare(
             snapshot: snapshot, original: original, converted: converted,
             currentLanguage: source.language, targetLanguage: target.language,
-            targetLayoutID: targetID, model: model,
+            targetLayoutID: targetID,
+            adaptiveBias: { [self] original, converted in
+                ManualLearningPolicy.isLikelyReverseConversion(original: original, converted: converted, model: model)
+                    ? 0 : adaptiveRules.bias(original: original, converted: converted, appBundleID: appBundleID)
+            },
+            isConfirmed: { [self] original, converted in
+                !ManualLearningPolicy.isLikelyReverseConversion(original: original, converted: converted, model: model)
+                    && adaptiveRules.isConfirmed(original: original, converted: converted, appBundleID: appBundleID)
+            },
+            model: model,
             at: Date(timeIntervalSince1970: Double(clock.now) / 1_000_000)
         )
         if let decision = plan.evaluation?.decision {
