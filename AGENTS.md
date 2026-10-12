@@ -1066,6 +1066,46 @@ bash scripts/run_native_release_smoke.sh
   with only the `isMember` closure, so it predates this fix. The broken base
   measured 0.66 us/word only because empty cores skipped classification.
 
+### False-green verification scripts (October 12, P01b)
+
+- `scripts/verify_simulator_negative_control.sh` writes the simulator report to
+  a fresh `mktemp -d` directory that an exit trap removes, so another run's
+  report cannot satisfy it and nothing is left behind. It fails when `jq` is
+  missing, when the simulator exits 0, and when the exit status is anything but
+  1, the simulator's normal failure code, so a crash (134, 139) after a report
+  was written no longer counts. It then requires `.failed == 1`, an empty
+  `failures` list and `phraseFailures` holding only
+  `intentional-negative-control`. The intentional phrase is reported under
+  `phraseFailures`, not `failures`. Any other failing id is printed after `FAIL`.
+- `scripts/verify_v3_only_build.sh` fails when the language model is missing
+  from the bundle, when the bundle executable is missing or `lipo -archs`
+  rejects it, and when `lipo -archs` does not list both `arm64` and `x86_64`
+  because the release bundle is universal. `otool -L` exits 0 on a non-Mach-O
+  file, so it is not a Mach-O gate. `otool` and `nm` output is captured before
+  `grep`, so their errors fail the script. A missing default bundle prints
+  `SKIP: app bundle checks` and the final line says the bundle was not checked;
+  an explicit bundle argument that does not exist fails.
+- `scripts/tests/test_verify_negative_control.py` and
+  `scripts/tests/test_verify_v3_bundle_checks.py` run the real scripts against a
+  stub `swift` and, for bundle checks, tiny universal `cc`-built binaries. They
+  build nothing from this package and take a few seconds. In these two files a
+  missing `jq`, `cc` or `lipo` fails the tests instead of skipping them. Of the 14 cases in the
+  first version, 8 failed against the scripts at `2cfb588` (stale report, extra
+  word failure, extra phrase failure, unrelated failure, no executable, text
+  file, explicit missing bundle, missing SKIP line). The other 6 passed there
+  and are regression guards: `testExactlyTheControlFailurePasses`,
+  `testMalformedReportFails`, `testSimulatorAcceptingTheWrongExpectationFails`,
+  `testCleanMachOBundlePasses`, `testCoreMLLinkStillFails` and
+  `testAlternateDecoderSymbolStillFails`. The round-1 cases (crash after a
+  report, rival writer at the old fixed path, leftover report, missing `jq`,
+  missing model, single-architecture executable) each failed against the
+  scripts at `8e63992`. The older `test_verify_v3_only_build.py` keeps the slow
+  package-graph cases that run the real toolchain.
+- On Swift 6.4, `swift build --arch arm64 --arch x86_64` writes products to
+  `.build/out/Products/Release`, so `build_app.sh` stops with "built product
+  not found". The bundle checks above were run against a bundle assembled with
+  that path patched in a throwaway copy. `build_app.sh` itself is unchanged.
+
 ## Build, Signing and Installation
 
 Before installation:

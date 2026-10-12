@@ -53,19 +53,47 @@ jq -e '.engine == "v3" and .failed == 0' "$REPORT" >/dev/null
 if [ -d "$APP" ]; then
     APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
     BINARY="$APP/Contents/MacOS/$APP_EXECUTABLE"
-    test -f "$APP/Contents/Resources/language-model-v1.bin"
+    MODEL="$APP/Contents/Resources/language-model-v1.bin"
+    if [ ! -f "$MODEL" ]; then
+        echo "FAIL: language model is missing from the application bundle: $MODEL"
+        exit 1
+    fi
+    if [ ! -x "$BINARY" ]; then
+        echo "FAIL: application executable is missing or not executable: $BINARY"
+        exit 1
+    fi
+    if ! ARCHITECTURES="$(lipo -archs "$BINARY")"; then
+        echo "FAIL: application executable is not a Mach-O binary: $BINARY"
+        exit 1
+    fi
+    for architecture in arm64 x86_64; do
+        case " $ARCHITECTURES " in
+        *" $architecture "*) ;;
+        *)
+            echo "FAIL: application executable is not universal, lipo reports: $ARCHITECTURES"
+            exit 1
+            ;;
+        esac
+    done
     if find "$APP/Contents" \( -iname '*v4*' -o -iname '*LayoutReranker*' \) -print -quit | grep -q .; then
         echo "FAIL: V4 artifact found in application bundle"
         exit 1
     fi
-    if otool -L "$BINARY" | grep -E 'CoreML' >/dev/null; then
+    LINKED_LIBRARIES="$(otool -L "$BINARY")"
+    if grep -E 'CoreML' <<<"$LINKED_LIBRARIES" >/dev/null; then
         echo "FAIL: production executable links CoreML"
         exit 1
     fi
-    if nm -j "$BINARY" 2>/dev/null | grep -E 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel' >/dev/null; then
+    SYMBOLS="$(nm -j "$BINARY")"
+    if grep -E 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel' <<<"$SYMBOLS" >/dev/null; then
         echo "FAIL: alternate decoder symbol found in application executable"
         exit 1
     fi
+    echo "PASS: production package, simulator and app bundle are V3-only"
+elif [ "$#" -gt 0 ]; then
+    echo "FAIL: application bundle not found: $APP"
+    exit 1
+else
+    echo "SKIP: app bundle checks, no bundle at $APP"
+    echo "PASS: production package and simulator are V3-only"
 fi
-
-echo "PASS: production package, simulator and app bundle are V3-only"
