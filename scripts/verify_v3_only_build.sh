@@ -53,15 +53,28 @@ jq -e '.engine == "v3" and .failed == 0' "$REPORT" >/dev/null
 if [ -d "$APP" ]; then
     APP_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
     BINARY="$APP/Contents/MacOS/$APP_EXECUTABLE"
-    test -f "$APP/Contents/Resources/language-model-v1.bin"
+    MODEL="$APP/Contents/Resources/language-model-v1.bin"
+    if [ ! -f "$MODEL" ]; then
+        echo "FAIL: language model is missing from the application bundle: $MODEL"
+        exit 1
+    fi
     if [ ! -x "$BINARY" ]; then
         echo "FAIL: application executable is missing or not executable: $BINARY"
         exit 1
     fi
-    if ! lipo -archs "$BINARY" >/dev/null; then
+    if ! ARCHITECTURES="$(lipo -archs "$BINARY")"; then
         echo "FAIL: application executable is not a Mach-O binary: $BINARY"
         exit 1
     fi
+    for architecture in arm64 x86_64; do
+        case " $ARCHITECTURES " in
+        *" $architecture "*) ;;
+        *)
+            echo "FAIL: application executable is not universal, lipo reports: $ARCHITECTURES"
+            exit 1
+            ;;
+        esac
+    done
     if find "$APP/Contents" \( -iname '*v4*' -o -iname '*LayoutReranker*' \) -print -quit | grep -q .; then
         echo "FAIL: V4 artifact found in application bundle"
         exit 1

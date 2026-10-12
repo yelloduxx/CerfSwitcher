@@ -2,16 +2,32 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPORT="${TMPDIR:-/tmp}/ruswitcher-negative-control.json"
 CONTROL_ID="intentional-negative-control"
+EXPECTED_FAILURE_STATUS=1
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "FAIL: jq is required to read the simulator report"
+    exit 1
+fi
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/ruswitcher-negative-control.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+REPORT="$WORK/report.json"
 
 cd "$ROOT"
-rm -f "$REPORT"
-if swift run -c release RuSwitcherSimulator \
+STATUS=0
+swift run -c release RuSwitcherSimulator \
     --phrase-input Tests/Fixtures/Simulator/intentional-phrase-failure.jsonl \
     --limit 1 \
-    --output "$REPORT" >/dev/null; then
+    --output "$REPORT" >/dev/null || STATUS=$?
+
+if [ "$STATUS" -eq 0 ]; then
     echo "FAIL: simulator accepted an intentionally wrong expectation"
+    exit 1
+fi
+
+if [ "$STATUS" -ne "$EXPECTED_FAILURE_STATUS" ]; then
+    echo "FAIL: simulator exited with status $STATUS, expected $EXPECTED_FAILURE_STATUS"
     exit 1
 fi
 
