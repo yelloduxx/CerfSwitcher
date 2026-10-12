@@ -31,6 +31,8 @@ if [ "${RUSWITCH_UNSIGNED_BUNDLE:-}" = "1" ]; then
         echo "ERROR: RUSWITCH_UNSIGNED_BUNDLE=1 cannot be combined with SIGN_ID"
         exit 1
     fi
+elif [ -n "${RUSWITCH_UNSIGNED_BUNDLE:-}" ]; then
+    echo "NOTE: RUSWITCH_UNSIGNED_BUNDLE=$RUSWITCH_UNSIGNED_BUNDLE ignored; only 1 builds an unsigned bundle"
 fi
 
 echo "=== Building $APP_DISPLAY_NAME ($APP_NAME / $BUNDLE_ID) v$SHORT_VERSION (build $BUILD_VERSION) ==="

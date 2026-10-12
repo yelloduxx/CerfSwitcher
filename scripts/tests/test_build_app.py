@@ -180,7 +180,7 @@ class BuildAppTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ERROR: no signing identity found.", output)
-        self.assertNotIn("UNSIGNED", output)
+        self.assertNotIn(UNSIGNED_MARKER, output)
 
     def testOptInTogetherWithSignIdFailsBeforeBuilding(self):
         result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE="1", SIGN_ID="Some Identity")
