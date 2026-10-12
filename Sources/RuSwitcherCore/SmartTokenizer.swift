@@ -115,7 +115,7 @@ public enum SmartTokenizer {
 
     private static func looksLikeIdentifier(_ raw: String) -> Bool {
         if raw.contains("/") || raw.contains("\\") || raw.contains("_") { return true }
-        if raw.unicodeScalars.contains(where: CharacterSet.decimalDigits.contains) { return true }
+        if raw.unicodeScalars.contains(where: { scalar in CharacterSet.decimalDigits.contains(scalar) }) { return true }
         if raw.contains(".") {
             let pieces = raw.split(separator: ".", omittingEmptySubsequences: false)
             if pieces.count > 1, pieces.allSatisfy({ !$0.isEmpty }) { return true }
@@ -142,7 +142,11 @@ public enum SmartTokenizer {
         return latin && cyrillic
     }
 
+    // Keep `contains` predicates as closures, never a bound `set.contains` reference.
+    // Swift 6.4 (swiftlang-6.4.0.34.1) under -O/-Osize inverts one of a bound
+    // `allSatisfy`/`contains(where:)` pair, which emptied every lexical core:
+    // https://github.com/swiftlang/swift/issues/92539
     private static func isMember(_ char: Character, in set: CharacterSet) -> Bool {
-        char.unicodeScalars.allSatisfy(set.contains)
+        char.unicodeScalars.allSatisfy { scalar in set.contains(scalar) }
     }
 }

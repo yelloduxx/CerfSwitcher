@@ -10,6 +10,24 @@ final class SmartTokenizerTests: XCTestCase {
         XCTAssertEqual(shape.kind, .lexical)
     }
 
+    func testLexicalCoreKeepsLettersAndInnerPunctuation() {
+        let cases: [(raw: String, prefix: String, core: String, suffix: String)] = [
+            ("b", "", "b", ""),
+            ("htdjk.wbz", "", "htdjk.wbz", ""),
+            ("ghbdtn,", "", "ghbdtn", ","),
+            ("(ghbdtn)", "(", "ghbdtn", ")"),
+        ]
+        for (raw, prefix, core, suffix) in cases {
+            let shape = SmartTokenizer.shape(of: raw)
+            XCTAssertEqual(shape.prefix, prefix, raw)
+            XCTAssertEqual(shape.lexicalCore, core, raw)
+            XCTAssertEqual(shape.suffix, suffix, raw)
+        }
+        XCTAssertEqual(SmartTokenizer.kind(of: "b"), .lexical)
+        XCTAssertEqual(SmartTokenizer.kind(of: "ghbdtn"), .lexical)
+        XCTAssertEqual(SmartTokenizer.kind(of: "abc1"), .identifier)
+    }
+
     func testRecognizesProtectedStructuredTokens() {
         XCTAssertEqual(SmartTokenizer.kind(of: "https://example.com/a"), .url)
         XCTAssertEqual(SmartTokenizer.kind(of: "me@example.com"), .email)

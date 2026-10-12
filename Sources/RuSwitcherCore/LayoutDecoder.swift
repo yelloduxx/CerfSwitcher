@@ -610,7 +610,7 @@ public enum LayoutDecoder {
     }
 
     private static func isPunctuation(_ character: Character) -> Bool {
-        character.unicodeScalars.allSatisfy(CharacterSet.punctuationCharacters.contains)
+        character.unicodeScalars.allSatisfy { scalar in CharacterSet.punctuationCharacters.contains(scalar) }
     }
 
     private static func isDecoration(_ character: Character) -> Bool {

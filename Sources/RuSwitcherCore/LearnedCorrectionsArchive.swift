@@ -94,7 +94,7 @@ public struct LearnedCorrectionsArchive: Codable, Equatable, Sendable {
         guard originals.allSatisfy({
             !$0.isEmpty
                 && $0.count <= maximumTokenLength
-                && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+                && !$0.unicodeScalars.contains(where: { scalar in CharacterSet.controlCharacters.contains(scalar) })
         }) else { return false }
         guard rule.positiveCount >= 0, rule.positiveCount <= 1_000_000,
               rule.negativeCount >= 0, rule.negativeCount <= 1_000_000 else { return false }

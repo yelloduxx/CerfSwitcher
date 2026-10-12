@@ -405,6 +405,8 @@ Pure and deterministic checks:
 
 ```bash
 swift test
+swift test -c release
+bash scripts/lint_bound_contains.sh
 swift run -c release RuSwitcherSimulator --output .build/simulator-final-report.json
 bash scripts/run_randomized_layout_suite.sh
 bash scripts/verify_simulator_negative_control.sh
@@ -415,7 +417,10 @@ bash scripts/run_headless_native_parity_test.sh
 bash scripts/verify_v3_only_build.sh
 ```
 
-The build-130 baseline contains 202 tests. V4's 12 research tests run
+The current source contains 320 XCTest cases: RuSwitcherTypingTests 44,
+RuSwitcherCoreTests 174 and RuSwitcherAppSupportTests 102. Run them in both
+configurations (`swift test` and `swift test -c release`); see the Swift 6.4
+optimizer hazard below. V4's 12 research tests run
 only from its separate package. The headless event-stream fixture must pass and
 its intentionally wrong expected output must fail.
 
@@ -1026,6 +1031,40 @@ bash scripts/run_native_release_smoke.sh
   (`.build/queued-layout-timed.time`), including startup/report generation; this
   is a single run, not a p95 or corpus throughput measurement. Production app,
   model, learned rules and installed build 130 were not changed in this step.
+
+### Swift 6.4 release optimizer hazard (October 12, P01a)
+
+- Swift 6.4 (swiftlang-6.4.0.34.1, Xcode 27.0) under `-O` and `-Osize`
+  inverts one of a pair of bound `CharacterSet.contains` method references
+  passed to `allSatisfy` and `contains(where:)`. `-Onone` is correct.
+  Upstream: [swiftlang/swift#92539](https://github.com/swiftlang/swift/issues/92539);
+  it reports `-Osize`, and `-O` was reproduced here. The bug depends on link
+  order across object files, so module boundaries do not contain it.
+- Release effect: `SmartTokenizer` returned an empty lexical core for every
+  word, so decoding was wrong while debug tests stayed green. Release unit
+  tests failed 96 of 320 cases. The release simulator's generated fixture set
+  grew from 693 to 709 words (limit mode) because its filter keeps a mistyped
+  word only when the lexical core has no probability, and an empty core passes.
+- Rule: pass `contains` predicates as explicit closures
+  (`allSatisfy { scalar in set.contains(scalar) }`), never a bound
+  `set.contains`, `set.contains(_:)` or another `.contains(label:)` reference.
+  `bash scripts/lint_bound_contains.sh` enforces it in CI repository checks;
+  `scripts/tests/test_lint_bound_contains.py` pins which lines it must and
+  must not report. At the d6630b6 base it reports all five former sites.
+- Static functions and implicit-self methods passed by reference
+  (`AutoConvertCandidateGenerator`, `LayoutDecoder`, `LearnedCorrectionsArchive`,
+  `SiblingApplicationTracker`'s `filter(isSibling)`) showed no miscompile and
+  are unchanged; they are watch items, not proven safe.
+- CI job `release-build` on the `xcode-27` runner image runs
+  `swift test -c release` and the release `RuSwitcherSimulator`, printing a
+  counts-only summary (words total/passed/failed, phrases total/passed) and
+  failing when the simulator fails. `xcode-27` is a preview label: if it
+  disappears the job queues instead of failing, `timeout-minutes` does not
+  cover queue time, and no branch protection requires the job.
+- Correct tokenization costs about 2.2 us/word in an in-package release
+  measurement, above the plan's 2 us ceiling. The same cost appears on the base
+  with only the `isMember` closure, so it predates this fix. The broken base
+  measured 0.66 us/word only because empty cores skipped classification.
 
 ## Build, Signing and Installation
 
