@@ -53,6 +53,8 @@ final class FocusedTextContextReader: FocusedTextContextReading, @unchecked Send
         focus: FocusedElementIdentity,
         deadlineMilliseconds: Int = 4
     ) -> TextContextPreflight {
+        CallbackPhaseProbe.mark("preflight.start")
+        defer { CallbackPhaseProbe.mark("preflight.end") }
         guard !expectedSuffix.isEmpty else { return .unavailable }
         let effectiveDeadline = min(
             ReplacementTiming.preflightDeadlineMilliseconds,

@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard now.timeIntervalSince(self.lastSessionRecoveryAt) >= 1 else { return }
             self.lastSessionRecoveryAt = now
             self.refreshSiblingApplications()
+            FrontmostApplicationTracker.shared.refresh()
             rslog("workspace_session_resumed")
             self.cancelDeferredManualLearning()
             self.lastAutoConverted = nil
@@ -991,6 +992,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         proxy: CGEventTapProxy
     ) -> TokenHandlingResult {
         if let target = probeTargetProcessID, snapshot.focus.processID != target { return .passThrough }
+        CallbackPhaseProbe.mark("auto.start")
+        defer { CallbackPhaseProbe.mark("auto.end") }
         rslog("auto: fired")
         // Reaching the next completed token without Backspace/Undo is a soft
         // positive signal for the previous correction.
@@ -998,8 +1001,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard SettingsManager.shared.autoSwitchEnabled else { rslog("auto: bail master-off"); return .passThrough }
         guard SettingsManager.shared.autoConvert else { rslog("auto: bail flag-off"); return .passThrough }
         guard !AutoSwitchPolicy.secureInputActive else { rslog("auto: bail secure-input"); return .passThrough }
-        let frontID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let frontID = FrontmostApplicationTracker.shared.bundleID
+        let frontPID = FrontmostApplicationTracker.shared.processID
         // Удалёнка: НЕ выходим сразу — прогоняем детектор по своему (чистому) буферу, и при
         // «не той раскладке» переключаем СВОЮ раскладку (конверсию делает инстанс на той стороне).
         let deferToRemote = SettingsManager.shared.remoteDesktopMode && AutoSwitchPolicy.isRemoteDesktopClient(frontID)
@@ -1007,10 +1010,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard snapshot.focus.bundleID == frontID, snapshot.focus.processID == frontPID else {
             rslog("auto: bail focus-changed"); return .passThrough
         }
+        CallbackPhaseProbe.mark("auto.gates")
 
         let keys = snapshot.keys
         guard !keys.isEmpty else { rslog("auto: bail empty-keys"); return .passThrough }
         guard let pair = DynamicKeyMapping.convertKeys(keys) else { rslog("auto: bail convertKeys-nil"); return .passThrough }
+        CallbackPhaseProbe.mark("auto.keys")
         // Язык для детектора. Для проброшенного через удалёнку текста (все символы — char)
         // направление определяем по СКРИПТУ набранного, а не по раскладке офисной машины:
         // на офисе раскладка может не соответствовать тому, что напечатали на контроллере,
@@ -1020,6 +1025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             pair: pair,
             sourceLayoutID: snapshot.sourceLayoutID
         )
+        CallbackPhaseProbe.mark("auto.languages")
         let policy = AutoConvertPolicy(
             neverConvert: SettingsManager.shared.deniedWordsSet,
             alwaysConvert: SettingsManager.shared.alwaysConvertWordsSet
@@ -1052,6 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             },
             model: languageModel
         )
+        CallbackPhaseProbe.mark("auto.decision")
         rslog("auto_decision_completed")
         let request: ReplacementRequest
         switch plan {
@@ -1148,6 +1155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func applyTargetLayout(_ targetLayoutID: String?, synchronizeQueuedKeys: Bool) {
         if let targetLayoutID {
             let switched = LayoutSwitcher.switchTo(layoutID: targetLayoutID)
+            CallbackPhaseProbe.mark("layout.selected")
             if switched, synchronizeQueuedKeys, !SettingsManager.shared.remoteDesktopMode {
                 keyboardMonitor.recordAutomaticLayoutSwitch(
                     targetLayoutID: targetLayoutID, completedAt: DispatchTime.now().uptimeNanoseconds
@@ -1156,7 +1164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             LayoutSwitcher.switchToOpposite()
         }
-        updateStatusIcon()
+        // The icon is cosmetic; redrawing it after the callback returns keeps
+        // the event tap free. The layout itself switched synchronously above.
+        DispatchQueue.main.async { [weak self] in self?.updateStatusIcon() }
     }
 
     private func oppositeLayoutID(for sourceLayoutID: String?) -> String? {

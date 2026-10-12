@@ -51,6 +51,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var callbackTimings: [[String: Any]] = []
     private var callbackTimingOverflow = false
+    private var phaseMarks: [[String: Any]] = []
 
     init(config: ExternalNativeProbeConfiguration, root: URL, hostPID: pid_t) {
         self.config = config
@@ -72,6 +73,12 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         settings.remoteDesktopMode = false
         production.observeProbeCallbacks { [weak self] timing in
             MainActor.assumeIsolated { self?.recordCallback(timing) }
+        }
+        CallbackPhaseProbe.recorder = { [weak self] phase, at in
+            MainActor.assumeIsolated {
+                guard let self, self.phaseMarks.count < 4_096 else { return }
+                self.phaseMarks.append(["phase": "\(phase)", "atNanoseconds": at])
+            }
         }
         production.startHIDProbeMonitoring()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -118,6 +125,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
             "callbackTimings": stopping ? callbackTimings : [],
             "callbackTimingSampleCount": callbackTimings.count,
             "callbackTimingOverflow": callbackTimingOverflow,
+            "phaseMarks": stopping ? phaseMarks : [],
         ]
         do {
             let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])

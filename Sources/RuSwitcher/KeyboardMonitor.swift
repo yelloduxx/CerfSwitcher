@@ -18,6 +18,17 @@ struct KeyboardCallbackTiming {
     let sourceLayoutID: String?
 }
 
+/// Probe-only phase marks inside an event callback. Normal runs leave the
+/// recorder nil, so marking reads no clock.
+enum CallbackPhaseProbe {
+    nonisolated(unsafe) static var recorder: ((StaticString, UInt64) -> Void)?
+
+    static func mark(_ phase: StaticString) {
+        guard let recorder else { return }
+        recorder(phase, DispatchTime.now().uptimeNanoseconds)
+    }
+}
+
 struct ManualTokenSnapshot {
     let keys: [TypedKey]
     let boundary: InputBoundary
@@ -311,11 +322,11 @@ final class KeyboardMonitor: @unchecked Sendable {
 
     private func completeToken(boundary: InputBoundary, proxy: CGEventTapProxy) -> TokenHandlingResult {
         guard !inputSession.currentKeys.isEmpty else { return .passThrough }
-        let app = NSWorkspace.shared.frontmostApplication
+        let front = FrontmostApplicationTracker.shared
         let focus = FocusedElementIdentity(
-            processID: app?.processIdentifier ?? 0,
-            bundleID: app?.bundleIdentifier,
-            identifier: app.flatMap { focusedElementIdentifier(processID: $0.processIdentifier) }
+            processID: front.processID,
+            bundleID: front.bundleID,
+            identifier: front.processID == 0 ? nil : focusedElementIdentifier(processID: front.processID)
         )
         guard let snapshot = inputSession.snapshot(boundary: boundary, focus: focus) else {
             return .passThrough
@@ -390,11 +401,11 @@ final class KeyboardMonitor: @unchecked Sendable {
         } else {
             return nil
         }
-        let app = NSWorkspace.shared.frontmostApplication
+        let front = FrontmostApplicationTracker.shared
         let focus = FocusedElementIdentity(
-            processID: app?.processIdentifier ?? 0,
-            bundleID: app?.bundleIdentifier,
-            identifier: app.flatMap { focusedElementIdentifier(processID: $0.processIdentifier) }
+            processID: front.processID,
+            bundleID: front.bundleID,
+            identifier: front.processID == 0 ? nil : focusedElementIdentifier(processID: front.processID)
         )
         return ManualTokenSnapshot(
             keys: keys,
@@ -464,11 +475,8 @@ final class KeyboardMonitor: @unchecked Sendable {
 
     private func notifyTokenChanged() {
         guard SettingsManager.shared.autoConvert else { return }
-        let app = NSWorkspace.shared.frontmostApplication
-        let focus = FocusedElementIdentity(
-            processID: app?.processIdentifier ?? 0,
-            bundleID: app?.bundleIdentifier
-        )
+        let front = FrontmostApplicationTracker.shared
+        let focus = FocusedElementIdentity(processID: front.processID, bundleID: front.bundleID)
         if let draft = inputSession.draft(focus: focus) { onTokenChanged?(draft) }
     }
 
@@ -525,7 +533,8 @@ final class KeyboardMonitor: @unchecked Sendable {
         producedText: String? = nil,
         sourceLayoutID: String? = nil
     ) -> Bool {
-        let frontmostProcessID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let frontmostProcessID: pid_t? = FrontmostApplicationTracker.shared.processID == 0
+            ? nil : FrontmostApplicationTracker.shared.processID
         if let previous = observedFrontmostProcessID,
            let current = frontmostProcessID,
            previous != current {
@@ -596,7 +605,7 @@ final class KeyboardMonitor: @unchecked Sendable {
                 wordBeforeBoundaryLength = currentWordLength
                 boundaryCount = 1
                 prevWordKeys = currentWordKeys
-                prevWordBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                prevWordBundleID = FrontmostApplicationTracker.shared.bundleID
                 return completeToken(boundary: .space(count: 1), proxy: proxy).consumeBoundary
             } else {
                 boundaryCount += 1
@@ -614,7 +623,7 @@ final class KeyboardMonitor: @unchecked Sendable {
             if currentWordLength > 0 {
                 wordBeforeBoundaryLength = currentWordLength
                 prevWordKeys = currentWordKeys
-                prevWordBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                prevWordBundleID = FrontmostApplicationTracker.shared.bundleID
                 handling = completeToken(boundary: boundary, proxy: proxy)
             }
             if handling.consumeBoundary {
@@ -691,7 +700,7 @@ final class KeyboardMonitor: @unchecked Sendable {
                 wordBeforeBoundaryLength = currentWordLength
                 boundaryCount = 1
                 prevWordKeys = currentWordKeys
-                prevWordBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                prevWordBundleID = FrontmostApplicationTracker.shared.bundleID
                 return completeToken(boundary: .space(count: 1), proxy: proxy).consumeBoundary
             } else {
                 boundaryCount += 1

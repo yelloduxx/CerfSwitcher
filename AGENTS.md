@@ -1155,6 +1155,26 @@ bash scripts/run_native_release_smoke.sh
   asks `swift build ... --show-bin-path` for the directory (see Build, Signing
   and Installation).
 
+### Event-tap latency checkpoint (build 144)
+
+- The probe-only `CallbackPhaseProbe` marks phases inside a callback
+  (`auto.*`, `preflight.*`, `post.*`, `layout.selected`); normal runs install no
+  recorder and read no clock. `--external-native-probe` exports `phaseMarks`.
+- Stack samples showed `NSWorkspace.frontmostApplication` making synchronous
+  LaunchServices round trips on ordinary keys (1.4-4 ms spikes).
+  `FrontmostApplicationTracker` caches pid/bundle from
+  `didActivateApplicationNotification` (refreshed on wake/session resume) for
+  KeyboardMonitor and the automatic gates. Manual-path and pre-post guards in
+  TextConverter still query live. The status icon redraws after the callback.
+- Native NSTextView runs (non-boundary keys, first key excluded): p50
+  162-349 us -> 37-48 us, p95 0.7-1.8 ms -> 72-102 us, max 1.4-2.5 ms -> 155-179 us.
+  The before/after fixtures differ (default closed-loop vs auto-code-switch).
+- A converted word still costs ~2-15 ms, dominated by the synchronous
+  `TISSelectInputSource` (1.2-7 ms) and sometimes the targeted post. The switch
+  stays synchronous: deferring it reopens the queued-key layout race.
+- Driver `scheduleTooLate` (>10 ms) invalidates some runs; that is an
+  environment/harness result, not an app failure.
+
 ## Build, Signing and Installation
 
 Before installation:

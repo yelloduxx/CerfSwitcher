@@ -1826,6 +1826,8 @@ extension TextConverter: KeyboardEventPosting {
            NSWorkspace.shared.frontmostApplication?.processIdentifier != processID {
             return false
         }
+        CallbackPhaseProbe.mark("post.start")
+        defer { CallbackPhaseProbe.mark("post.end") }
         guard let events = NativeKeyboardEventBatch.build(plan, marker: kRuSwitcherEventMarker) else { return false }
         for event in events {
             deliver(event, to: processID, via: delivery)
