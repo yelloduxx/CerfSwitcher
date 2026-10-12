@@ -411,7 +411,7 @@ final class LayoutDecoderTests: XCTestCase {
     }
 
     func testClosingBracketEndingBracketedSpanStaysBracket() {
-        for (typed, expected) in [("ghfdbkmysq]", "правильный]"), ("yj]", "он]")] {
+        for (typed, expected) in [("ghfdbkmysq]", "правильный]"), ("jy]", "он]")] {
             let result = evaluate(typed, context: ["это"])
             XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
             XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
