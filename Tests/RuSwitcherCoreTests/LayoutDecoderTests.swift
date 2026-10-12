@@ -725,15 +725,21 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
-    func testDecoderPerformanceBudget() {
+    func testDecoderPerformanceBudget() throws {
         var durations: [Double] = []
         durations.reserveCapacity(2_000)
         for _ in 0..<2_000 {
             let start = ContinuousClock.now
             _ = evaluate("ghbdtncnde.", context: ["я", "вас"])
-            durations.append(Double(start.duration(to: .now).components.attoseconds) / 1e18)
+            durations.append(start.duration(to: .now) / .seconds(1))
         }
         durations.sort()
-        XCTAssertLessThan(durations[Int(Double(durations.count) * 0.95)], 0.005)
+        let p95 = durations[Int(Double(durations.count) * 0.95)]
+        let budget = 0.005
+        let addressSanitizerLoaded = dlsym(dlopen(nil, RTLD_NOW), "__asan_init") != nil
+        if addressSanitizerLoaded {
+            throw XCTSkip("AddressSanitizer is loaded: p95 \(p95) s is not checked against the \(budget) s budget")
+        }
+        XCTAssertLessThan(p95, budget)
     }
 }

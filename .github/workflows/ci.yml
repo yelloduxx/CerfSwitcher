@@ -38,7 +38,13 @@ jobs:
           bash scripts/lint_bound_contains.sh
 
       - name: Unit tests
-        run: swift test
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/unit-tests.log"
+          if ! grep -q "testDecoderPerformanceBudget\]' passed" "$RUNNER_TEMP/unit-tests.log"; then
+            echo "::error title=Decoder budget not asserted::testDecoderPerformanceBudget did not pass its wall-clock budget"
+            exit 1
+          fi
 
       - name: Script tests
         run: python3 -m unittest discover -s scripts/tests -v
@@ -47,7 +53,13 @@ jobs:
         run: swift build -Xswiftc -warnings-as-errors
 
       - name: Address sanitizer
-        run: swift test --sanitize=address
+        run: |
+          set -o pipefail
+          swift test --sanitize=address 2>&1 | tee "$RUNNER_TEMP/asan-tests.log"
+          if ! grep -q "testDecoderPerformanceBudget\]' skipped" "$RUNNER_TEMP/asan-tests.log"; then
+            echo "::error title=ASan budget skip missing::testDecoderPerformanceBudget did not report its AddressSanitizer skip"
+            exit 1
+          fi
 
       - name: Deterministic simulators
         run: |
@@ -87,7 +99,13 @@ jobs:
           swift --version
 
       - name: Release unit tests
-        run: swift test -c release
+        run: |
+          set -o pipefail
+          swift test -c release 2>&1 | tee "$RUNNER_TEMP/release-tests.log"
+          if ! grep -q "testDecoderPerformanceBudget\]' passed" "$RUNNER_TEMP/release-tests.log"; then
+            echo "::error title=Decoder budget not asserted::testDecoderPerformanceBudget did not pass its wall-clock budget"
+            exit 1
+          fi
 
       - name: Release simulator
         run: |

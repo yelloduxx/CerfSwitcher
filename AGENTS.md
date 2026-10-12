@@ -424,6 +424,11 @@ optimizer hazard below. V4's 12 research tests run
 only from its separate package. The headless event-stream fixture must pass and
 its intentionally wrong expected output must fail.
 
+`testDecoderPerformanceBudget` asserts its 5 ms p95 only in debug and release
+runs. Under AddressSanitizer it reports the p95 in a skip, because the ASan
+p95 reaches the budget on shared CI runners. CI fails if the ASan step does
+not report that skip, or if the debug or release step does not pass the test.
+
 The 450 safe misses in the 5,000-phrase corpus are six repeated ambiguous
 lexical bases: `где` 157, `next` 95, `I` 77, `буфер` 67, `я` 41 and `he` 13.
 They are abstentions, not wrong replacements.
