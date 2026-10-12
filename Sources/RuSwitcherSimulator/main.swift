@@ -311,11 +311,11 @@ private func builtInPhraseFixtures(model: LanguageModelStore, limit: Int) -> [Ph
                     "here",
                     manualLanguage: "en",
                     separator: "",
-                    expected: .keep,
-                    expectedResolved: "here"
+                    expected: .switchLayout,
+                    expectedResolved: "руку"
                 ),
             ],
-            expectedText: "подними here"
+            expectedText: "подними руку"
         ),
         PhraseFixture(
             id: "both-known-ambiguous-abstain",
@@ -430,8 +430,8 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
             currentLanguage: "en",
             targetLanguage: "ru",
             context: ["подними"],
-            expected: .keep,
-            expectedReplacement: nil
+            expected: .switchLayout,
+            expectedReplacement: "руку"
         ),
         Fixture(id: "keep-ambiguous-here", typed: "here", currentLanguage: "en", targetLanguage: "ru", context: ["это"], expected: .keep, expectedReplacement: nil),
         Fixture(id: "extended-en-cyst", typed: "cyst", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
