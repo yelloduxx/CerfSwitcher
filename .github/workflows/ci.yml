@@ -59,8 +59,7 @@ jobs:
           status=0
           python3 scripts/run_physical_typing_suite.py || status=$?
           if [ "$status" -eq 77 ]; then
-            echo "::warning title=Physical typing suite skipped::required system keyboard layout is unavailable on this runner (blockedEnvironment, exit 77)"
-            exit 0
+            echo "::error title=Physical typing suite blocked::required system keyboard layout is missing on this runner (exit 77); the negative controls, legacy-oracle isolation and Unicode-deletion safety checks did not run"
           fi
           exit "$status"
 
