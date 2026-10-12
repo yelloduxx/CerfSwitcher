@@ -28,16 +28,26 @@ done
 exit 0
 """
 SECURITY_STUB = """#!/bin/sh
-echo "     0 valid identities found"
+printf '%s\\n' "${STUB_IDENTITIES:-     0 valid identities found}"
 exit 0
 """
+CODESIGN_RECORDER = """#!/bin/sh
+{ for argument in "$@"; do printf '%s\\n' "$argument"; done; printf '%s\\n' '--END--'; } >> "$STUB_CODESIGN_LOG"
+if [ "${STUB_CODESIGN_RECORD_ONLY:-}" = "1" ]; then
+    exit 1
+fi
+exec /usr/bin/codesign "$@"
+"""
+DEVELOPER_ID = "Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
+LOCAL_IDENTITY = "RuSwitcher Local Code Signing"
 UNSIGNED_MARKER = "UNSIGNED: bundle is for CI checks only and is not installable"
 
 
-def compile_universal(destination: Path) -> None:
+def compile_for(destination: Path, architectures: tuple[str, ...]) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
     source = destination.with_suffix(".c")
     source.write_text("int main(void){return 0;}\n")
-    flags = [flag for name in UNIVERSAL for flag in ("-arch", name)]
+    flags = [flag for name in architectures for flag in ("-arch", name)]
     subprocess.run(["cc", str(source), "-o", str(destination), *flags],
                    check=True, capture_output=True)
 
@@ -47,8 +57,10 @@ class BuildAppTests(unittest.TestCase):
     def setUpClass(cls):
         cls.shared = Path(tempfile.mkdtemp(prefix="build-app-shared-"))
         cls.addClassCleanup(shutil.rmtree, cls.shared, ignore_errors=True)
-        cls.universal_binary = cls.shared / SPM_PRODUCT
-        compile_universal(cls.universal_binary)
+        cls.universal_binary = cls.shared / "universal" / SPM_PRODUCT
+        compile_for(cls.universal_binary, UNIVERSAL)
+        cls.arm64_only_binary = cls.shared / "arm64-only" / SPM_PRODUCT
+        compile_for(cls.arm64_only_binary, ("arm64",))
 
     def setUp(self):
         self.project = Path(tempfile.mkdtemp(prefix="build-app-project-"))
@@ -73,18 +85,22 @@ class BuildAppTests(unittest.TestCase):
 
         stubs = self.project / "stubs"
         stubs.mkdir()
-        for name, body in (("swift", SWIFT_STUB), ("security", SECURITY_STUB)):
+        for name, body in (("swift", SWIFT_STUB), ("security", SECURITY_STUB),
+                           ("codesign", CODESIGN_RECORDER)):
             (stubs / name).write_text(body)
             (stubs / name).chmod(0o755)
         self.swift_log = self.project / "swift-calls.log"
+        self.codesign_log = self.project / "codesign-calls.log"
         self.environment = {
             key: value for key, value in os.environ.items()
-            if key not in ("SIGN_ID", "RUSWITCH_UNSIGNED_BUNDLE")
+            if key not in ("SIGN_ID", "RUSWITCH_UNSIGNED_BUNDLE", "STUB_IDENTITIES",
+                           "STUB_CODESIGN_RECORD_ONLY")
         }
         self.environment.update(
             PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}",
             STUB_PRODUCTS=str(self.products),
             STUB_SWIFT_LOG=str(self.swift_log),
+            STUB_CODESIGN_LOG=str(self.codesign_log),
         )
         self.bundle = self.project / f"{EXECUTABLE}.app"
 
@@ -96,6 +112,22 @@ class BuildAppTests(unittest.TestCase):
 
     def swift_calls(self) -> list[str]:
         return self.swift_log.read_text().splitlines() if self.swift_log.exists() else []
+
+    def codesign_signing_identities(self) -> list[str]:
+        if not self.codesign_log.exists():
+            return []
+        identities, arguments = [], []
+        for line in self.codesign_log.read_text().splitlines() + ["--END--"]:
+            if line != "--END--":
+                arguments.append(line)
+                continue
+            for index, argument in enumerate(arguments):
+                if argument in ("--sign", "-s") and index + 1 < len(arguments):
+                    identities.append(arguments[index + 1])
+                elif argument.startswith("--sign="):
+                    identities.append(argument[len("--sign="):])
+            arguments = []
+        return identities
 
     def testUnsignedOptInBuildsBundleStampedFromVersionJson(self):
         result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE="1")
@@ -172,6 +204,57 @@ class BuildAppTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(self.products / "RuSwitcher_RuSwitcherCore.bundle"), output)
+
+    def testNonUniversalProductFailsTheArchitectureCheck(self):
+        shutil.copy2(self.arm64_only_binary, self.products / SPM_PRODUCT)
+        result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE="1")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("не universal (получено: arm64)", output)
+        self.assertNotIn("Done", output)
+
+    def testOptInValueOtherThanOneIsReportedAsIgnored(self):
+        for value in ("0", "true", "yes"):
+            with self.subTest(value=value):
+                result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE=value)
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(f"RUSWITCH_UNSIGNED_BUNDLE={value} ignored", output)
+                self.assertIn("ERROR: no signing identity found.", output)
+
+    def testNeitherSigningNorFailureEverSignsWithAdHocIdentity(self):
+        scenarios = (
+            {},
+            {"SIGN_ID": ""},
+            {"RUSWITCH_UNSIGNED_BUNDLE": "1"},
+            {"RUSWITCH_UNSIGNED_BUNDLE": "0"},
+        )
+        for overrides in scenarios:
+            with self.subTest(overrides=overrides):
+                self.codesign_log.unlink(missing_ok=True)
+                self.run_script(**overrides)
+                self.assertEqual(self.codesign_signing_identities(), [])
+
+    def testCodesignRecorderSeesTheExplicitIdentity(self):
+        result = self.run_script(SIGN_ID="Some Identity")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.codesign_signing_identities(), ["Some Identity"])
+
+    def testLocalIdentityIsDiscoveredWhenNoDeveloperIdExists(self):
+        listing = f'  1) 0123456789ABCDEF "{LOCAL_IDENTITY}"\n     1 valid identities found'
+        result = self.run_script(STUB_IDENTITIES=listing, STUB_CODESIGN_RECORD_ONLY="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Code signing with local reusable certificate", result.stdout)
+        self.assertEqual(self.codesign_signing_identities(), [LOCAL_IDENTITY])
+
+    def testDeveloperIdIsPreferredOverTheLocalIdentity(self):
+        listing = (f'  1) 0123456789ABCDEF "{LOCAL_IDENTITY}"\n'
+                   f'  2) FEDCBA9876543210 "{DEVELOPER_ID}"\n'
+                   "     2 valid identities found")
+        result = self.run_script(STUB_IDENTITIES=listing, STUB_CODESIGN_RECORD_ONLY="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Code signing with Developer ID", result.stdout)
+        self.assertEqual(self.codesign_signing_identities(), [DEVELOPER_ID])
 
     def testScriptNeverSignsAdHoc(self):
         text = SCRIPT.read_text()
