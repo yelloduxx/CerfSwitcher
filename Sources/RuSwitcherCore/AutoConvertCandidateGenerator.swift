@@ -27,6 +27,7 @@ public enum AutoConvertCandidateGenerator {
                 guard suffixLength == 0 || suffixCharacters.allSatisfy(isTrailingPunctuation) else {
                     continue
                 }
+                guard !suffixCharacters.contains(where: isOpeningBracket) else { continue }
                 let coreCharacters = remainder.dropLast(suffixLength)
                 guard !coreCharacters.isEmpty else { continue }
                 let candidate = AutoConvertCandidate(
@@ -62,11 +63,7 @@ public enum AutoConvertCandidateGenerator {
         for suffixLength in 1...maxSuffix {
             let suffixChars = typedChars.suffix(suffixLength)
             guard suffixChars.allSatisfy(isTrailingPunctuation) else { continue }
-            // A bracket key that is a letter in the target layout does not end a
-            // word: `b[` -> `их`, not `и[`. Real wrappers take the prefix path.
-            let bracketKeepsLayoutLetter = zip(suffixChars, convertedChars.suffix(suffixLength))
-                .contains { typedKey, convertedKey in "[]{}".contains(typedKey) && convertedKey.isLetter }
-            guard !bracketKeepsLayoutLetter else { continue }
+            guard !suffixChars.contains(where: isOpeningBracket) else { continue }
             let convertedWordChars = convertedChars.dropLast(suffixLength)
             guard !convertedWordChars.isEmpty else { continue }
             let suffix = String(suffixChars)
@@ -99,6 +96,13 @@ public enum AutoConvertCandidateGenerator {
             if !result.contains(candidate) { result.append(candidate) }
         }
         return result
+    }
+
+    /// An opening bracket never ends a word, so its key is the target-layout
+    /// letter there: `b[` -> `их`, `'nb[` -> `этих`. A closing bracket may end
+    /// the last word of a bracketed span (`ghfdbkmysq]` -> `правильный]`).
+    private static func isOpeningBracket(_ character: Character) -> Bool {
+        character == "[" || character == "{"
     }
 
     private static func isTrailingPunctuation(_ character: Character) -> Bool {

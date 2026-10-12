@@ -125,16 +125,17 @@ public enum LayoutDecoder {
             if lhs.decision.verdict != .switchToConverted, rhs.decision.verdict == .switchToConverted { return true }
             // `[etvjt` must become `хуемое`, not `[уемое`. Preserving a leading
             // punctuation key that is a letter in the target layout is only safe
-            // when that wrapping core itself is a real word (`[yt` → `[не`).
+            // when that wrapping core is a real word (`[yt` → `[не`) and the
+            // letter reading is not (`'njv` → `этом`, not `'том`).
             let lhsLayoutLetterPrefix = preservesLayoutLetterPrefix(lhs.decision.candidate)
             let rhsLayoutLetterPrefix = preservesLayoutLetterPrefix(rhs.decision.candidate)
             if lhsLayoutLetterPrefix != rhsLayoutLetterPrefix {
                 let lhsCoreLexical = hasLexicalTargetEvidence(lhs)
                 let rhsCoreLexical = hasLexicalTargetEvidence(rhs)
-                if lhsLayoutLetterPrefix, !rhsLayoutLetterPrefix, !lhsCoreLexical {
+                if lhsLayoutLetterPrefix, !rhsLayoutLetterPrefix, !lhsCoreLexical || rhsCoreLexical {
                     return true
                 }
-                if rhsLayoutLetterPrefix, !lhsLayoutLetterPrefix, !rhsCoreLexical {
+                if rhsLayoutLetterPrefix, !lhsLayoutLetterPrefix, !rhsCoreLexical || lhsCoreLexical {
                     return false
                 }
             }

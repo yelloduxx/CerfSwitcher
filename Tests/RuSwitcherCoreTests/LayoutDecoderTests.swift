@@ -391,7 +391,10 @@ final class LayoutDecoderTests: XCTestCase {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
         russianBelief.observe(language: "ru")
-        for (typed, expected) in [("b[", "их"), ("yb[", "них"), ("dct[", "всех"), ("lheub[", "других")] {
+        for (typed, expected) in [
+            ("b[", "их"), ("yb[", "них"), ("dct[", "всех"), ("lheub[", "других"),
+            ("'nj", "это"), ("'njv", "этом"), ("'njuj", "этого"), ("'nb[", "этих"),
+        ] {
             let result = evaluate(
                 typed,
                 current: "en",
@@ -402,6 +405,12 @@ final class LayoutDecoderTests: XCTestCase {
             XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
             XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
         }
+    }
+
+    func testClosingBracketEndingBracketedSpanStaysBracket() {
+        let result = evaluate("ghfdbkmysq]", context: ["это"])
+        XCTAssertEqual(result.decision.candidate.replacement, "правильный]")
+        XCTAssertEqual(result.decision.verdict, .switchToConverted)
     }
 
     func testTrailingUnderscoreIsPreservedWithoutBlockingWord() {
