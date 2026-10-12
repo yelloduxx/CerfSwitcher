@@ -35,6 +35,10 @@ jobs:
             echo "Legacy AX test identity returned to production scripts" >&2
             exit 1
           fi
+          if git grep -nE '\.contains\)' -- '*.swift'; then
+            echo "Pass contains predicates as closures: Swift 6.4 -O miscompiles bound references (swiftlang/swift#92539)" >&2
+            exit 1
+          fi
 
       - name: Unit tests
         run: swift test
@@ -72,3 +76,23 @@ jobs:
             --output "$RUNNER_TEMP/language-model-v1.bin"
           cmp Sources/RuSwitcherCore/Resources/language-model-v1.bin \
             "$RUNNER_TEMP/language-model-v1.bin"
+
+  release-build:
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Release unit tests
+        run: swift test -c release
+
+      - name: Release simulator
+        run: |
+          swift run -c release RuSwitcherSimulator --jobs 4 \
+            --output "$RUNNER_TEMP/simulator-release.json" >/dev/null
