@@ -40,6 +40,12 @@ private struct QuartzEvent: Codable, Equatable {
     let eventTimestampNanoseconds: UInt64
 }
 
+private struct WarmupEvent: Codable, Equatable {
+    let kind: String
+    let keyCode: Int
+    let atNanoseconds: UInt64
+}
+
 private struct HostSnapshot: Codable, Equatable {
     var schemaVersion = 2
     let runID: String
@@ -53,6 +59,7 @@ private struct HostSnapshot: Codable, Equatable {
     let eventTrace: [HostEvent]
     let receivedEvents: [ReceivedEvent]
     let quartzEvents: [QuartzEvent]
+    let warmupEvents: [WarmupEvent]
     let quartzTapAvailable: Bool
     let quartzTapInterrupted: Bool
     let editorKind: String
@@ -136,6 +143,8 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private var eventTrace: [HostEvent] = []
     private var receivedEvents: [ReceivedEvent] = []
     private var quartzEvents: [QuartzEvent] = []
+    private var warmupEvents: [WarmupEvent] = []
+    private var appKitWarmupCount = 0
     private var quartzTapAvailable = false
     private var quartzTapInterrupted = false
     private var quartzTap: CFMachPort?
@@ -294,6 +303,15 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         }
         guard status == .recording, !finished else { return }
         let marker = event.getIntegerValueField(.eventSourceUserData)
+        if marker == config.inputMarker {
+            guard type == .keyUp, warmupEvents.isEmpty else {
+                unexpectedInput()
+                return
+            }
+            warmupEvents.append(.init(kind: "keyUp", keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+                                      atNanoseconds: DispatchTime.now().uptimeNanoseconds))
+            return
+        }
         guard config.inputActionIndex(eventMarker: marker) != nil || marker == config.replacementMarker else {
             unexpectedInput()
             return
@@ -318,6 +336,12 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         checkControlFiles()
         guard status == .recording, !finished else { return false }
         let marker = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
+        if marker == config.inputMarker {
+            // The driver's warm-up release: neither the editor nor the receipt list may see it.
+            appKitWarmupCount += 1
+            if event.type != .keyUp || appKitWarmupCount > 1 { unexpectedInput() }
+            return false
+        }
         guard config.inputActionIndex(eventMarker: marker) != nil || marker == config.replacementMarker else {
             unexpectedInput()
             return false
@@ -452,6 +476,7 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             eventTrace: eventTrace,
             receivedEvents: receivedEvents,
             quartzEvents: quartzEvents,
+            warmupEvents: warmupEvents,
             quartzTapAvailable: quartzTapAvailable,
             quartzTapInterrupted: quartzTapInterrupted,
             editorKind: editorKind.rawValue,
@@ -526,6 +551,7 @@ private func selfCheck(config: ExternalNativeProbeConfiguration, root: URL, edit
         receivedEvents: [],
         quartzEvents: [.init(kind: "keyUp", keyCode: 49, marker: config.inputMarker + 1,
                              atNanoseconds: UInt64.max, eventTimestampNanoseconds: UInt64.max)],
+        warmupEvents: [.init(kind: "keyUp", keyCode: 8, atNanoseconds: UInt64.max)],
         quartzTapAvailable: false,
         quartzTapInterrupted: false,
         editorKind: editorKind.rawValue, domEvents: [], domFinalReadVerified: false
