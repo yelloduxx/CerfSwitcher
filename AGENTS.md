@@ -620,7 +620,10 @@ bash scripts/run_native_release_smoke.sh
 - Live execution requires `RUSWITCH_ALLOW_FOCUS_STEALING=1`. It uses distinct
   app/editor/driver PIDs, one continuous mixed phrase and an auto-off negative
   control. The driver has absolute timestamps, no per-word waits, and rejects
-  schedules more than 10 ms late instead of silently slowing the test.
+  schedules more than 10 ms late instead of silently slowing the test. Before
+  the schedule it posts one marked warm-up key release (see First external
+  native evidence); `--self-check` builds that event without posting and checks
+  its type, key and marker, and the host `--self-check` serializes `warmupEvents`.
 - The app entry `--external-native-probe UUID session.json --host-pid PID`
   starts the production monitor/replacement path without onboarding or update
   checks, restricted to that host PID. Preferences/rules use a unique
@@ -725,9 +728,35 @@ bash scripts/run_native_release_smoke.sh
   still about 9 ms; no deadline was increased or timing pass assumed.
 - The driver previously blocked the main run loop with sleep. A no-window
   timer/cancellation self-check failed on that code (exit 64) and passes when
-  waiting services the default run-loop mode. Initial source verification and
-  non-posted object warmup occur before the input schedule. Absolute per-key
-  deadlines remain unchanged; no conversion-dependent wait was added.
+  waiting services the default run-loop mode. Initial source verification
+  occurs before the input schedule. Absolute per-key deadlines remain
+  unchanged; no conversion-dependent wait was added.
+- Recorded driver results of 2026-10-12 (6 positive cases and 1 control) show the
+  focus check at 0.08 to 0.17 ms, layout read at 0.001 ms and event preparation
+  at 0.02 ms on action 0, but its `event.post(tap: .cghidEventTap)` at 8.91 to
+  10.53 ms (median 10.13). Later posts of the one full run took a median
+  0.016 ms, maximum 0.37 ms. Six of the seven cases stopped on the 10 ms
+  lateness rule, with the machine unloaded by builds. The first real post in a
+  process pays a one-time cost that building an event without posting does not
+  warm; what exactly is configured (WindowServer or HID client registration, or
+  a first TCC check) is not established.
+- The driver (report schema 2) therefore posts one warm-up before the schedule:
+  a key release for the first pressed key, marked with exactly the input marker.
+  Marker offset 0 is no action index, and the product tap masks key-up events
+  out, so the warm-up reaches neither the app state machine nor an oracle. The
+  driver waits 50 ms after it, then starts the clock. The warm-up is outside
+  `records` and `maximumLatenessMicroseconds`; the 10 ms rule and the action 0
+  check are unchanged. The report carries `warmup.postedNanoseconds` and
+  `warmup.postNanoseconds`, which should stay near 10 ms while action 0 drops to
+  the later-post band. If action 0 stays near 10 ms the hypothesis is wrong.
+- The host records the single warm-up Quartz sighting in `warmupEvents` and
+  swallows it in the local monitor, so neither NSTextView nor the DOM sees it.
+  Any other use of the bare input marker, or a second warm-up, is interference.
+  `assess` names `missing-warmup-post` (including every schema-1 report),
+  `warmup-inside-schedule` and `warmup-reached-editor`. A Quartz sighting is
+  optional (P07 owns key-up loss at Quartz); its count is in `deliveryDiagnostics`.
+  If a future change adds key-up to the `KeyboardMonitor` mask, the warm-up would
+  reach the app state machine, so that change must re-run the native lane.
 - Existing `physical-closed-loop.json` remains an unresolved manual-source
   transition trap: a `selectLayout` and following key share one timestamp;
   native produced `фnd` instead of `and`, despite the driver observing US.

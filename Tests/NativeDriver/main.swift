@@ -37,8 +37,15 @@ private struct InputRecord: Codable {
     let postNanoseconds: UInt64
 }
 
+private let warmupSettleNanoseconds: UInt64 = 50_000_000
+
+private struct WarmupRecord: Encodable {
+    let postedNanoseconds: UInt64
+    let postNanoseconds: UInt64
+}
+
 private struct DriverReport: Encodable {
-    let schemaVersion = 1
+    let schemaVersion = 2
     let runID: UUID
     let pid = ProcessInfo.processInfo.processIdentifier
     var status = "invalidRun"
@@ -46,6 +53,7 @@ private struct DriverReport: Encodable {
     var originalLayoutID = ""
     var finalLayoutID = ""
     var restoredLayout = false
+    var warmup: WarmupRecord?
     var records: [InputRecord] = []
     var maximumLatenessMicroseconds: UInt64 = 0
 }
@@ -133,6 +141,29 @@ private func prepareEvent(_ action: PhysicalTypingAction, index: Int, config: Ex
     return event
 }
 
+private func prepareWarmup(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration,
+                           source: CGEventSource) throws -> CGEvent {
+    guard let key = stimulus.actions.first(where: { $0.kind == .keyDown })?.keyCode,
+          let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else {
+        throw DriverError.invalidFixture
+    }
+    event.flags = []
+    event.setIntegerValueField(.eventSourceUserData, value: config.inputMarker)
+    event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+    event.setIntegerValueField(.keyboardEventKeyboardType, value: Int64(stimulus.keyboardType))
+    return event
+}
+
+private func checkWarmupEvent(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration) throws {
+    guard let source = CGEventSource(stateID: .hidSystemState),
+          let key = stimulus.actions.first(where: { $0.kind == .keyDown })?.keyCode else { throw DriverError.invalidFixture }
+    let event = try prepareWarmup(stimulus, config: config, source: source)
+    guard event.type == .keyUp,
+          event.getIntegerValueField(.keyboardEventKeycode) == Int64(key),
+          event.getIntegerValueField(.eventSourceUserData) == config.inputMarker,
+          config.inputActionIndex(eventMarker: config.inputMarker) == nil else { throw DriverError.invalidFixture }
+}
+
 private func checkPreparationTiming(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration) throws {
     guard let source = CGEventSource(stateID: .hidSystemState),
           let index = stimulus.actions.firstIndex(where: { $0.kind == .keyDown }) else { throw DriverError.invalidFixture }
@@ -180,12 +211,12 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
     }
     try wait(until: DispatchTime.now().uptimeNanoseconds + 100_000_000, cancelled: cancelled)
     guard currentLayoutID() == stimulus.initialLayoutID else { throw DriverError.blockedLayout }
-    if let firstKey = stimulus.actions.firstIndex(where: { $0.kind == .keyDown }) {
-        // Warm object construction without sending anything or freezing the
-        // Unicode payloads of later keys before the layout actually changes.
-        _ = try prepareEvent(stimulus.actions[firstKey], index: firstKey, config: config,
-                             source: eventSource, keyboardType: stimulus.keyboardType)
-    }
+    let warmupEvent = try prepareWarmup(stimulus, config: config, source: eventSource)
+    let warmupStarted = DispatchTime.now().uptimeNanoseconds
+    warmupEvent.post(tap: .cghidEventTap)
+    let warmupPosted = DispatchTime.now().uptimeNanoseconds
+    report.warmup = WarmupRecord(postedNanoseconds: warmupPosted, postNanoseconds: warmupPosted - warmupStarted)
+    try wait(until: warmupPosted + warmupSettleNanoseconds, cancelled: cancelled)
     let began = DispatchTime.now().uptimeNanoseconds
     for (index, action) in stimulus.actions.enumerated() {
         let planned = began + action.atMicroseconds * 1_000
@@ -243,6 +274,7 @@ do {
     try validate(stimulus, config: config)
     if CommandLine.arguments.contains("--self-check") {
         try checkWaitServicesRunLoop()
+        try checkWarmupEvent(stimulus, config: config)
         print("PASS: input/config valid; no application, window or events created")
         exit(0)
     }

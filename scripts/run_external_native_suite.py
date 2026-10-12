@@ -87,14 +87,19 @@ def archive_run(root, runtime, summary):
 
 
 def read_state(path, run_id, schema_version=1):
+    allowed = schema_version if isinstance(schema_version, tuple) else (schema_version,)
     try:
         data = json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return None
     if (not isinstance(data, dict) or type(data.get("schemaVersion")) is not int
-            or data["schemaVersion"] != schema_version or str(data.get("runID", "")).lower() != run_id.lower()):
+            or data["schemaVersion"] not in allowed or str(data.get("runID", "")).lower() != run_id.lower()):
         raise ValueError(f"foreign/stale state: {Path(path).name}")
     return data
+
+
+def read_driver_state(path, run_id):
+    return read_state(path, run_id, schema_version=(1, 2))
 
 
 class BlockedEnvironment(RuntimeError):
@@ -117,7 +122,8 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor=
             or type(host.get("quartzTapAvailable")) is not bool or type(host.get("quartzTapInterrupted")) is not bool
             or type(driver.get("records")) is not list
             or not all(isinstance(x, dict) for x in host["eventTrace"] + host["receivedEvents"]
-                       + host["quartzEvents"] + driver["records"])):
+                       + host["quartzEvents"] + driver["records"])
+            or not valid_warmup_evidence(host, driver)):
         return ["malformed-native-evidence"]
     failures = []
     if host.get("editorKind", "nstextview") != editor:
@@ -163,6 +169,7 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor=
         failures.append("invalid-driver-timestamps")
     if driver.get("maximumLatenessMicroseconds", 10001) > 10000:
         failures.append("input-schedule-too-late")
+    failures += warmup_post_failures(driver, records) + warmup_isolation_failures(host, input_marker, editor)
     for checkpoint in oracle.get("checkpoints", []):
         index = checkpoint["actionIndex"]
         # A press may wait behind an active callback. The producer's earlier
@@ -180,6 +187,40 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor=
     failures += ["quartz-" + failure for failure in
                  input_delivery_failures(actions, host["quartzEvents"], app["posted"], input_marker)]
     return failures
+
+
+def valid_warmup_evidence(host, driver):
+    events = host.get("warmupEvents", [])
+    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+        return False
+    if "warmup" not in driver:
+        return True
+    warmup = driver["warmup"]
+    return isinstance(warmup, dict) and all(
+        type(warmup.get(key)) is int and warmup[key] >= 0 for key in ("postedNanoseconds", "postNanoseconds"))
+
+
+def warmup_post_failures(driver, records):
+    warmup = driver.get("warmup")
+    if warmup is None:
+        return ["missing-warmup-post"]
+    first = next((row for row in records if row.get("actionIndex") == 0), None)
+    if first is not None and warmup["postedNanoseconds"] >= first.get("plannedNanoseconds", 0):
+        return ["warmup-inside-schedule"]
+    return []
+
+
+def warmup_isolation_failures(host, input_marker, editor):
+    receipts = host["eventTrace"] + host["receivedEvents"]
+    leaked = any(event.get("marker") == input_marker for event in receipts)
+    sightings = len(host.get("warmupEvents", []))
+    if editor == "webkit":
+        dom_releases = sum(isinstance(row, dict) and row.get("event") == "keyup" for row in host.get("domEvents") or [])
+        action_releases = sum(event.get("kind") == "keyUp" and type(event.get("marker")) is int
+                              and input_marker < event["marker"] <= input_marker + 10_000
+                              for event in host["receivedEvents"])
+        leaked = leaked or dom_releases > action_releases
+    return ["warmup-reached-editor"] if leaked or sightings > 1 else []
 
 
 def dom_evidence_failures(host):
@@ -298,6 +339,7 @@ def delivery_diagnostics(fixture, host, input_marker):
     # Absence is not upstream-loss proof: even a complete observer is only one
     # point in the route. These labels locate observations, not a root cause.
     return dict(observationComplete=complete,
+                warmupEventsAtQuartz=len(host["warmupEvents"]) if isinstance(host.get("warmupEvents"), list) else 0,
                 unobservedReleaseActionsAtQuartz=sorted(releases - quartz),
                 releaseActionsMissingAtAppKit=sorted(quartz - appkit),
                 releaseActionsNotHandled=sorted(appkit - responder) if host.get("editorKind", "nstextview") == "nstextview" else None,
@@ -430,7 +472,7 @@ def run_case(root, fixture, executables, automatic, *, sample_process=False, edi
             raise RuntimeError(f"native process exits: {[p.returncode for p in (app, host, driver)]}")
         host_result = read_state(root / "host-result.json", run_id, schema_version=2)
         app_result = read_state(root / "app-result.json", run_id, schema_version=2)
-        driver_result = read_state(root / "driver-result.json", run_id)
+        driver_result = read_driver_state(root / "driver-result.json", run_id)
         if not all([host_result, app_result, driver_result]):
             raise RuntimeError("missing final native result")
         failures = assess(fixture, host_result, app_result, driver_result,
