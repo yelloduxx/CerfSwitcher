@@ -291,9 +291,11 @@ public enum LayoutDecoder {
             && !(convertedShape.kind == .lexical
                 && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian))
         // A lone capital is usually an initial or a letter name, except when it
-        // is not a word at all and its other-layout key is: `Ш` → `I`.
+        // is not a word at all and its other-layout key is: `Ш` → `I`, `(Ш)` →
+        // `(I)`. A trailing period still marks an initial (`Ш.`).
         let capitalIsOtherLayoutWord = currentCanonical == "ru"
-            && candidate.typedRaw.count == 1
+            && literal.count == 1
+            && !candidate.typedRaw.contains(".")
             && model.wordLogProbability(literal, language: currentCanonical) == nil
             && !model.isExtendedRussianWord(literal)
             && targetKnownForShape != nil

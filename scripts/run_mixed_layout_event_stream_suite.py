@@ -18,8 +18,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("tsv", type=Path)
     parser.add_argument("--jobs", type=int, default=8)
-    # Build 136 baseline: frequency evidence, wrapper prefixes and lone capitals.
-    parser.add_argument("--max-safe-misses", type=int, default=107)
+    # Build 137 baseline: frequency evidence, wrapper prefixes and lone capitals.
+    parser.add_argument("--max-safe-misses", type=int, default=45)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--results", type=Path)
     parser.add_argument("--audit", type=Path)

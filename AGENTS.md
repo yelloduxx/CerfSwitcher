@@ -187,7 +187,7 @@ rarest listed source-language word by 2.5 (natural log), frequency decides
 (`тучею` -> `next.`, `ult` -> `где`). Common/standard SCOWL words stay protected.
 Trailing `.`/`,` keys read as `ю`/`б` when that forms a word (build 134), and an
 opening bracket never ends a word (build 132). The legacy 5,000-phrase gate is
-now 107 safe misses (build 136: every wrapper prefix length is a reading, so `[,eath_` -> `[буфер_`; a lone Cyrillic capital that is no word converts to a frequent English word, `Ш` -> `I`); `scripts/make_flores_mixed_tsv.py` builds the independent
+now 45 safe misses (builds 136-137: every wrapper prefix length is a reading, so `[,eath_` -> `[буфер_`; a lone Cyrillic capital that is no word converts to a frequent English word, `Ш` -> `I`, also wrapped `(Ш)` but never the initial `Ш.`); `scripts/make_flores_mixed_tsv.py` builds the independent
 FLORES development phrases used to find new errors.
 
 ## Event and Editing State

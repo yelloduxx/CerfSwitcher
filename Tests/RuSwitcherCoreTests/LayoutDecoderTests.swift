@@ -658,10 +658,12 @@ final class LayoutDecoderTests: XCTestCase {
     }
 
     func testLoneCapitalThatIsNoWordTakesOtherLayoutWord() {
-        let converted = evaluate("Ш", current: "ru", target: "en", context: ["today"])
-        XCTAssertEqual(converted.decision.candidate.replacement, "I")
-        XCTAssertEqual(converted.decision.verdict, .switchToConverted)
-        for (typed, current, target) in [("В", "ru", "en"), ("B", "en", "ru")] {
+        for (typed, expected) in [("Ш", "I"), ("(Ш)", "(I)"), ("«Ш", "«I")] {
+            let converted = evaluate(typed, current: "ru", target: "en", context: ["today"])
+            XCTAssertEqual(converted.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(converted.decision.verdict, .switchToConverted, typed)
+        }
+        for (typed, current, target) in [("В", "ru", "en"), ("B", "en", "ru"), ("Ш.", "ru", "en")] {
             let kept = evaluate(typed, current: current, target: target, context: ["plan"])
             XCTAssertNotEqual(kept.decision.verdict, .switchToConverted, typed)
         }
