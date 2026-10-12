@@ -731,7 +731,7 @@ final class LayoutDecoderTests: XCTestCase {
         for _ in 0..<2_000 {
             let start = ContinuousClock.now
             _ = evaluate("ghbdtncnde.", context: ["я", "вас"])
-            durations.append(Double(start.duration(to: .now).components.attoseconds) / 1e18)
+            durations.append(start.duration(to: .now) / .seconds(1))
         }
         durations.sort()
         XCTAssertLessThan(durations[Int(Double(durations.count) * 0.95)], 0.005)
