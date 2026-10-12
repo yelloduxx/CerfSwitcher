@@ -65,7 +65,8 @@ def main() -> int:
     if detail:
         for d_phrase, r_phrase in zip(detail, rust):
             for d, r in zip(d_phrase["steps"], r_phrase["steps"]):
-                if any(d[k] != r[k] for k in ("literalScore", "convertedScore", "threshold", "reason", "evidence")):
+                if any(d[k] != r[k] for k in ("literalScore", "convertedScore", "threshold", "reason", "evidence",
+                                         "prefix", "suffix", "kind")):
                     score_diffs += 1
 
     print(json.dumps({
