@@ -202,11 +202,24 @@ and passes the unknown-English gate (`Дщы` -> `Los`, `ВТФ` -> `DNA`), unle
 keeps a leading layout-letter key as punctuation; and a word keeping such a key
 faces the attested letter reading (`<fdfhbb` -> `Баварии`). Unattested acronyms
 such as `KPI` still need explicit confirmation. FLORES dev: 1,406 safe misses
-(was 1,842), 45 wrong, 13 false positives. Since build 135 a source
+(was 1,842), 45 wrong, 13 false positives. Build 145: in Russian prose (two
+Russian words, or a Tatoeba follower) a SCOWL-only English spelling yields to a
+frequent Russian reading (`я помыл herb` -> `руки`; `herb` alone or after English
+stays). A Tatoeba-attested reading over a non-word now counts as lexical
+evidence (`Ыфт` -> `San`, `y/` -> `н.`), except for two plain letters, which
+are too ambiguous (`tv`/`ем`, `cm`/`сь` stay), and except where a key no prose
+uses there is absent (`кв.` stays). Readings are ranked frequent > attested or
+dictionary > none: a frequent wrapped core keeps its quote (`"lj` -> `"до`, not
+`Эдо`), an equal or weaker one yields to the letter reading (`'njv` -> `этом`,
+`<fdfhbb` -> `Баварии`), and an unknown core never keeps a trailing `.`/`,`
+letter key as punctuation (`utjabkmnhfwb.` -> `геофильтрацию`, `Gtyl;f,` ->
+`Пенджаб`). FLORES dev: 1,161 safe misses, 20 wrong, 13 false positives;
+legacy gate unchanged at 45. Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides
-(`тучею` -> `next.`, `ult` -> `где`). Common/standard SCOWL words stay protected.
+(`тучею` -> `next.`, `ult` -> `где`). Common/standard SCOWL words stay protected
+outside Russian prose.
 Trailing `.`/`,` keys read as `ю`/`б` when that forms a word (build 134), and an
 opening bracket never ends a word (build 132). The legacy 5,000-phrase gate is
 now 45 safe misses (builds 136-137: every wrapper prefix length is a reading, so `[,eath_` -> `[буфер_`; a lone Cyrillic capital that is no word converts to a frequent English word, `Ш` -> `I`, also wrapped `(Ш)` but never the initial `Ш.`); `scripts/make_flores_mixed_tsv.py` builds the independent

@@ -401,6 +401,34 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
+    func testDictionaryEnglishYieldsToFrequentRussianInRussianProse() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        let russian = evaluate("herb", context: ["я", "помыл"], belief: russianBelief)
+        XCTAssertEqual(russian.decision.verdict, .switchToConverted)
+        XCTAssertEqual(russian.decision.candidate.replacement, "руки")
+        for context in [[], ["the", "fresh"]] {
+            XCTAssertNotEqual(evaluate("herb", context: context).decision.verdict, .switchToConverted, "\(context)")
+        }
+    }
+
+    func testAttestedReadingsOfAbbreviationsAndCaseEndings() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        for (typed, expected) in [
+            ("y/", "н."), ("Uhtykfylb.", "Гренландию"), ("Zgjyb.", "Японию"),
+            ("utjabkmnhfwb.", "геофильтрацию"), ("Gtyl;f,", "Пенджаб"), ("\"lj", "\"до"),
+        ] {
+            let result = evaluate(typed, context: ["в"], belief: russianBelief)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+        for typed in ["tv", "cm", "gb"] {
+            XCTAssertNotEqual(evaluate(typed).decision.verdict, .switchToConverted, typed)
+        }
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")

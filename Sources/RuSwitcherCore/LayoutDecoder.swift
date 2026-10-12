@@ -82,7 +82,7 @@ public enum LayoutDecoder {
         }
         func isTargetWord(_ candidate: AutoConvertCandidate) -> Bool {
             let word = candidateWord(candidate)
-            return model.wordLogProbability(word, language: targetCanonical) != nil
+            return model.attestedWordLogProbability(word, language: targetCanonical) != nil
                 || (targetCanonical == "en" && model.isExtendedEnglishWord(word))
                 || (targetCanonical == "ru" && model.isExtendedRussianWord(word))
         }
@@ -105,6 +105,18 @@ public enum LayoutDecoder {
                 !preservesLayoutLetterPrefix($0) && !preservesLayoutLetterSuffix($0) && !tier.contains($0)
                     && model.attestedWordLogProbability(candidateWord($0), language: targetCanonical) != nil
             }
+        }
+        func lexicalTargetStrength(_ evaluation: LayoutDecoderEvaluation) -> Int {
+            let candidate = evaluation.decision.candidate
+            if evaluation.evidence.contains(.confirmedByUser)
+                || model.wordLogProbability(candidateWord(candidate), language: targetCanonical) != nil {
+                return 2
+            }
+            let lexical = isTargetWord(candidate) || evaluation.evidence.contains {
+                if case .compound = $0 { return true }
+                return $0 == .englishTargetDictionary || $0 == .russianTargetDictionary
+            }
+            return lexical ? 1 : 0
         }
         let confirmedCandidates = generated.filter { candidate in
             isConfirmed(typed, candidate.replacement)
@@ -153,27 +165,30 @@ public enum LayoutDecoder {
             // punctuation key that is a letter in the target layout is only safe
             // when that wrapping core is a real word (`[yt` → `[не`) and the
             // letter reading is not (`'njv` → `этом`, not `'том`).
+            // A frequent wrapped core also outranks a letter reading known only
+            // from attestation (`"lj` → `"до`, not `Эдо`), while an attested
+            // reading beats a spelling-only core (`<fdfhbb` → `Баварии`).
             let lhsLayoutLetterPrefix = preservesLayoutLetterPrefix(lhs.decision.candidate)
             let rhsLayoutLetterPrefix = preservesLayoutLetterPrefix(rhs.decision.candidate)
             if lhsLayoutLetterPrefix != rhsLayoutLetterPrefix {
-                let lhsCoreLexical = hasLexicalTargetEvidence(lhs)
-                let rhsCoreLexical = hasLexicalTargetEvidence(rhs)
-                if lhsLayoutLetterPrefix, !rhsLayoutLetterPrefix, !lhsCoreLexical || rhsCoreLexical {
-                    return true
-                }
-                if rhsLayoutLetterPrefix, !lhsLayoutLetterPrefix, !rhsCoreLexical || lhsCoreLexical {
-                    return false
-                }
+                let lhsCoreStrength = lexicalTargetStrength(lhs)
+                let rhsCoreStrength = lexicalTargetStrength(rhs)
+                if lhsLayoutLetterPrefix, lhsCoreStrength <= rhsCoreStrength { return true }
+                if rhsLayoutLetterPrefix, rhsCoreStrength <= lhsCoreStrength { return false }
             }
             // The same holds at the end: the `.` and `,` keys are `ю` and `б` in
             // the Russian layout, so `xfcnm.` is `частью`, not `часть.`. Typed
-            // punctuation stays only when the letter reading is not a word
-            // (`ghbdtn,` → `привет,`).
+            // punctuation stays only when the letter reading is not a word and
+            // the wrapped core is (`ghbdtn,` → `привет,`, `Gtyl;f,` → `Пенджаб`).
             let lhsLayoutLetterSuffix = preservesLayoutLetterSuffix(lhs.decision.candidate)
             let rhsLayoutLetterSuffix = preservesLayoutLetterSuffix(rhs.decision.candidate)
             if lhsLayoutLetterSuffix != rhsLayoutLetterSuffix {
-                if lhsLayoutLetterSuffix, isTargetWord(rhs.decision.candidate) { return true }
-                if rhsLayoutLetterSuffix, isTargetWord(lhs.decision.candidate) { return false }
+                if lhsLayoutLetterSuffix, isTargetWord(rhs.decision.candidate) || lexicalTargetStrength(lhs) == 0 {
+                    return true
+                }
+                if rhsLayoutLetterSuffix, isTargetWord(lhs.decision.candidate) || lexicalTargetStrength(rhs) == 0 {
+                    return false
+                }
             }
             let lhsHasPhraseEvidence = lhs.evidence.contains(.phraseContext)
             let rhsHasPhraseEvidence = rhs.evidence.contains(.phraseContext)
@@ -229,6 +244,10 @@ public enum LayoutDecoder {
     /// for an unlisted source spelling before frequency overrides membership.
     private static let rareSourceFrequencyMargin = 2.5
 
+    private static func isUnusualInProse(_ character: Character) -> Bool {
+        !character.isLetter && !character.isWhitespace && !".,!?;:()\"'«»-–—…".contains(character)
+    }
+
     private static func preservedDecorationCount(_ candidate: AutoConvertCandidate) -> Int {
         candidate.prefix.count + candidate.suffix.count
     }
@@ -253,18 +272,6 @@ public enum LayoutDecoder {
             && candidate.convertedRaw.suffix(candidate.suffix.count).contains(where: \.isLetter)
     }
 
-    private static func hasLexicalTargetEvidence(_ evaluation: LayoutDecoderEvaluation) -> Bool {
-        evaluation.evidence.contains {
-            switch $0 {
-            case .frequent, .englishTargetDictionary, .russianTargetDictionary, .confirmedByUser:
-                return true
-            case .compound:
-                return true
-            default:
-                return false
-            }
-        }
-    }
 
     /// When the same physical key is punctuation in both layouts, its target
     /// interpretation belongs to the converted token. Literal preservation is
@@ -454,7 +461,7 @@ public enum LayoutDecoder {
         let frequentTargetOutranksRareSource = literal.count >= 2
             && sourceSpellingOnly
             && (frequencyGap ?? -.infinity) >= Self.rareSourceFrequencyMargin
-        // Two frequent readings (`руку`/`here`) follow the language of the
+        // Two known readings (`руку`/`here`, `руки`/`herb`) follow the language of the
         // words just typed: English prose continues in English, Russian in
         // Russian. One previous word is enough when it is commonly followed
         // by the target reading (`come here`).
@@ -483,7 +490,8 @@ public enum LayoutDecoder {
                 evidence: [.englishSourceFrequent]
             )
         }
-        if literal.count >= 2, englishSourceConfidence == .dictionary, !frequentTargetOutranksRareSource {
+        if literal.count >= 2, englishSourceConfidence == .dictionary, !frequentTargetOutranksRareSource,
+           !contextContinuesInTarget {
             return fixed(
                 baseCandidate,
                 verdict: .keep,
@@ -612,15 +620,16 @@ public enum LayoutDecoder {
             if coreHasLexicalEvidence {
                 // Safe wrappers around real words: `[yt` → `[не`, `{gjnjv)` → `{потом)`.
                 convertedScore += 0.35
-            } else if Self.preservesLayoutLetterPrefix(candidate) {
-                // OOV cores must not keep a leading layout-letter key as punctuation:
-                // `[etvjt` → `хуемое`, not `[уемое`.
+            } else if Self.preservesLayoutLetterPrefix(candidate) || Self.preservesLayoutLetterSuffix(candidate) {
+                // OOV cores must not keep a layout-letter key as punctuation:
+                // `[etvjt` → `хуемое`, not `[уемое`; `utjabkmnhfwb.` → `геофильтрацию`.
                 convertedScore -= 1.25
             } else {
                 convertedScore += 0.35
             }
             if !candidate.suffix.isEmpty,
                Self.preservesTypedSuffix(candidate),
+               coreHasLexicalEvidence || !Self.preservesLayoutLetterSuffix(candidate),
                candidate.suffix.allSatisfy({ ".!?".contains($0) }) {
                 convertedScore += min(1.5, Double(candidate.suffix.count) * 0.5)
             }
@@ -681,6 +690,11 @@ public enum LayoutDecoder {
             || rankedExtendedEnglishTarget
             || strongExtendedRussianTarget
             || compound != nil
+            // Two letters are too ambiguous for attestation alone (`tv` reads as
+            // the attested `ем` just as `rv` reads as `км`) unless typed with a
+            // key no prose uses there (`y/` → `н.`).
+            || (attestedTargetOverNonWord
+                && (converted.count >= 3 || candidate.typedRaw.contains(where: Self.isUnusualInProse)))
             || (strongScriptMismatch
                 && (model.characterLogProbability(converted, language: targetCanonical)
                     >= Self.unlistedTargetCharacterFloor

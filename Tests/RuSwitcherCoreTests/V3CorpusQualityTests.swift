@@ -113,10 +113,10 @@ final class V3CorpusQualityTests: XCTestCase {
                 beliefLanguage: "ru"
             )
             guard result.decision.verdict == .switchToConverted else { continue }
-            // A rare SCOWL spelling may yield to a frequent Russian word (`ult` → `где`).
+            // In Russian prose an unlisted SCOWL spelling may yield to a frequent
+            // Russian word (`ult` → `где`, `herb` → `руки`), never to anything else.
             let converted = FrequentWordLexicon.normalize(result.decision.candidate.replacement)
-            if model.englishSpellingTier(word) != .rare
-                || model.wordLogProbability(converted, language: "ru") == nil {
+            if model.wordLogProbability(converted, language: "ru") == nil {
                 falsePositives += 1
             }
         }
