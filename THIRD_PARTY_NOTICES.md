@@ -51,6 +51,20 @@ checked bootstrap artifact does not contain Wikipedia, Tatoeba, user text, or
 other source sentences. Exact inputs, seed and artifact checksum are recorded
 in `scripts/v4_training_sources.json`.
 
+## Tatoeba next-word statistics
+
+Since model `2026.10-v3.2-context`, `language-model-v1.bin` contains a small
+derived table of next-word probabilities computed from the Tatoeba English and
+Russian per-language sentence exports (downloaded 2026-10-12). It covers only
+words whose keys also spell a frequent word in the other layout, such as
+`here`/`руку`. No sentences are shipped; `scripts/data/tatoeba-followers.json.gz`
+records the export SHA-256 hashes and is rebuilt by
+`scripts/build_tatoeba_followers.py`.
+
+- Source: https://tatoeba.org
+- License: https://creativecommons.org/licenses/by/2.0/fr/
+- Attribution: Tatoeba contributors
+
 ## FLORES-200 Evaluation Corpus (Tests Only)
 
 `Tests/Fixtures/Independent/flores200-clean-v1` contains an evaluation-only

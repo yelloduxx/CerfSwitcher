@@ -47,6 +47,8 @@ SECTION = {
     "thresholds": 11,
     "en_extended": 12,
     "ru_extended": 13,
+    "ru_followers": 14,
+    "en_followers": 15,
 }
 
 SCOWL_COMMON_ARCHIVE = Path("scripts/data/scowl35-en.txt.gz")
@@ -58,6 +60,8 @@ SCOWL_ARCHIVE_SHA256 = "a15fcf72ca0cb6dbb83420513e0cd6e5d60755635a4bad5f51609c6b
 RU_HUNSPELL_ARCHIVE = Path("scripts/data/ru_RU.dic.gz")
 RU_HUNSPELL_ARCHIVE_SHA256 = "f8cd59e9489e05b2e816cb0f414a96634eb4908ec9fed56216dd223f36efee4f"
 RU_HUNSPELL_AFFIXES = Path("scripts/data/ru_RU.aff.gz")
+TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
+TATOEBA_FOLLOWERS_SHA256 = "beebede27229fb88d18c92a5b3620286f91059662b03c2e4eab1714ecfec9ea4"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
 RUSSIAN_BLOOM_BITS = 1 << 25
 RUSSIAN_BLOOM_HASHES = 9
@@ -248,6 +252,13 @@ def read_phrases(path: Path, language: str, order: int) -> dict[str, float]:
     return {phrase: round(math.log(freq / peak), 6) for phrase, freq in values.items()}
 
 
+def read_followers(path: Path) -> dict[str, dict[str, float]]:
+    if sha256(path) != TATOEBA_FOLLOWERS_SHA256:
+        raise RuntimeError(f"SHA-256 mismatch for {path}")
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return json.load(handle)["followers"]
+
+
 def json_bytes(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -303,9 +314,10 @@ def main() -> None:
         en_words,
     )
     ru_extended = russian_hunspell_forms(args.russian_dictionary, args.russian_affixes)
+    followers = read_followers(TATOEBA_FOLLOWERS)
     metadata = {
         "formatVersion": 2,
-        "modelVersion": "2026.08-v3.1-ranked-en3",
+        "modelVersion": "2026.10-v3.2-context",
         "source": "orgtre/google-books-ngram-frequency",
         "sourceRevision": REVISION,
         "license": "CC BY 3.0",
@@ -317,7 +329,10 @@ def main() -> None:
             "enExtendedStandard": sum(tier == 2 for tier in en_extended.values()),
             "enExtendedRare": sum(tier == 1 for tier in en_extended.values()),
             "ruExtended": len(ru_extended),
+            "ruFollowers": len(followers["ru"]),
+            "enFollowers": len(followers["en"]),
         },
+        "followerSource": "Tatoeba sentence exports, CC BY 2.0 FR",
     }
     thresholds = {
         "short": 3.0,
@@ -355,6 +370,8 @@ def main() -> None:
         "thresholds": thresholds,
         "en_extended": ranked_english_section(en_extended),
         "ru_extended": bloom_bytes(ru_extended),
+        "ru_followers": followers["ru"],
+        "en_followers": followers["en"],
     }
     write_model(args.output, [
         (SECTION[name], value if isinstance(value, bytes) else json_bytes(value))

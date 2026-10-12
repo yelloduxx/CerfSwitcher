@@ -191,6 +191,9 @@ public enum LayoutDecoder {
         } ?? fallback(typed: typed, converted: converted)
     }
 
+    /// ln(1%): the previous word must lead to the target reading at least this often.
+    private static let followerContinuationFloor = log(0.01)
+
     /// Natural-log margin (about 12x) a frequent target needs over the bound
     /// for an unlisted source spelling before frequency overrides membership.
     private static let rareSourceFrequencyMargin = 2.5
@@ -382,12 +385,17 @@ public enum LayoutDecoder {
             && (frequencyGap ?? -.infinity) >= Self.rareSourceFrequencyMargin
         // Two frequent readings (`руку`/`here`) follow the language of the
         // words just typed: English prose continues in English, Russian in
-        // Russian.
+        // Russian. One previous word is enough when it is commonly followed
+        // by the target reading (`come here`).
         let recentTwoLanguages = recentLanguages.suffix(2)
+        let previousFollowedByTarget = recentLanguages.last == targetCanonical
+            && contextWords.last.flatMap {
+                model.followerLogProbability(previous: SmartTokenizer.lexicalCore(of: $0), word: converted, language: targetCanonical)
+            }.map { $0 >= Self.followerContinuationFloor } == true
         let contextContinuesInTarget = literal.count >= 2
             && targetKnown != nil
-            && recentTwoLanguages.count == 2
-            && recentTwoLanguages.allSatisfy { $0 == targetCanonical }
+            && ((recentTwoLanguages.count == 2 && recentTwoLanguages.allSatisfy { $0 == targetCanonical })
+                || previousFollowedByTarget)
         if literal.count >= 2,
            sourceKnown != nil || sourceExtendedRussian,
            targetKnown != nil || targetExtendedEnglish || targetExtendedRussian,

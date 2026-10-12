@@ -679,6 +679,11 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(staysEnglish.decision.verdict, .keep)
         let mixed = evaluate("руку", current: "ru", target: "en", context: ["это", "текст"])
         XCTAssertEqual(mixed.decision.verdict, .keep)
+        let afterOneWord = evaluate("руку", current: "ru", target: "en", context: ["come"])
+        XCTAssertEqual(afterOneWord.decision.candidate.replacement, "here")
+        XCTAssertEqual(afterOneWord.decision.verdict, .switchToConverted)
+        let afterUnrelatedWord = evaluate("руку", current: "ru", target: "en", context: ["table"])
+        XCTAssertEqual(afterUnrelatedWord.decision.verdict, .keep)
     }
 
     func testKnownEnglishWordCanStartAfterRussianContext() {

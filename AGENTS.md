@@ -182,7 +182,9 @@ Unknown valid Russian words must not convert to English from script score alone.
 Both-known pairs such as `here`/`руку` follow the language of the last two
 context tokens (build 138): after two English words `руку` becomes `here`, after
 two Russian words `here` becomes `руку`; otherwise they stay unchanged unless
-explicitly confirmed by the user. Since build 135 a source
+explicitly confirmed by the user. One previous target-language word suffices
+when Tatoeba shows it leads to the target reading at least 1% of the time
+(`come руку` -> `come here`). Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides
@@ -356,8 +358,12 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model, current SHA-256
-  `1189ee8a6379053aecd51dd70d5a076451ba7081ebe26bef0072d14c81001fce`.
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.2-context`, current
+  SHA-256 `d7f6978db7787d7dd521a7393f099291f5d85867acd16864e9183981463ff154`.
+  Sections 14/15 hold Tatoeba-derived ln P(word | previous) for words whose keys
+  spell a frequent word in the other layout (build 139); older models load
+  without them. `scripts/v4_training_sources.json` still pins the earlier model
+  that V4 research was bootstrapped from.
 - Production `.app` contains no V4 model. `layout-model-v4.json` and
   `LayoutRerankerV4.mlmodelc` belong only to `Experimental/V4`.
 

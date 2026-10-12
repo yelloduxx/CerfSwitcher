@@ -144,6 +144,8 @@ public final class LanguageModelStore: @unchecked Sendable {
         case thresholds = 11
         case extendedEnglish = 12
         case extendedRussian = 13
+        case ruFollowers = 14
+        case enFollowers = 15
     }
 
     public static var bundledResourceURL: URL? {
@@ -171,6 +173,7 @@ public final class LanguageModelStore: @unchecked Sendable {
     private let characters: [String: [String: Double]]
     private let bigrams: [String: [String: Double]]
     private let trigrams: [String: [String: Double]]
+    private let followers: [String: [String: Double]]
 
     public convenience init(contentsOf url: URL) throws {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
@@ -259,6 +262,12 @@ public final class LanguageModelStore: @unchecked Sendable {
                 count: extendedEnglishWords.count
             )
         }
+        // Optional since model 2026.10-v3.2: older models simply have no
+        // next-word evidence for ambiguous pairs.
+        followers = [
+            "ru": try sectionData[.ruFollowers].map { _ in try decode([String: Double].self, section: .ruFollowers) } ?? [:],
+            "en": try sectionData[.enFollowers].map { _ in try decode([String: Double].self, section: .enFollowers) } ?? [:],
+        ]
         guard let russianBloomData = sectionData[.extendedRussian] else {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
@@ -348,6 +357,12 @@ public final class LanguageModelStore: @unchecked Sendable {
             }
         }
         return count == 0 ? -16 : total / Double(count)
+    }
+
+    /// ln P(word | previous) from conversational text, present only for words
+    /// whose keys also spell a frequent word in the other layout.
+    public func followerLogProbability(previous: String, word: String, language: String) -> Double? {
+        followers[Self.canonical(language)]?[[Self.normalize(previous), Self.normalize(word)].joined(separator: "\u{1f}")]
     }
 
     public func phraseLogProbability(context: [String], candidate: String, language: String) -> Double? {
