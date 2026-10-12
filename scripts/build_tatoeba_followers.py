@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Derive next-word and word-frequency statistics from Tatoeba sentence exports.
 
-Followers: only words whose keys also spell a frequent word in the other
-layout are kept (`here`/`руку`). For such a word W and a preceding word P the
-output stores ln(count(P W) / count(P)) when the pair occurs at least
---min-count times. The decoder uses it only to tell which of two frequent
-readings continues the previous word.
+Followers: only words whose keys also spell a frequent or attested word in the
+other layout are kept (`here`/`руку`, `руки`/`herb`). For such a word W and a
+preceding word P the output stores ln(count(P W) / count(P)) when the pair
+occurs at least --min-count times. The decoder uses it only to tell which of
+two readings continues the previous word.
 
 Attested: counts of words outside the model's frequency list that occur at
-least twice. They tell an attested rare form (`вероятностью`) from a spelling
-artifact that conversational text never uses.
+least twice, contractions included (`it's`). They tell an attested rare form
+(`вероятностью`) from a spelling artifact that conversational text never uses.
 
 Tatoeba sentences are CC BY 2.0 FR.
 """
@@ -32,34 +32,43 @@ TOKEN = {
     "en": re.compile(r"[a-z]+(?:'[a-z]+)*"),
     "ru": re.compile(r"[а-яё]+(?:-[а-яё]+)*"),
 }
-WORD = {"en": re.compile(r"[a-z]+"), "ru": re.compile(r"[а-яё]+")}
+WORD = {"en": re.compile(r"[a-z]+(?:'[a-z]+)*"), "ru": re.compile(r"[а-яё]+")}
 EXPORT = {"en": "eng_sentences.tsv.bz2", "ru": "rus_sentences.tsv.bz2"}
 
 
-def statistics(
-    path: Path, language: str, vocabulary: set[str], frequent: set[str], min_count: int
-) -> tuple[dict[str, float], dict[str, int]]:
-    previous_counts: collections.Counter[str] = collections.Counter()
-    words: collections.Counter[str] = collections.Counter()
-    pairs: collections.Counter[tuple[str, str]] = collections.Counter()
+def sentences(path: Path, language: str):
     with bz2.open(path, "rt", encoding="utf-8") as source:
         for line in source:
             text = line.rstrip("\n").split("\t", 2)[-1].lower().replace("’", "'")
-            tokens = TOKEN[language].findall(text)
-            previous_counts.update(tokens[:-1])
-            words.update(tokens)
-            pairs.update(pair for pair in zip(tokens, tokens[1:]) if pair[1] in vocabulary)
-    followers = {
+            yield TOKEN[language].findall(text)
+
+
+def word_counts(path: Path, language: str) -> collections.Counter[str]:
+    words: collections.Counter[str] = collections.Counter()
+    for tokens in sentences(path, language):
+        words.update(tokens)
+    return words
+
+
+def followers(path: Path, language: str, vocabulary: set[str], min_count: int) -> dict[str, float]:
+    previous_counts: collections.Counter[str] = collections.Counter()
+    pairs: collections.Counter[tuple[str, str]] = collections.Counter()
+    for tokens in sentences(path, language):
+        previous_counts.update(tokens[:-1])
+        pairs.update(pair for pair in zip(tokens, tokens[1:]) if pair[1] in vocabulary)
+    return {
         f"{previous}\u001f{word}": round(math.log(count / previous_counts[previous]), 4)
         for (previous, word), count in sorted(pairs.items())
         if count >= min_count
     }
-    attested = {
+
+
+def attested(words: collections.Counter[str], language: str, frequent: set[str]) -> dict[str, int]:
+    return {
         word: count
         for word, count in sorted(words.items())
         if count >= 2 and word not in frequent and WORD[language].fullmatch(word)
     }
-    return followers, attested
 
 
 def main() -> int:
@@ -70,13 +79,19 @@ def main() -> int:
     parser.add_argument("--min-count", type=int, default=3)
     args = parser.parse_args()
     frequent = {language: set(words) for language, words in json.loads(args.vocabulary.read_text()).items()}
+    paths = {language: args.exports / name for language, name in EXPORT.items()}
+    counts = {language: word_counts(path, language) for language, path in paths.items()}
+    known = {
+        language: frequent[language] | set(attested(counts[language], language, frequent[language]))
+        for language in EXPORT
+    }
     mapping = {"en": (EN_TO_RU, "ru"), "ru": (RU_TO_EN, "en")}
     vocabulary = {
         language: {
             word for word in words
-            if len(word) >= 2 and "".join(table.get(char, char) for char in word) in frequent[other]
+            if len(word) >= 2 and "".join(table.get(char, char) for char in word) in known[other]
         }
-        for language, words in frequent.items()
+        for language, words in known.items()
         for table, other in [mapping[language]]
     }
     result = {
@@ -88,12 +103,10 @@ def main() -> int:
         "attested": {},
     }
     for language, name in EXPORT.items():
-        path = args.exports / name
-        result["sha256"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
-        followers, attested = statistics(path, language, vocabulary[language], frequent[language], args.min_count)
-        result["followers"][language] = followers
-        result["attested"][language] = attested
-        print(language, len(followers), len(attested))
+        result["sha256"][name] = hashlib.sha256(paths[language].read_bytes()).hexdigest()
+        result["followers"][language] = followers(paths[language], language, vocabulary[language], args.min_count)
+        result["attested"][language] = attested(counts[language], language, frequent[language])
+        print(language, len(result["followers"][language]), len(result["attested"][language]))
     payload = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     with gzip.GzipFile(args.output, "wb", mtime=0) as output:
         output.write(payload)

@@ -390,6 +390,8 @@ final class LayoutDecoderTests: XCTestCase {
             ("Cfy-Ahfywbcrj", "en", "ru", ["из"], "Сан-Франциско"),
             ("<fdfhbb", "en", "ru", ["в"], "Баварии"),
             ("ВТФ", "ru", "en", ["the"], "DNA"),
+            ("шеэы", "ru", "en", [], "it's"),
+            ("Тфвфдэы", "ru", "en", [], "Nadal's"),
         ] {
             let result = evaluate(typed, current: current, target: target, context: context)
             XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
@@ -411,6 +413,11 @@ final class LayoutDecoderTests: XCTestCase {
         for context in [[], ["the", "fresh"]] {
             XCTAssertNotEqual(evaluate("herb", context: context).decision.verdict, .switchToConverted, "\(context)")
         }
+        var oneRussianWord = LanguageBelief.neutral
+        oneRussianWord.observe(language: "ru")
+        let follower = evaluate("herb", context: ["большие"], belief: oneRussianWord)
+        XCTAssertEqual(follower.decision.candidate.replacement, "руки")
+        XCTAssertEqual(follower.decision.verdict, .switchToConverted)
     }
 
     func testAttestedReadingsOfAbbreviationsAndCaseEndings() {

@@ -214,7 +214,11 @@ dictionary > none: a frequent wrapped core keeps its quote (`"lj` -> `"до`, no
 `<fdfhbb` -> `Баварии`), and an unknown core never keeps a trailing `.`/`,`
 letter key as punctuation (`utjabkmnhfwb.` -> `геофильтрацию`, `Gtyl;f,` ->
 `Пенджаб`). FLORES dev: 1,161 safe misses, 20 wrong, 13 false positives;
-legacy gate unchanged at 45. Since build 135 a source
+legacy gate unchanged at 45. Build 146 (model 3.4): one previous Russian word
+that Tatoeba shows leading to the reading is enough (`большие herb` -> `руки`);
+contractions are attested (`шеэы` -> `it's`) and an English possessive is
+attested through its base (`Тфвфдэы` -> `Nadal's`). FLORES dev: 1,099 safe
+misses, 20 wrong, 13 false positives; legacy 44 safe misses. Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides
@@ -389,9 +393,13 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model `2026.10-v3.3-mapped` (format 3),
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.4-mapped` (format 3),
   current SHA-256
-  `cdf51ccc7fc15efd162bf95710339f99d33bd2f43332ac234a06f2589bb69591` (15.0 MB).
+  `81b443e8c8adda4c3ba7a764a0131187da6554f0901920cbfbb2e7593f4021fa` (15.6 MB).
+  Model 3.4 (build 146) widens the Tatoeba statistics: followers cover every
+  word whose keys spell a frequent or attested word in the other layout
+  (17,831 EN and 4,220 RU pairs, was 7,862 and 134), and attested English words
+  include contractions (`it's`, `didn't`).
   Format 3 (build 143) stores every score table as an `RSHT` open-addressing
   hash table that `ModelScoreTable` reads in place from the memory-mapped file;
   the Russian Bloom filter is read in place too. Only metadata, thresholds and

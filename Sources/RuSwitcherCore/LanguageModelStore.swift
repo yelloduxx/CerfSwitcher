@@ -322,10 +322,16 @@ public final class LanguageModelStore: @unchecked Sendable {
 
     /// The listed frequency, or else a Tatoeba-attested one placed below every
     /// listed word. Spelling forms that conversational text never uses have none.
+    /// An English possessive is attested through its base (`country's`, `Nadal's`).
     public func attestedWordLogProbability(_ word: String, language: String) -> Double? {
         let normalized = Self.normalize(word)
         let canonical = Self.canonical(language)
-        return words[canonical]?.value(for: normalized) ?? attestedWords[canonical]?.value(for: normalized)
+        if let value = words[canonical]?.value(for: normalized) ?? attestedWords[canonical]?.value(for: normalized) {
+            return value
+        }
+        guard canonical == "en", normalized.count > 3, normalized.hasSuffix("'s") else { return nil }
+        let base = String(normalized.dropLast(2))
+        return words[canonical]?.value(for: base) ?? attestedWords[canonical]?.value(for: base)
     }
 
     /// ln P(word | previous) from conversational text, present only for words

@@ -53,12 +53,13 @@ in `scripts/v4_training_sources.json`.
 
 ## Tatoeba next-word statistics
 
-Since model `2026.10-v3.2-context` (now `2026.10-v3.3-mapped`), `language-model-v1.bin` contains a small
+Since model `2026.10-v3.2-context` (now `2026.10-v3.4-mapped`), `language-model-v1.bin` contains a small
 derived table of next-word probabilities computed from the Tatoeba English and
 Russian per-language sentence exports (downloaded 2026-10-12). It covers only
-words whose keys also spell a frequent word in the other layout, such as
-`here`/`руку`. Since build 140 it also contains rank-scaled counts of words that
-occur at least twice in those exports. No sentences are shipped; `scripts/data/tatoeba-followers.json.gz`
+words whose keys also spell a frequent or attested word in the other layout,
+such as `here`/`руку` and `herb`/`руки`. Since build 140 it also contains
+rank-scaled counts of words, contractions included since build 146, that occur
+at least twice in those exports. No sentences are shipped; `scripts/data/tatoeba-followers.json.gz`
 records the export SHA-256 hashes and is rebuilt by
 `scripts/build_tatoeba_followers.py`.
 
