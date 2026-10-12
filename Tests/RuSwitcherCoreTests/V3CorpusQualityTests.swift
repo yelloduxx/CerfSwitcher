@@ -112,7 +112,13 @@ final class V3CorpusQualityTests: XCTestCase {
                 context: ["это", "текст"],
                 beliefLanguage: "ru"
             )
-            if result.decision.verdict == .switchToConverted { falsePositives += 1 }
+            guard result.decision.verdict == .switchToConverted else { continue }
+            // A rare SCOWL spelling may yield to a frequent Russian word (`ult` → `где`).
+            let converted = FrequentWordLexicon.normalize(result.decision.candidate.replacement)
+            if model.englishSpellingTier(word) != .rare
+                || model.wordLogProbability(converted, language: "ru") == nil {
+                falsePositives += 1
+            }
         }
         XCTAssertEqual(falsePositives, 0)
     }

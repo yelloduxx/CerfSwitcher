@@ -635,19 +635,24 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.verdict, .switchToConverted)
     }
 
-    func testBothKnownRussianSourceAndEnglishTargetRemainLiteral() {
-        let result = evaluate(
-            "туче",
-            current: "ru",
-            target: "en",
-            context: ["this", "text"]
-        )
+    func testFrequentTargetBeatsRareDictionarySource() {
         XCTAssertEqual(KeyMapping.convert("туче"), "next")
+        for (typed, current, target, context, expected) in [
+            ("туче", "ru", "en", ["this", "text"], "next"),
+            ("туче", "ru", "en", ["это", "текст"], "next"),
+            ("тучею", "ru", "en", ["what's"], "next."),
+            ("ult", "en", "ru", ["это", "текст"], "где"),
+        ] {
+            let result = evaluate(typed, current: current, target: target, context: context)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
+    func testFrequentRussianWordsOnFrequentEnglishKeysStayLiteral() {
+        let result = evaluate("руку", current: "ru", target: "en", context: ["это", "текст"])
+        XCTAssertEqual(KeyMapping.convert("руку"), "here")
         XCTAssertEqual(result.decision.verdict, .keep)
-        XCTAssertTrue(
-            result.evidence.contains(.russianSourceDictionary)
-                || result.evidence.contains(.blockedContext)
-        )
     }
 
     func testKnownEnglishWordCanStartAfterRussianContext() {

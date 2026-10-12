@@ -167,6 +167,7 @@ public final class LanguageModelStore: @unchecked Sendable {
     private let extendedRussianWords: RussianSpellingBloom
 
     private let words: [String: [String: Double]]
+    private let rarestWordLogProbability: [String: Double]
     private let characters: [String: [String: Double]]
     private let bigrams: [String: [String: Double]]
     private let trigrams: [String: [String: Double]]
@@ -228,6 +229,7 @@ public final class LanguageModelStore: @unchecked Sendable {
             "ru": try decode([String: Double].self, section: .ruWords),
             "en": try decode([String: Double].self, section: .enWords),
         ]
+        rarestWordLogProbability = words.mapValues { $0.values.min() ?? 0 }
         characters = [
             "ru": try decode([String: Double].self, section: .ruCharacters),
             "en": try decode([String: Double].self, section: .enCharacters),
@@ -308,6 +310,12 @@ public final class LanguageModelStore: @unchecked Sendable {
 
     public func isExtendedRussianWord(_ word: String) -> Bool {
         extendedRussianWords.contains(Self.normalize(word))
+    }
+
+    /// A correctly spelled word missing from the frequency table is rarer than
+    /// every listed word, so its log-probability is at most this bound.
+    public func unlistedWordLogProbabilityBound(language: String) -> Double {
+        rarestWordLogProbability[Self.canonical(language)] ?? 0
     }
 
     public func wordLogProbability(_ word: String, language: String) -> Double? {

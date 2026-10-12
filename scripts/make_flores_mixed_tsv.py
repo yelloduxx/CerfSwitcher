@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build a mixed-layout TSV from the FLORES development split.
 
-Each EN/RU pair yields four realistic phrases: Russian typed fully in the
+Each EN/RU pair yields five realistic phrases: Russian typed fully in the
 English layout, English typed fully in the Russian layout, a Russian sentence
 that slips into the wrong layout midway, and Russian prose with an English
-term after which the user forgot to switch back. The frozen test split is
+term after which the user forgot to switch back, and Russian prose with an
+English term typed without switching to the English layout. The frozen test split is
 never read.
 """
 
@@ -70,6 +71,8 @@ def main() -> int:
                 mixed = ru[:at] + [term] + ru[at:]
                 labels = [label(t, False) for t in ru[:at]] + ["en_correct"] + [label(t, True) for t in ru[at:]]
                 rows.append(row(mixed, labels))
+                forgotten = [label(t, False) for t in ru[:at]] + ["en_wrong"] + [label(t, False) for t in ru[at:]]
+                rows.append(row(mixed, forgotten))
     with args.output.open("w", encoding="utf-8", newline="") as output:
         csv.writer(output, delimiter="\t", lineterminator="\n").writerows(rows)
     print(f"{len(rows) - 1} phrases")

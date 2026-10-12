@@ -180,7 +180,15 @@ Hard blockers remain authoritative:
 
 Unknown valid Russian words must not convert to English from script score alone.
 Both-known pairs such as `here`/`руку` use a strict safety threshold and normally
-stay unchanged unless explicitly confirmed by the user.
+stay unchanged unless explicitly confirmed by the user. Since build 135 a source
+known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
+against a frequent target: when the target's unigram log-probability exceeds the
+rarest listed source-language word by 2.5 (natural log), frequency decides
+(`тучею` -> `next.`, `ult` -> `где`). Common/standard SCOWL words stay protected.
+Trailing `.`/`,` keys read as `ю`/`б` when that forms a word (build 134), and an
+opening bracket never ends a word (build 132). The legacy 5,000-phrase gate is
+now 189 safe misses; `scripts/make_flores_mixed_tsv.py` builds the independent
+FLORES development phrases used to find new errors.
 
 ## Event and Editing State
 

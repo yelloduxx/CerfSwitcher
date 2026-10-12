@@ -191,6 +191,10 @@ public enum LayoutDecoder {
         } ?? fallback(typed: typed, converted: converted)
     }
 
+    /// Natural-log margin (about 12x) a frequent target needs over the bound
+    /// for an unlisted source spelling before frequency overrides membership.
+    private static let rareSourceFrequencyMargin = 2.5
+
     private static func preservedDecorationCount(_ candidate: AutoConvertCandidate) -> Int {
         candidate.prefix.count + candidate.suffix.count
     }
@@ -355,10 +359,24 @@ public enum LayoutDecoder {
             && targetExtendedRussian
             && sourceKnown == nil
             && englishSourceConfidence == .unlikely
+        // Dictionary membership alone does not make both readings equally
+        // likely. A frequent target far above every unlisted source spelling
+        // wins: `тучею` → `next.`, `ult` → `где`. Common and standard SCOWL
+        // words sit just below the frequency list (`herb`), so only rare ones
+        // count as rare.
+        let sourceSpellingOnly = sourceKnown == nil
+            && (sourceExtendedRussian || (currentCanonical == "en" && model.englishSpellingTier(literal) == .rare))
+        let frequencyGap = targetKnown.map {
+            $0 - model.unlistedWordLogProbabilityBound(language: currentCanonical)
+        }
+        let frequentTargetOutranksRareSource = literal.count >= 2
+            && sourceSpellingOnly
+            && (frequencyGap ?? -.infinity) >= Self.rareSourceFrequencyMargin
         if literal.count >= 2,
            sourceKnown != nil || sourceExtendedRussian,
            targetKnown != nil || targetExtendedEnglish || targetExtendedRussian,
-           !frequentEnglishTargetBeatsWeakSource {
+           !frequentEnglishTargetBeatsWeakSource,
+           !frequentTargetOutranksRareSource {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
         }
         if literal.count >= 2, englishSourceConfidence == .frequent {
@@ -369,7 +387,7 @@ public enum LayoutDecoder {
                 evidence: [.englishSourceFrequent]
             )
         }
-        if literal.count >= 2, englishSourceConfidence == .dictionary {
+        if literal.count >= 2, englishSourceConfidence == .dictionary, !frequentTargetOutranksRareSource {
             return fixed(
                 baseCandidate,
                 verdict: .keep,
@@ -377,7 +395,8 @@ public enum LayoutDecoder {
                 evidence: [.englishSourceDictionary]
             )
         }
-        if literal.count >= 2, sourceExtendedRussian, !frequentEnglishTargetBeatsWeakSource {
+        if literal.count >= 2, sourceExtendedRussian, !frequentEnglishTargetBeatsWeakSource,
+           !frequentTargetOutranksRareSource {
             return fixed(
                 baseCandidate,
                 verdict: .keep,
@@ -428,6 +447,10 @@ public enum LayoutDecoder {
         }
         if strongExtendedRussianTarget {
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
+        }
+        if frequentTargetOutranksRareSource, let frequencyGap {
+            convertedScore += max(0, currentBeliefScore - targetBeliefScore)
+                + frequencyGap - Self.rareSourceFrequencyMargin
         }
 
         if sourceKnown != nil { literalScore += 2.2 }
