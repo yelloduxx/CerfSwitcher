@@ -98,6 +98,10 @@ def read_state(path, run_id, schema_version=1):
     return data
 
 
+def read_driver_state(path, run_id):
+    return read_state(path, run_id, schema_version=(1, 2))
+
+
 class BlockedEnvironment(RuntimeError):
     pass
 
@@ -466,7 +470,7 @@ def run_case(root, fixture, executables, automatic, *, sample_process=False, edi
             raise RuntimeError(f"native process exits: {[p.returncode for p in (app, host, driver)]}")
         host_result = read_state(root / "host-result.json", run_id, schema_version=2)
         app_result = read_state(root / "app-result.json", run_id, schema_version=2)
-        driver_result = read_state(root / "driver-result.json", run_id, schema_version=(1, 2))
+        driver_result = read_driver_state(root / "driver-result.json", run_id)
         if not all([host_result, app_result, driver_result]):
             raise RuntimeError("missing final native result")
         failures = assess(fixture, host_result, app_result, driver_result,

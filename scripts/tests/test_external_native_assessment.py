@@ -233,6 +233,9 @@ class NativeAssessmentTests(unittest.TestCase):
             SUITE.write_json(path, dict(schemaVersion=1, runID="same"))
             with self.assertRaisesRegex(ValueError, "foreign/stale"):
                 SUITE.read_state(path, "same", schema_version=2)
+            SUITE.write_json(path, dict(schemaVersion=2, runID="other"))
+            with self.assertRaisesRegex(ValueError, "foreign/stale"):
+                SUITE.read_driver_state(path, "same")
             SUITE.write_json(path, dict(schemaVersion=2, runID="same"))
             self.assertIsNotNone(SUITE.read_state(path, "same", schema_version=2))
 
@@ -378,13 +381,16 @@ class NativeAssessmentTests(unittest.TestCase):
             for version, accepted in ((1, True), (2, True), (3, False), (0, False)):
                 SUITE.write_json(path, dict(schemaVersion=version, runID="same"))
                 if accepted:
-                    self.assertIsNotNone(SUITE.read_state(path, "same", schema_version=(1, 2)))
+                    self.assertIsNotNone(SUITE.read_driver_state(path, "same"))
                 else:
                     with self.assertRaisesRegex(ValueError, "foreign/stale"):
-                        SUITE.read_state(path, "same", schema_version=(1, 2))
+                        SUITE.read_driver_state(path, "same")
             SUITE.write_json(path, dict(schemaVersion=1, runID="same"))
             with self.assertRaisesRegex(ValueError, "foreign/stale"):
                 SUITE.read_state(path, "same", schema_version=2)
+            SUITE.write_json(path, dict(schemaVersion=2, runID="other"))
+            with self.assertRaisesRegex(ValueError, "foreign/stale"):
+                SUITE.read_driver_state(path, "same")
 
     def testWarmupFailuresInvalidateTheEvidenceBeforeAnotherWindow(self):
         for name in ("missing-warmup-post", "warmup-inside-schedule", "warmup-reached-editor"):
