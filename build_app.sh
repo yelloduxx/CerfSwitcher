@@ -9,8 +9,7 @@ APP_EXECUTABLE="RuSwitcherPro"
 APP_DISPLAY_NAME="RuSwitcher Pro"
 BUNDLE_ID="com.ruswitcher.pro"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
-# Universal-сборка кладёт продукт сюда (а не в .build/release)
-BUILD_DIR="$PROJECT_DIR/.build/apple/Products/Release"
+BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME")
 VERSION_JSON="$PROJECT_DIR/version.json"
 
 # version.json — единый источник правды. Значения в Info.plist в репо
@@ -25,12 +24,24 @@ if [ -z "$SHORT_VERSION" ]; then
     exit 1
 fi
 
+UNSIGNED_BUNDLE=0
+if [ "${RUSWITCH_UNSIGNED_BUNDLE:-}" = "1" ]; then
+    UNSIGNED_BUNDLE=1
+    if [ -n "${SIGN_ID:-}" ]; then
+        echo "ERROR: RUSWITCH_UNSIGNED_BUNDLE=1 cannot be combined with SIGN_ID"
+        exit 1
+    fi
+elif [ -n "${RUSWITCH_UNSIGNED_BUNDLE:-}" ]; then
+    echo "NOTE: RUSWITCH_UNSIGNED_BUNDLE=$RUSWITCH_UNSIGNED_BUNDLE ignored; only 1 builds an unsigned bundle"
+fi
+
 echo "=== Building $APP_DISPLAY_NAME ($APP_NAME / $BUNDLE_ID) v$SHORT_VERSION (build $BUILD_VERSION) ==="
 
 # 1. Собираем release — universal (arm64 + x86_64), чтобы работало и на Intel-маках
 echo "→ swift build -c release --arch arm64 --arch x86_64 (universal)..."
 cd "$PROJECT_DIR"
-swift build -c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME"
+swift build "${BUILD_FLAGS[@]}"
+BUILD_DIR="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
 
 # 2. Создаём .app bundle
 echo "→ Creating app bundle..."
@@ -88,6 +99,14 @@ echo "→ Bundled V3 production model and third-party notices"
 
 # 6. Создаём PkgInfo
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
+
+if [ "$UNSIGNED_BUNDLE" = "1" ]; then
+    echo ""
+    echo "UNSIGNED: bundle is for CI checks only and is not installable"
+    echo "=== Done! ==="
+    echo "App bundle: $APP_BUNDLE"
+    exit 0
+fi
 
 # 7. Подписываем стабильной identity. Developer ID сохраняет разрешения между
 #    публичными обновлениями; локальный сертификат сохраняет их между нашими
