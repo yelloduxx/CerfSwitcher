@@ -1058,9 +1058,12 @@ bash scripts/run_native_release_smoke.sh
 - CI job `release-build` on the `xcode-27` runner image runs
   `swift test -c release` and the release `RuSwitcherSimulator`, printing a
   counts-only summary (words total/passed/failed, phrases total/passed) and
-  failing when the simulator fails. `xcode-27` is a preview label: if it
-  disappears the job queues instead of failing, `timeout-minutes` does not
-  cover queue time, and no branch protection requires the job.
+  failing when the simulator fails. A final `App bundle` step (P01c) builds the
+  unsigned bundle with `RUSWITCH_UNSIGNED_BUNDLE=1 bash build_app.sh` and runs
+  `bash scripts/verify_v3_only_build.sh RuSwitcherPro.app`. `xcode-27` is a
+  preview label: if it disappears the job queues instead of failing,
+  `timeout-minutes` does not cover queue time, and no branch protection
+  requires the job.
 - Correct tokenization costs about 2.2 us/word in an in-package release
   measurement, above the plan's 2 us ceiling. The same cost appears on the base
   with only the `isMember` closure, so it predates this fix. The broken base
@@ -1142,15 +1145,43 @@ binary change.
 `SIGN_ID` it looks for Developer ID, then `RuSwitcher Local Code Signing`, and
 stops with `ERROR: no signing identity found.` when neither is valid; an empty
 `SIGN_ID` is the same as unset and never skips signing. Ad-hoc signing
-(`--sign -`) must not appear in the script.
+(`--sign -`) must not appear in the script. Auto-discovery uses
+`security find-identity -v -p codesigning`, which lists valid identities only.
+On the development Mac that command reports 0 valid identities, because
+`RuSwitcher Local Code Signing` shows `CSSMERR_TP_NOT_TRUSTED`. A build there
+needs an explicit `SIGN_ID='RuSwitcher Local Code Signing'`, which signs fine;
+without it the script stops at `ERROR: no signing identity found.`
 
 `RUSWITCH_UNSIGNED_BUNDLE=1 bash build_app.sh` is the CI-only opt-in. It skips
 `codesign`, the `Authority` check and `spctl`, prints `UNSIGNED: bundle is for
 CI checks only and is not installable`, and fails when combined with `SIGN_ID`.
-The `App bundle` step of the `release-build` job (`xcode-27`) uses it and then
-runs `scripts/verify_v3_only_build.sh RuSwitcherPro.app`. Never install an
-unsigned bundle. `scripts/tests/test_build_app.py` covers both paths with a stub
-`swift` and `security`.
+A value other than `1` is ignored with a `NOTE:` line and the script then
+requires a signing identity. The `App bundle` step of the `release-build` job
+(`xcode-27`) uses it and then runs
+`scripts/verify_v3_only_build.sh RuSwitcherPro.app`. Never install an unsigned
+bundle. The bundle is not signed as a bundle, but its Mach-O keeps the linker's
+own signature: `codesign -dv` shows `Signature=adhoc` with
+`flags=0x20002(adhoc,linker-signed)` and `Info.plist=not bound`, while
+`codesign --verify --deep --strict` prints `code object is not signed at all`
+and fails. The `spctl` line does not discriminate on the development Mac, where
+`spctl --assess` prints `accepted` with `override=security disabled` for signed
+and unsigned bundles alike.
+
+`scripts/tests/test_build_app.py` runs the real `build_app.sh` against a stub
+`swift` (it supplies the `--show-bin-path` directory), a stub `security` and a
+recording `codesign` wrapper that logs its arguments. It covers the products
+directory lookup, the opt-in and its conflicts, the universal-binary check, the
+version stamp, and the resources. It also covers the no-identity failure,
+Local and Developer ID identity discovery (with the wrapper declining to sign),
+and a runtime guard that no `codesign` call ever uses identity `-` when no
+identity is found, `SIGN_ID` is empty or the opt-in is set. It does not run the
+signed path. `codesign --verify`, the `Authority` check and `spctl` have been
+checked only by live runs with an explicit `SIGN_ID`, not by any test.
+
+`build_input_method.sh` still hardcodes `BUILD_DIR` to
+`.build/apple/Products/Release`. On Swift 6.4 it fails the same way
+`build_app.sh` did until a follow-up gives it the same `--show-bin-path`
+lookup, so the Input Method build above does not work on that toolchain yet.
 
 The external native harness builds its own probe from the same sources and
 cannot launch the bundle `build_app.sh` produces, so only an operator
