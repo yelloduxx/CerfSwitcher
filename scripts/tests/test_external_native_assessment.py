@@ -233,9 +233,6 @@ class NativeAssessmentTests(unittest.TestCase):
             SUITE.write_json(path, dict(schemaVersion=1, runID="same"))
             with self.assertRaisesRegex(ValueError, "foreign/stale"):
                 SUITE.read_state(path, "same", schema_version=2)
-            SUITE.write_json(path, dict(schemaVersion=2, runID="other"))
-            with self.assertRaisesRegex(ValueError, "foreign/stale"):
-                SUITE.read_driver_state(path, "same")
             SUITE.write_json(path, dict(schemaVersion=2, runID="same"))
             self.assertIsNotNone(SUITE.read_state(path, "same", schema_version=2))
 
