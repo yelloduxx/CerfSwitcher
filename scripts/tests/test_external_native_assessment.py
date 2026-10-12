@@ -12,12 +12,12 @@ SPEC.loader.exec_module(SUITE)
 
 LONG_FIXTURE = json.loads((Path(__file__).parents[2] / "Tests/Fixtures/Simulator/physical-auto-code-switch.json").read_text())
 CONSUMED_BOUNDARIES = (14, 68, 152)
+ARCHIVED_ACTION_ZERO_POST_NS = 8_914_000
+ARCHIVED_MAX_LATENESS_US = 9_107
+SLOW_FIRST_POST_NS = 9_900_000
 
 
 def archived_shape_evidence(*, warmup=True):
-    """Consistent evidence for the 186-action fixture, shaped like the one valid archived run:
-    action 0 posted in 8.914 ms and lateness under 10 ms. Release 15 is delivered here, unlike
-    the archived run, so the only open question is the warm-up."""
     actions, oracle = LONG_FIXTURE["stimulus"]["actions"], LONG_FIXTURE["oracle"]
     marker, begin = 0x5253544500000123, 45_052_866_096_875
     delivered = [dict(kind=a["kind"], keyCode=a["keyCode"], marker=marker + i + 1)
@@ -35,13 +35,13 @@ def archived_shape_evidence(*, warmup=True):
     records = []
     for i, a in enumerate(actions):
         planned = begin + a["atMicroseconds"] * 1_000
-        duration = (8_914_000 if i == 0 and not warmup else 16_000)
+        duration = (ARCHIVED_ACTION_ZERO_POST_NS if i == 0 and not warmup else 16_000)
         records.append(dict(actionIndex=i, plannedNanoseconds=planned, postedNanoseconds=planned + duration + 100_000,
                             layoutID="unused", postNanoseconds=duration))
     driver = dict(schemaVersion=2 if warmup else 1, pid=30, status="complete", finalLayoutID=oracle["finalLayoutID"],
-                  restoredLayout=True, maximumLatenessMicroseconds=400 if warmup else 9_107, records=records)
+                  restoredLayout=True, maximumLatenessMicroseconds=400 if warmup else ARCHIVED_MAX_LATENESS_US, records=records)
     if warmup:
-        driver["warmup"] = dict(postedNanoseconds=begin - 60_000_000, postNanoseconds=9_900_000)
+        driver["warmup"] = dict(postedNanoseconds=begin - 60_000_000, postNanoseconds=SLOW_FIRST_POST_NS)
         host["warmupEvents"] = [dict(kind="keyUp", keyCode=actions[0]["keyCode"], atNanoseconds=begin - 59_000_000)]
     return host, app, driver, marker
 
@@ -318,14 +318,14 @@ class NativeAssessmentTests(unittest.TestCase):
     def testSchemaOneDriverReportIsRejectedAsMissingWarmup(self):
         host, app, driver, marker = archived_shape_evidence(warmup=False)
         self.assertEqual((len(driver["records"]), driver["records"][0]["postNanoseconds"], driver["schemaVersion"]),
-                         (186, 8_914_000, 1))
+                         (186, ARCHIVED_ACTION_ZERO_POST_NS, 1))
         self.assertNotIn("warmup", driver)
         self.assertEqual(assess_archived_shape(host, app, driver, marker), ["missing-warmup-post"])
 
     def testWarmupNotBeforeFirstScheduledActionIsInsideSchedule(self):
         host, app, driver, marker = archived_shape_evidence()
         planned = driver["records"][0]["plannedNanoseconds"]
-        for posted in (planned, planned + 1, planned + 9_900_000):
+        for posted in (planned, planned + 1, planned + SLOW_FIRST_POST_NS):
             driver["warmup"]["postedNanoseconds"] = posted
             self.assertEqual(assess_archived_shape(host, app, driver, marker), ["warmup-inside-schedule"])
         driver["warmup"]["postedNanoseconds"] = planned - 1

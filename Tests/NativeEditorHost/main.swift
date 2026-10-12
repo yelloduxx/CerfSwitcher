@@ -337,7 +337,6 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         guard status == .recording, !finished else { return false }
         let marker = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
         if marker == config.inputMarker {
-            // The driver's warm-up release: neither the editor nor the receipt list may see it.
             appKitWarmupCount += 1
             if event.type != .keyUp || appKitWarmupCount > 1 { unexpectedInput() }
             return false

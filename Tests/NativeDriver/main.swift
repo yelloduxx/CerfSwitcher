@@ -37,6 +37,8 @@ private struct InputRecord: Codable {
     let postNanoseconds: UInt64
 }
 
+private let warmupSettleNanoseconds: UInt64 = 50_000_000
+
 private struct WarmupRecord: Encodable {
     let postedNanoseconds: UInt64
     let postNanoseconds: UInt64
@@ -139,9 +141,6 @@ private func prepareEvent(_ action: PhysicalTypingAction, index: Int, config: Ex
     return event
 }
 
-/// A key release for the first pressed key, marked with the bare input marker. The marker
-/// offset 0 is no action index, so the editor host recognises it and the app's tap, which
-/// masks key-up events out, never sees it.
 private func prepareWarmup(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration,
                            source: CGEventSource) throws -> CGEvent {
     guard let key = stimulus.actions.first(where: { $0.kind == .keyDown })?.keyCode,
@@ -212,14 +211,12 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
     }
     try wait(until: DispatchTime.now().uptimeNanoseconds + 100_000_000, cancelled: cancelled)
     guard currentLayoutID() == stimulus.initialLayoutID else { throw DriverError.blockedLayout }
-    // Hypothesis: the first real post in a process pays a one-time cost. Pay it on a release
-    // outside the schedule, then let it settle before the schedule starts.
     let warmupEvent = try prepareWarmup(stimulus, config: config, source: eventSource)
     let warmupStarted = DispatchTime.now().uptimeNanoseconds
     warmupEvent.post(tap: .cghidEventTap)
     let warmupPosted = DispatchTime.now().uptimeNanoseconds
     report.warmup = WarmupRecord(postedNanoseconds: warmupPosted, postNanoseconds: warmupPosted - warmupStarted)
-    try wait(until: warmupPosted + 50_000_000, cancelled: cancelled)
+    try wait(until: warmupPosted + warmupSettleNanoseconds, cancelled: cancelled)
     let began = DispatchTime.now().uptimeNanoseconds
     for (index, action) in stimulus.actions.enumerated() {
         let planned = began + action.atMicroseconds * 1_000

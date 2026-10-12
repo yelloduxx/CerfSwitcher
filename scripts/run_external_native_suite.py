@@ -169,7 +169,7 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor=
         failures.append("invalid-driver-timestamps")
     if driver.get("maximumLatenessMicroseconds", 10001) > 10000:
         failures.append("input-schedule-too-late")
-    failures += warmup_failures(host, driver, records, input_marker, editor)
+    failures += warmup_post_failures(driver, records) + warmup_isolation_failures(host, input_marker, editor)
     for checkpoint in oracle.get("checkpoints", []):
         index = checkpoint["actionIndex"]
         # A press may wait behind an active callback. The producer's earlier
@@ -200,16 +200,17 @@ def valid_warmup_evidence(host, driver):
         type(warmup.get(key)) is int and warmup[key] >= 0 for key in ("postedNanoseconds", "postNanoseconds"))
 
 
-def warmup_failures(host, driver, records, input_marker, editor):
-    """The driver's warm-up release is outside the schedule and must never reach the editor."""
-    failures = []
+def warmup_post_failures(driver, records):
     warmup = driver.get("warmup")
     if warmup is None:
-        failures.append("missing-warmup-post")
-    else:
-        first = next((row for row in records if row.get("actionIndex") == 0), None)
-        if first is not None and warmup["postedNanoseconds"] >= first.get("plannedNanoseconds", 0):
-            failures.append("warmup-inside-schedule")
+        return ["missing-warmup-post"]
+    first = next((row for row in records if row.get("actionIndex") == 0), None)
+    if first is not None and warmup["postedNanoseconds"] >= first.get("plannedNanoseconds", 0):
+        return ["warmup-inside-schedule"]
+    return []
+
+
+def warmup_isolation_failures(host, input_marker, editor):
     receipts = host["eventTrace"] + host["receivedEvents"]
     leaked = any(event.get("marker") == input_marker for event in receipts)
     sightings = len(host.get("warmupEvents", []))
@@ -219,9 +220,7 @@ def warmup_failures(host, driver, records, input_marker, editor):
                               and input_marker < event["marker"] <= input_marker + 10_000
                               for event in host["receivedEvents"])
         leaked = leaked or dom_releases > action_releases
-    if leaked or sightings > 1:
-        failures.append("warmup-reached-editor")
-    return failures
+    return ["warmup-reached-editor"] if leaked or sightings > 1 else []
 
 
 def dom_evidence_failures(host):
