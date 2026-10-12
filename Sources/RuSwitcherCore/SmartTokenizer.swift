@@ -122,7 +122,12 @@ public enum SmartTokenizer {
         }
         let letters = raw.filter(\.isLetter)
         if letters.count > 1, letters == letters.uppercased() { return true }
-        for (index, char) in raw.enumerated() where index > 0 && char.isUppercase { return true }
+        // A capital after a hyphen starts the next part of a name
+        // (`Сан-Франциско`); anywhere else inside a word it marks camelCase.
+        let characters = Array(raw)
+        for index in characters.indices.dropFirst() where characters[index].isUppercase {
+            if !"-–".contains(characters[index - 1]) { return true }
+        }
         return false
     }
 

@@ -62,6 +62,7 @@ private struct PhraseStepResult: Codable, Sendable {
     let sourceLanguage: String
     let expectedVerdict: String
     let actualVerdict: String
+    let actualReason: String
     let expectedResolved: String
     let actualResolved: String
     let passed: Bool
@@ -606,6 +607,7 @@ private func evaluatePhrase(
             sourceLanguage: currentLanguage,
             expectedVerdict: step.expected.rawValue,
             actualVerdict: String(describing: evaluation.decision.verdict),
+            actualReason: String(describing: evaluation.decision.reason),
             expectedResolved: step.expectedResolved,
             actualResolved: resolved,
             passed: passed

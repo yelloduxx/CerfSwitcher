@@ -193,7 +193,16 @@ needs target char-LM >= -13.0 or Tatoeba attestation (`Konami` stays, not
 dictionary evidence when a hyphenated reading is a word in every part and the
 typed one is not (`премьер-министра`, but codes with an all-caps part such as
 `ru-RU` stay), and when an all-caps token reads as an attested target word while
-its own letters spell no word (`CIF/` -> `США.`; `NASA`, `HTTP` stay). Since build 135 a source
+its own letters spell no word (`CIF/` -> `США.`; `NASA`, `HTTP` stay). Build 142
+targets proper names: on the English layout a lone final `/` is the Russian
+period key, not a path (`Fdcnhfkbb/` -> `Австралии.`); a capital right after a
+hyphen is a name part, not camelCase (`Сан-Франциско`); a Tatoeba-attested
+target reading over typed letters that spell no word gets the dictionary bonus
+and passes the unknown-English gate (`Дщы` -> `Los`, `ВТФ` -> `DNA`), unless it
+keeps a leading layout-letter key as punctuation; and a word keeping such a key
+faces the attested letter reading (`<fdfhbb` -> `Баварии`). Unattested acronyms
+such as `KPI` still need explicit confirmation. FLORES dev: 1,406 safe misses
+(was 1,842), 45 wrong, 13 false positives. Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides

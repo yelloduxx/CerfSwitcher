@@ -96,6 +96,16 @@ public enum LayoutDecoder {
             return (targetCanonical == "en" && model.isExtendedEnglishWord(word))
                 || (targetCanonical == "ru" && model.isExtendedRussianWord(word))
         }
+        // A word that keeps a leading layout-letter key as punctuation faces an
+        // attested reading of that key as a letter: `<fdfhbb` is `Баварии`,
+        // not `<аварии`.
+        func attestedPrefixReadings(against tier: [AutoConvertCandidate]) -> [AutoConvertCandidate] {
+            guard tier.contains(where: preservesLayoutLetterPrefix) else { return [] }
+            return generated.filter {
+                !preservesLayoutLetterPrefix($0) && !preservesLayoutLetterSuffix($0) && !tier.contains($0)
+                    && model.attestedWordLogProbability(candidateWord($0), language: targetCanonical) != nil
+            }
+        }
         let confirmedCandidates = generated.filter { candidate in
             isConfirmed(typed, candidate.replacement)
         }
@@ -115,8 +125,9 @@ public enum LayoutDecoder {
                 }
                 : []
             candidates = frequentCandidates + attestedLetterReadings
+                + attestedPrefixReadings(against: frequentCandidates + attestedLetterReadings)
         } else if !spellingCandidates.isEmpty {
-            candidates = spellingCandidates
+            candidates = spellingCandidates + attestedPrefixReadings(against: spellingCandidates)
         } else {
             candidates = generated
         }
@@ -310,9 +321,16 @@ public enum LayoutDecoder {
         if literal.isEmpty {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])
         }
-        let sourceShapeIsProtected = shape.kind.blocksAutomaticConversion
+        // On the English layout a lone final `/` is the Russian period key, so
+        // `Fdcnhfkbb/` ends a sentence rather than naming a path.
+        let typedSlashes = candidate.typedRaw.filter { $0 == "/" }.count
+        let sourceKind = currentCanonical == "en" && typedSlashes == 1 && candidate.typedRaw.hasSuffix("/")
+            ? SmartTokenizer.shape(of: String(candidate.typedRaw.dropLast())).kind
+            : shape.kind
+        let sourceShapeIsProtected = sourceKind.blocksAutomaticConversion
             && !(convertedShape.kind == .lexical
-                && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian))
+                && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian
+                    || model.attestedWordLogProbability(converted, language: targetCanonical) != nil))
         // A lone capital is usually an initial or a letter name, except when it
         // is not a word at all and its other-layout key is: `Ш` → `I`, `(Ш)` →
         // `(I)`. A trailing period still marks an initial (`Ш.`). A Latin
@@ -534,6 +552,11 @@ public enum LayoutDecoder {
                 + frequencyGap - Self.rareSourceFrequencyMargin
         }
 
+        let attestedTargetOverNonWord = !Self.preservesLayoutLetterPrefix(candidate)
+            && sourceKnown == nil
+            && !sourceExtendedRussian
+            && !(currentCanonical == "en" && model.isExtendedEnglishWord(literal))
+            && model.attestedWordLogProbability(converted, language: targetCanonical) != nil
         if sourceKnown != nil { literalScore += 2.2 }
         if englishSourceConfidence == .plausibleOOV {
             literalScore += model.thresholds.englishSourcePlausibleBonus
@@ -556,6 +579,11 @@ public enum LayoutDecoder {
         } else if strongExtendedRussianTarget {
             convertedScore += 3.0
             evidence.append(.russianTargetDictionary)
+        } else if attestedTargetOverNonWord {
+            // A name in use (`<ei` → `Буш`) against typed letters that spell
+            // no word in either dictionary.
+            convertedScore += 3.0
+            evidence.append(targetCanonical == "ru" ? .russianTargetDictionary : .englishTargetDictionary)
         } else {
             evidence.append(.characterModel)
         }
@@ -628,8 +656,12 @@ public enum LayoutDecoder {
                 return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
             }
         }
+        // A name in use (`Ыфт` → `San`, `Дщы` → `Los`) is attested English
+        // text, while its typed letters spell no Russian word.
+        let attestedEnglishName = model.attestedWordLogProbability(converted, language: targetCanonical) != nil
+            && !sourceExtendedRussian
         if currentCanonical == "ru", targetCanonical == "en",
-           sourceKnown == nil, targetKnown == nil, !rankedExtendedEnglishTarget {
+           sourceKnown == nil, targetKnown == nil, !rankedExtendedEnglishTarget, !attestedEnglishName {
             // Unknown English words can still be clear layout mistakes (афиду →
             // fable). Permit them only when the character model has a strong
             // advantage and the recent language state is not distinctly Russian.

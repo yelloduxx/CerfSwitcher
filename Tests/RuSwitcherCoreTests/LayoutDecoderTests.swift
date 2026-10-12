@@ -384,6 +384,23 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
+    func testProperNamesInUseConvert() {
+        for (typed, current, target, context, expected) in [
+            ("Fdcnhfkbb/", "en", "ru", ["в"], "Австралии."),
+            ("Cfy-Ahfywbcrj", "en", "ru", ["из"], "Сан-Франциско"),
+            ("<fdfhbb", "en", "ru", ["в"], "Баварии"),
+            ("ВТФ", "ru", "en", ["the"], "DNA"),
+        ] {
+            let result = evaluate(typed, current: current, target: target, context: context)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+        for typed in ["src/", "usr/lib/", "Content-Type"] {
+            let result = evaluate(typed, current: "en", target: "ru", context: ["в"])
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
@@ -802,8 +819,8 @@ final class LayoutDecoderTests: XCTestCase {
     }
 
     func testUppercaseAcronymRequiresExplicitConfirmation() {
-        let typed = KeyMapping.convert("SEO")
-        XCTAssertEqual(typed, "ЫУЩ")
+        let typed = KeyMapping.convert("KPI")
+        XCTAssertEqual(typed, "ЛЗШ")
 
         let unconfirmed = evaluate(typed, current: "ru", target: "en")
         XCTAssertEqual(unconfirmed.decision.verdict, .keep)
@@ -815,7 +832,7 @@ final class LayoutDecoderTests: XCTestCase {
             confirmed: true
         )
         XCTAssertEqual(confirmed.decision.verdict, .switchToConverted)
-        XCTAssertEqual(confirmed.decision.candidate.replacement, "SEO")
+        XCTAssertEqual(confirmed.decision.candidate.replacement, "KPI")
         XCTAssertEqual(confirmed.decision.reason, .confirmedByUser)
     }
 

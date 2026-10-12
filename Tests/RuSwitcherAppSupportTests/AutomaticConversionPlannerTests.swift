@@ -149,15 +149,15 @@ final class AutomaticConversionPlannerTests: XCTestCase {
     func testAdaptiveCallbacksAllowConfirmedPlainAcronymButNotStructuredCode() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
         let unconfirmed = AutomaticConversionPlanner.prepare(
-            snapshot: snapshot("ЫУЩ", source: "test.source.ru"), original: "ЫУЩ", converted: "SEO",
+            snapshot: snapshot("ЛЗШ", source: "test.source.ru"), original: "ЛЗШ", converted: "KPI",
             currentLanguage: "ru", targetLanguage: "en", targetLayoutID: "test.target.en", model: model
         )
-        XCTAssertEqual(assertKept(unconfirmed, text: "ЫУЩ", language: "ru")?.decision.verdict, .keep)
+        XCTAssertEqual(assertKept(unconfirmed, text: "ЛЗШ", language: "ru")?.decision.verdict, .keep)
 
         var confirmationPairs: [[String]] = []
         var biasPairs: [[String]] = []
         let confirmed = AutomaticConversionPlanner.prepare(
-            snapshot: snapshot("ЫУЩ", source: "test.source.ru"), original: "ЫУЩ", converted: "SEO",
+            snapshot: snapshot("ЛЗШ", source: "test.source.ru"), original: "ЛЗШ", converted: "KPI",
             currentLanguage: "ru", targetLanguage: "en", targetLayoutID: "test.target.en",
             adaptiveBias: { original, converted in
                 biasPairs.append([original, converted])
@@ -165,22 +165,22 @@ final class AutomaticConversionPlannerTests: XCTestCase {
             },
             isConfirmed: { original, converted in
                 confirmationPairs.append([original, converted])
-                return original == "ЫУЩ" && converted == "SEO"
+                return original == "ЛЗШ" && converted == "KPI"
             }, model: model
         )
-        XCTAssertEqual(try replacement(in: confirmed).transaction.replacement, "SEO")
+        XCTAssertEqual(try replacement(in: confirmed).transaction.replacement, "KPI")
         XCTAssertEqual(confirmed.evaluation?.decision.reason, .confirmedByUser)
         XCTAssertFalse(confirmationPairs.isEmpty)
         XCTAssertFalse(biasPairs.isEmpty)
-        XCTAssertTrue(confirmationPairs.allSatisfy { $0 == ["ЫУЩ", "SEO"] })
-        XCTAssertTrue(biasPairs.allSatisfy { $0 == ["ЫУЩ", "SEO"] })
+        XCTAssertTrue(confirmationPairs.allSatisfy { $0 == ["ЛЗШ", "KPI"] })
+        XCTAssertTrue(biasPairs.allSatisfy { $0 == ["ЛЗШ", "KPI"] })
 
         let structured = AutomaticConversionPlanner.prepare(
-            snapshot: snapshot("SEO_"), original: "SEO_", converted: "ЫУЩ_",
+            snapshot: snapshot("KPI_"), original: "KPI_", converted: "ЛЗШ_",
             currentLanguage: "en", targetLanguage: "ru", targetLayoutID: "test.target",
             isConfirmed: { _, _ in true }, model: model
         )
-        XCTAssertEqual(assertKept(structured, text: "SEO_", language: "en")?.decision.reason, .blockedCodeLike)
+        XCTAssertEqual(assertKept(structured, text: "KPI_", language: "en")?.decision.reason, .blockedCodeLike)
 
         let negativeBias = AutomaticConversionPlanner.prepare(
             snapshot: snapshot("ghbdtn"), original: "ghbdtn", converted: "привет",
