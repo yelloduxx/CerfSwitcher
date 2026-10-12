@@ -363,6 +363,23 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.verdict, .switchToConverted)
     }
 
+    func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        for typed in ["Konami", "(Geospiza", "kalaallit"] {
+            let result = evaluate(typed, context: ["это", "текст"], belief: russianBelief)
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
+    func testDictionaryLetterReadingBeatsTypedPeriod() {
+        for (typed, expected) in [("dthjznyjcnm.", "вероятностью"), ("cnjk,", "столб")] {
+            let result = evaluate(typed, context: ["это"])
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+    }
+
     func testLayoutLetterWinsWhenBothInterpretationsAreWords() {
         for (typed, expected) in [
             ("xnj,", "чтоб"), ("yjxm.", "ночью"), ("xfcnm.", "частью"), ("j,", "об"),

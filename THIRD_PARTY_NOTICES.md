@@ -57,7 +57,8 @@ Since model `2026.10-v3.2-context`, `language-model-v1.bin` contains a small
 derived table of next-word probabilities computed from the Tatoeba English and
 Russian per-language sentence exports (downloaded 2026-10-12). It covers only
 words whose keys also spell a frequent word in the other layout, such as
-`here`/`руку`. No sentences are shipped; `scripts/data/tatoeba-followers.json.gz`
+`here`/`руку`. Since build 140 it also contains rank-scaled counts of words that
+occur at least twice in those exports. No sentences are shipped; `scripts/data/tatoeba-followers.json.gz`
 records the export SHA-256 hashes and is rebuilt by
 `scripts/build_tatoeba_followers.py`.
 

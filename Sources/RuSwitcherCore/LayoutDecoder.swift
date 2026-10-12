@@ -80,6 +80,12 @@ public enum LayoutDecoder {
                 SmartTokenizer.lexicalCore(of: candidate.convertedWord)
             )
         }
+        func isTargetWord(_ candidate: AutoConvertCandidate) -> Bool {
+            let word = candidateWord(candidate)
+            return model.wordLogProbability(word, language: targetCanonical) != nil
+                || (targetCanonical == "en" && model.isExtendedEnglishWord(word))
+                || (targetCanonical == "ru" && model.isExtendedRussianWord(word))
+        }
         let frequentCandidates = generated.filter { candidate in
             let word = candidateWord(candidate)
             return model.wordLogProbability(word, language: targetCanonical) != nil
@@ -99,7 +105,16 @@ public enum LayoutDecoder {
         if !confirmedCandidates.isEmpty {
             candidates = confirmedCandidates
         } else if !frequentCandidates.isEmpty {
-            candidates = frequentCandidates
+            // A frequent word that keeps a `.`/`,` key as punctuation still faces
+            // an attested word reading that key as a letter (`вероятностью`).
+            let keepsLayoutLetterSuffix = frequentCandidates.contains(where: preservesLayoutLetterSuffix)
+            let attestedLetterReadings = keepsLayoutLetterSuffix
+                ? spellingCandidates.filter {
+                    !preservesLayoutLetterSuffix($0) && !frequentCandidates.contains($0)
+                        && model.attestedWordLogProbability(candidateWord($0), language: targetCanonical) != nil
+                }
+                : []
+            candidates = frequentCandidates + attestedLetterReadings
         } else if !spellingCandidates.isEmpty {
             candidates = spellingCandidates
         } else {
@@ -146,8 +161,8 @@ public enum LayoutDecoder {
             let lhsLayoutLetterSuffix = preservesLayoutLetterSuffix(lhs.decision.candidate)
             let rhsLayoutLetterSuffix = preservesLayoutLetterSuffix(rhs.decision.candidate)
             if lhsLayoutLetterSuffix != rhsLayoutLetterSuffix {
-                if lhsLayoutLetterSuffix, hasLexicalTargetEvidence(rhs) { return true }
-                if rhsLayoutLetterSuffix, hasLexicalTargetEvidence(lhs) { return false }
+                if lhsLayoutLetterSuffix, isTargetWord(rhs.decision.candidate) { return true }
+                if rhsLayoutLetterSuffix, isTargetWord(lhs.decision.candidate) { return false }
             }
             let lhsHasPhraseEvidence = lhs.evidence.contains(.phraseContext)
             let rhsHasPhraseEvidence = rhs.evidence.contains(.phraseContext)
@@ -190,6 +205,11 @@ public enum LayoutDecoder {
                 < preservedDecorationCount(rhs.decision.candidate)
         } ?? fallback(typed: typed, converted: converted)
     }
+
+    /// A word no dictionary knows converts only when it reads like the target
+    /// language in absolute terms, `кринж` (-11.9) but not `Лщтфьш` (-15.0)
+    /// from `Konami`, or when conversational text attests it (`Джеймса`).
+    private static let unlistedTargetCharacterFloor = -13.0
 
     /// ln(1%): the previous word must lead to the target reading at least this often.
     private static let followerContinuationFloor = log(0.01)
@@ -594,7 +614,10 @@ public enum LayoutDecoder {
             || rankedExtendedEnglishTarget
             || strongExtendedRussianTarget
             || compound != nil
-            || strongScriptMismatch
+            || (strongScriptMismatch
+                && (model.characterLogProbability(converted, language: targetCanonical)
+                    >= Self.unlistedTargetCharacterFloor
+                    || model.attestedWordLogProbability(converted, language: targetCanonical) != nil))
         let verdict: LayoutVerdict = margin >= threshold && hasLexicalEvidence
             ? .switchToConverted
             : (sourceKnown != nil || sourceExtendedRussian ? .keep : .undecided)

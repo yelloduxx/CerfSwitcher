@@ -49,6 +49,8 @@ SECTION = {
     "ru_extended": 13,
     "ru_followers": 14,
     "en_followers": 15,
+    "ru_attested": 16,
+    "en_attested": 17,
 }
 
 SCOWL_COMMON_ARCHIVE = Path("scripts/data/scowl35-en.txt.gz")
@@ -61,7 +63,7 @@ RU_HUNSPELL_ARCHIVE = Path("scripts/data/ru_RU.dic.gz")
 RU_HUNSPELL_ARCHIVE_SHA256 = "f8cd59e9489e05b2e816cb0f414a96634eb4908ec9fed56216dd223f36efee4f"
 RU_HUNSPELL_AFFIXES = Path("scripts/data/ru_RU.aff.gz")
 TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
-TATOEBA_FOLLOWERS_SHA256 = "beebede27229fb88d18c92a5b3620286f91059662b03c2e4eab1714ecfec9ea4"
+TATOEBA_FOLLOWERS_SHA256 = "9fd0be0d0b15af570641ce8187b5894d8984c607e03cf90e895ca543a83dce82"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
 RUSSIAN_BLOOM_BITS = 1 << 25
 RUSSIAN_BLOOM_HASHES = 9
@@ -252,11 +254,19 @@ def read_phrases(path: Path, language: str, order: int) -> dict[str, float]:
     return {phrase: round(math.log(freq / peak), 6) for phrase, freq in values.items()}
 
 
-def read_followers(path: Path) -> dict[str, dict[str, float]]:
+def read_tatoeba(path: Path) -> dict[str, object]:
     if sha256(path) != TATOEBA_FOLLOWERS_SHA256:
         raise RuntimeError(f"SHA-256 mismatch for {path}")
     with gzip.open(path, "rt", encoding="utf-8") as handle:
-        return json.load(handle)["followers"]
+        return json.load(handle)
+
+
+def attested_section(counts: dict[str, int], listed: dict[str, float]) -> dict[str, float]:
+    """Place Tatoeba-attested unlisted words strictly below every listed word,
+    keeping their relative order."""
+    floor = min(listed.values()) - 0.01
+    peak = max(counts.values())
+    return {word: round(floor + math.log(count / peak), 2) for word, count in counts.items() if word not in listed}
 
 
 def json_bytes(value: object) -> bytes:
@@ -314,7 +324,8 @@ def main() -> None:
         en_words,
     )
     ru_extended = russian_hunspell_forms(args.russian_dictionary, args.russian_affixes)
-    followers = read_followers(TATOEBA_FOLLOWERS)
+    tatoeba = read_tatoeba(TATOEBA_FOLLOWERS)
+    followers = tatoeba["followers"]
     metadata = {
         "formatVersion": 2,
         "modelVersion": "2026.10-v3.2-context",
@@ -331,6 +342,8 @@ def main() -> None:
             "ruExtended": len(ru_extended),
             "ruFollowers": len(followers["ru"]),
             "enFollowers": len(followers["en"]),
+            "ruAttested": len(tatoeba["attested"]["ru"]),
+            "enAttested": len(tatoeba["attested"]["en"]),
         },
         "followerSource": "Tatoeba sentence exports, CC BY 2.0 FR",
     }
@@ -372,6 +385,8 @@ def main() -> None:
         "ru_extended": bloom_bytes(ru_extended),
         "ru_followers": followers["ru"],
         "en_followers": followers["en"],
+        "ru_attested": attested_section(tatoeba["attested"]["ru"], ru_words),
+        "en_attested": attested_section(tatoeba["attested"]["en"], en_words),
     }
     write_model(args.output, [
         (SECTION[name], value if isinstance(value, bytes) else json_bytes(value))

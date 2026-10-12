@@ -184,7 +184,11 @@ context tokens (build 138): after two English words `руку` becomes `here`, a
 two Russian words `here` becomes `руку`; otherwise they stay unchanged unless
 explicitly confirmed by the user. One previous target-language word suffices
 when Tatoeba shows it leads to the target reading at least 1% of the time
-(`come руку` -> `come here`). Since build 135 a source
+(`come руку` -> `come here`). Build 140: an attested letter reading of a
+trailing `.`/`,` key competes with a frequent punctuation reading
+(`вероятностью`, not `вероятность.`), and a conversion with no dictionary evidence
+needs target char-LM >= -13.0 or Tatoeba attestation (`Konami` stays, not
+`Лщтфьш`; `Джеймса` still converts). Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides
@@ -359,10 +363,11 @@ RuSwitcher Pro remains running as build 130.
 Bundled resources:
 
 - `language-model-v1.bin`: versioned V3 model `2026.10-v3.2-context`, current
-  SHA-256 `d7f6978db7787d7dd521a7393f099291f5d85867acd16864e9183981463ff154`.
+  SHA-256 `f96e9202dc46af4def858920925a4e24186556dd1bf059e598e705b8ab7d4e99` (10.7 MB).
   Sections 14/15 hold Tatoeba-derived ln P(word | previous) for words whose keys
-  spell a frequent word in the other layout (build 139); older models load
-  without them. `scripts/v4_training_sources.json` still pins the earlier model
+  spell a frequent word in the other layout (build 139). Sections 16/17 hold
+  Tatoeba-attested words outside the frequency list (count >= 2), placed below
+  every listed word (build 140). Older models load without them. `scripts/v4_training_sources.json` still pins the earlier model
   that V4 research was bootstrapped from.
 - Production `.app` contains no V4 model. `layout-model-v4.json` and
   `LayoutRerankerV4.mlmodelc` belong only to `Experimental/V4`.

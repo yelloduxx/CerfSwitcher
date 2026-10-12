@@ -146,6 +146,8 @@ public final class LanguageModelStore: @unchecked Sendable {
         case extendedRussian = 13
         case ruFollowers = 14
         case enFollowers = 15
+        case ruAttested = 16
+        case enAttested = 17
     }
 
     public static var bundledResourceURL: URL? {
@@ -174,6 +176,7 @@ public final class LanguageModelStore: @unchecked Sendable {
     private let bigrams: [String: [String: Double]]
     private let trigrams: [String: [String: Double]]
     private let followers: [String: [String: Double]]
+    private let attestedWords: [String: [String: Double]]
 
     public convenience init(contentsOf url: URL) throws {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
@@ -268,6 +271,10 @@ public final class LanguageModelStore: @unchecked Sendable {
             "ru": try sectionData[.ruFollowers].map { _ in try decode([String: Double].self, section: .ruFollowers) } ?? [:],
             "en": try sectionData[.enFollowers].map { _ in try decode([String: Double].self, section: .enFollowers) } ?? [:],
         ]
+        attestedWords = [
+            "ru": try sectionData[.ruAttested].map { _ in try decode([String: Double].self, section: .ruAttested) } ?? [:],
+            "en": try sectionData[.enAttested].map { _ in try decode([String: Double].self, section: .enAttested) } ?? [:],
+        ]
         guard let russianBloomData = sectionData[.extendedRussian] else {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
@@ -357,6 +364,14 @@ public final class LanguageModelStore: @unchecked Sendable {
             }
         }
         return count == 0 ? -16 : total / Double(count)
+    }
+
+    /// The listed frequency, or else a Tatoeba-attested one placed below every
+    /// listed word. Spelling forms that conversational text never uses have none.
+    public func attestedWordLogProbability(_ word: String, language: String) -> Double? {
+        let normalized = Self.normalize(word)
+        let canonical = Self.canonical(language)
+        return words[canonical]?[normalized] ?? attestedWords[canonical]?[normalized]
     }
 
     /// ln P(word | previous) from conversational text, present only for words

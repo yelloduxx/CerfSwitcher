@@ -19,7 +19,9 @@ import random
 import re
 from pathlib import Path
 
-QUOTES = str.maketrans({"«": '"', "»": '"', "„": '"', "“": '"', "”": '"', "’": "'", "…": "..."})
+# Quotes are dropped: a Russian quote is Shift+2 (`@` in the English layout),
+# which the static projection of the TSV runner cannot express.
+QUOTES = str.maketrans({"«": None, "»": None, "„": None, "“": None, "”": None, '"': None, "’": "'", "…": "..."})
 CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
 LATIN = re.compile(r"[a-z]", re.IGNORECASE)
 
