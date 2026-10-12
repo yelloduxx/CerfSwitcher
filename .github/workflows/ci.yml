@@ -35,10 +35,7 @@ jobs:
             echo "Legacy AX test identity returned to production scripts" >&2
             exit 1
           fi
-          if git grep -nE '\.contains\)' -- '*.swift'; then
-            echo "Pass contains predicates as closures: Swift 6.4 -O miscompiles bound references (swiftlang/swift#92539)" >&2
-            exit 1
-          fi
+          bash scripts/lint_bound_contains.sh
 
       - name: Unit tests
         run: swift test
@@ -94,5 +91,13 @@ jobs:
 
       - name: Release simulator
         run: |
+          status=0
           swift run -c release RuSwitcherSimulator --jobs 4 \
-            --output "$RUNNER_TEMP/simulator-release.json" >/dev/null
+            --output "$RUNNER_TEMP/simulator-release.json" >/dev/null || status=$?
+          python3 - "$RUNNER_TEMP/simulator-release.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("words total={total} passed={passed} failed={failed}; "
+                "phrases total={phraseTotal} passed={phrasePassed}".format(**report))
+          PY
+          exit "$status"
