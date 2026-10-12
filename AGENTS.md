@@ -359,6 +359,27 @@ Adaptive learning behavior:
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.
 - Simple switch-only actions do not train.
 - Adaptive rules persist in `UserDefaults`.
+- Personal lexicon (build 149): a plain word that no frequency list knows,
+  typed and left alone on three separate occasions (at least 10 minutes
+  apart), becomes a personal word silently; `LanguageModelStore.personalized`
+  then lists it as the rarest word of its language, so `jr` converts to a
+  personal `ок` and a personal `pstack` stays in Russian prose. Only the
+  automatic planner sees the personalized model; `ManualLearningPolicy` and
+  rule sanitizing keep the bundled one. A spelling the character model prefers
+  in the other layout (`jr`, `зыефсл`) never counts, nor do all-caps,
+  code-like, mixed or listed tokens, nor keeps from editing state or user
+  rules. Sightings never come from secure input, denied applications or
+  remote-desktop deferral; `PersonalLexiconObserver` also reads the focused
+  field's AX subrole off the event thread (cached per field for a minute):
+  an `AXSecureTextField` or a non-editable focus is skipped, an AX timeout is
+  allowed because secure input is the operating system's password guard
+  there. A manual conversion of that spelling removes it. Limits: 4,000
+  candidates, 2,000 personal words; stored under
+  `com.ruswitcher.personalLexicon.v1`, flushed 3 s after a change and on quit,
+  cleared with "reset learned corrections"; hidden default
+  `com.ruswitcher.personalLexicon` (true) turns it off. Not in the export
+  archive. The log carries no words, only `auto_posted_*`/`auto_blocked_*`
+  outcome names added in the same build.
 - Advanced settings can reset learned corrections.
 - Advanced settings can export and import learned word rules as a versioned,
   human-readable JSON archive. Import merges by normalized source, target and
@@ -459,6 +480,8 @@ downloads and no network inference.
 - Decoder, models and personal learning are local.
 - Debug logs contain only lengths, language/evidence categories, revision,
   latency buckets and transaction outcomes; never words or neighboring text.
+  The personal lexicon stores the user's own often-typed words locally in the
+  app's defaults, like learned pairs, and never logs them.
 - The anonymous-statistics UI, reporter, persistence and localization keys were
   removed. There is no statistics endpoint.
 - The obsolete repository stats workflow, Telegram reporter and committed

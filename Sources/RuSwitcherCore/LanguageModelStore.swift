@@ -196,6 +196,8 @@ public final class LanguageModelStore: @unchecked Sendable {
     private let trigrams: [String: ModelScoreTable]
     private let followers: [String: ModelScoreTable]
     private let attestedWords: [String: ModelScoreTable]
+    /// Words the user types often that no table lists; see `PersonalLexicon`.
+    private let personalWords: [String: Set<String>]
 
     public convenience init(contentsOf url: URL) throws {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
@@ -272,6 +274,33 @@ public final class LanguageModelStore: @unchecked Sendable {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
         extendedRussianWords = try RussianSpellingBloom(storage: data, range: russianBloomRange)
+        personalWords = [:]
+    }
+
+    private init(copying other: LanguageModelStore, personalWords: [String: Set<String>]) {
+        metadata = other.metadata
+        thresholds = other.thresholds
+        productiveRussianParts = other.productiveRussianParts
+        productiveRussianSuffixes = other.productiveRussianSuffixes
+        extendedEnglishTiers = other.extendedEnglishTiers
+        extendedRussianWords = other.extendedRussianWords
+        words = other.words
+        rarestWordLogProbability = other.rarestWordLogProbability
+        characters = other.characters
+        bigrams = other.bigrams
+        trigrams = other.trigrams
+        followers = other.followers
+        attestedWords = other.attestedWords
+        self.personalWords = personalWords
+    }
+
+    /// The same tables with the user's own words listed as the rarest words of
+    /// their language. Nothing is copied; the tables stay file-backed.
+    public func personalized(with words: [String: Set<String>]) -> LanguageModelStore {
+        let normalized = Dictionary(uniqueKeysWithValues: words.map { language, set in
+            (Self.canonical(language), Set(set.map(Self.normalize)))
+        })
+        return LanguageModelStore(copying: self, personalWords: normalized)
     }
 
     public func contains(_ word: String, language: String) -> Bool {
@@ -314,7 +343,11 @@ public final class LanguageModelStore: @unchecked Sendable {
     }
 
     public func wordLogProbability(_ word: String, language: String) -> Double? {
-        words[Self.canonical(language)]?.value(for: Self.normalize(word))
+        let canonical = Self.canonical(language)
+        let normalized = Self.normalize(word)
+        if let value = words[canonical]?.value(for: normalized) { return value }
+        guard personalWords[canonical]?.contains(normalized) == true else { return nil }
+        return rarestWordLogProbability[canonical]
     }
 
     /// Deterministic frequency order used by offline quality gates. The app
@@ -351,12 +384,12 @@ public final class LanguageModelStore: @unchecked Sendable {
     public func attestedWordLogProbability(_ word: String, language: String) -> Double? {
         let normalized = Self.normalize(word)
         let canonical = Self.canonical(language)
-        if let value = words[canonical]?.value(for: normalized) ?? attestedWords[canonical]?.value(for: normalized) {
+        if let value = wordLogProbability(normalized, language: canonical) ?? attestedWords[canonical]?.value(for: normalized) {
             return value
         }
         guard canonical == "en", normalized.count > 3, normalized.hasSuffix("'s") else { return nil }
         let base = String(normalized.dropLast(2))
-        return words[canonical]?.value(for: base) ?? attestedWords[canonical]?.value(for: base)
+        return wordLogProbability(base, language: canonical) ?? attestedWords[canonical]?.value(for: base)
     }
 
     /// ln P(word | previous) from conversational text, present only for words

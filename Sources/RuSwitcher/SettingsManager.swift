@@ -12,6 +12,7 @@ final class SettingsManager: @unchecked Sendable {
 
     private let defaults: UserDefaults
     private let learnedRules: LearnedRulesStore
+    let personalLexicon: PersonalLexiconStore
 
     private static func makeDefaults() -> UserDefaults {
         guard let suiteName = RuntimePreferencesDomain.isolatedSuiteName(
@@ -52,11 +53,13 @@ final class SettingsManager: @unchecked Sendable {
         static let deniedWords = "com.ruswitcher.deniedWords"
         static let alwaysConvertWords = "com.ruswitcher.alwaysConvertWords"
         static let adaptiveRules = LearnedRulesStore.storageKey
+        static let personalLexiconEnabled = "com.ruswitcher.personalLexicon"
     }
 
     private init(defaults: UserDefaults) {
         self.defaults = defaults
         self.learnedRules = LearnedRulesStore(defaults: defaults)
+        self.personalLexicon = PersonalLexiconStore(defaults: defaults)
         defaults.removeObject(forKey: "com.ruswitcher.shareAnonymousStatistics")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV2")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV3")
@@ -318,6 +321,12 @@ final class SettingsManager: @unchecked Sendable {
 
     func clearAdaptiveRules() {
         learnedRules.clear()
+        personalLexicon.clear()
+    }
+
+    /// Silent learning of often-typed unlisted words; no UI, on by default.
+    var personalLexiconEnabled: Bool {
+        defaults.object(forKey: Keys.personalLexiconEnabled) as? Bool ?? true
     }
 
     func exportLearnedCorrections() throws -> Data {

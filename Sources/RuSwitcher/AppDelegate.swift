@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     )
     private lazy var automaticReplacementDriver = AutomaticReplacementDriver(coordinator: replacementCoordinator)
     private let languageModel = LanguageModelStore.bundled
+    private lazy var personalLexicon = PersonalLexiconObserver(
+        store: SettingsManager.shared.personalLexicon, base: languageModel, resolver: focusedElementResolver
+    )
     private lazy var textContextReader = FocusedTextContextReader(
         focusedElementResolver: focusedElementResolver
     )
@@ -241,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rslog("learning_application_exception")
             return true
         case let .confirmation(source, target, _):
+            personalLexicon.forget(original: source, language: SmartTokenizer.languageHint(for: source) ?? "en")
             sessionNegativePairs.remove(learningKey(original: source, converted: target, appBundleID: frontID))
             lastAutoConverted = AutoLearningEvent(original: source, converted: target, appBundleID: frontID, at: Date())
             rslog("learning_confirmed")
@@ -1056,13 +1060,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     original: original, converted: converted, appBundleID: frontID
                 )
             },
-            model: languageModel
+            model: personalLexicon.model
         )
         CallbackPhaseProbe.mark("auto.decision")
         rslog("auto_decision_completed")
         let request: ReplacementRequest
         switch plan {
-        case let .keep(handling, _): return handling
+        case let .keep(handling, evaluation):
+            // A plain word typed and left alone is a sighting for the personal
+            // lexicon, except when editing state or a user rule decided it.
+            if !deferToRemote, let langs, let reason = evaluation?.decision.reason,
+               reason != .blockedEditing, reason != .blockedNever, reason != .blockedLearned,
+               SettingsManager.shared.personalLexiconEnabled {
+                personalLexicon.observe(typed: pair.original, language: langs.current, focus: snapshot.focus)
+            }
+            return handling
         case let .replace(prepared, _): request = prepared
         }
         guard let langs else { return .passThrough }
@@ -1111,6 +1123,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return submission.handling
     }
 
+    /// Outcomes are static names only; they say why a conversion did not land.
+    private func logReplacementOutcome(_ outcome: ReplacementOutcome) {
+        switch outcome {
+        case .verified: rslog("auto_posted_verified")
+        case .postedUnverified: rslog("auto_posted_unverified")
+        case .switchedOnly: rslog("auto_switched_only")
+        case .blocked(.invalidFocus): rslog("auto_blocked_invalid_focus")
+        case .blocked(.staleRevision): rslog("auto_blocked_stale_revision")
+        case .blocked(.expectedSuffixMismatch): rslog("auto_blocked_suffix_mismatch")
+        case .blocked(.contextUnavailable): rslog("auto_blocked_ax_unavailable")
+        case .blocked(.duplicateTransaction): rslog("auto_blocked_duplicate")
+        case .blocked(.secureInput): rslog("auto_blocked_secure_input")
+        case .blocked(.deniedApplication): rslog("auto_blocked_denied_app")
+        case .blocked(.ambiguousDeletion): rslog("auto_blocked_ambiguous_deletion")
+        case .failed(.eventPostFailed): rslog("auto_failed_post")
+        case .failed(.verificationMismatch): rslog("auto_failed_verification")
+        }
+    }
+
     private func finishAutomaticReplacement(
         outcome: ReplacementOutcome,
         transaction: ConversionTransaction,
@@ -1119,6 +1150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appBundleID: String?,
         stagedSequence: UInt64
     ) {
+        logReplacementOutcome(outcome)
         let completion = AutomaticReplacementDriver.completion(
             for: outcome, transaction: transaction, state: keyboardMonitor.automaticReplacementState()
         )
@@ -1644,6 +1676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        personalLexicon.flush()
         // Не теряем буфер обмена в 2-секундном окне отложенного восстановления
         // (актуально и при само-обновлении, которое завершает процесс).
         sessionResumeWorkItem?.cancel()

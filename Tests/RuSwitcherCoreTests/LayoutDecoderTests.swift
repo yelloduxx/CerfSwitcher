@@ -450,6 +450,30 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertNotNil(model.thresholds.undecidedCalibration)
     }
 
+    func testPersonalWordsConvertAndStayLikeListedWords() {
+        let personal = model.personalized(with: ["ru": ["ок"], "en": ["pstack"]])
+        XCTAssertNotNil(personal.wordLogProbability("ок", language: "ru"))
+        XCTAssertNil(model.wordLogProbability("ок", language: "ru"))
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        func decide(_ typed: String, current: String, target: String, context: [String], belief: LanguageBelief, store: LanguageModelStore) -> AutoConvertDecision {
+            LayoutDecoder.evaluate(
+                typed: typed, converted: KeyMapping.convert(typed), currentLanguage: current, targetLanguage: target,
+                capsLock: false, contextWords: context, languageBelief: belief, policy: .empty, model: store
+            ).decision
+        }
+        let ok = decide("jr", current: "en", target: "ru", context: [], belief: .neutral, store: personal)
+        XCTAssertEqual(ok.verdict, .switchToConverted)
+        XCTAssertEqual(ok.candidate.replacement, "ок")
+        XCTAssertNotEqual(decide("jr", current: "en", target: "ru", context: [], belief: .neutral, store: model).verdict, .switchToConverted)
+        let typed = decide("зыефсл", current: "ru", target: "en", context: ["это"], belief: russianBelief, store: personal)
+        XCTAssertEqual(typed.verdict, .switchToConverted)
+        XCTAssertEqual(typed.candidate.replacement, "pstack")
+        let kept = decide("pstack", current: "en", target: "ru", context: ["это", "текст"], belief: russianBelief, store: personal)
+        XCTAssertNotEqual(kept.verdict, .switchToConverted)
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
