@@ -1102,9 +1102,10 @@ bash scripts/run_native_release_smoke.sh
   scripts at `8e63992`. The older `test_verify_v3_only_build.py` keeps the slow
   package-graph cases that run the real toolchain.
 - On Swift 6.4, `swift build --arch arm64 --arch x86_64` writes products to
-  `.build/out/Products/Release`, so `build_app.sh` stops with "built product
-  not found". The bundle checks above were run against a bundle assembled with
-  that path patched in a throwaway copy. `build_app.sh` itself is unchanged.
+  `.build/out/Products/Release`, so the old hard-coded `.build/apple/...` path
+  made `build_app.sh` stop with "built product not found". `build_app.sh` now
+  asks `swift build ... --show-bin-path` for the directory (see Build, Signing
+  and Installation).
 
 ## Build, Signing and Installation
 
@@ -1134,6 +1135,26 @@ it remains ineligible, so the trust expansion has no benefit.
 `build_app.sh` stamps `version.json`, builds universal, copies model/licence
 resources and signs the bundle. Increment the build number for every installed
 binary change.
+
+`build_app.sh` takes the products directory from
+`swift build -c release --arch arm64 --arch x86_64 --product RuSwitcher --show-bin-path`
+(`.build/out/Products/Release` on Swift 6.4), never from a fixed path. With no
+`SIGN_ID` it looks for Developer ID, then `RuSwitcher Local Code Signing`, and
+stops with `ERROR: no signing identity found.` when neither is valid; an empty
+`SIGN_ID` is the same as unset and never skips signing. Ad-hoc signing
+(`--sign -`) must not appear in the script.
+
+`RUSWITCH_UNSIGNED_BUNDLE=1 bash build_app.sh` is the CI-only opt-in. It skips
+`codesign`, the `Authority` check and `spctl`, prints `UNSIGNED: bundle is for
+CI checks only and is not installable`, and fails when combined with `SIGN_ID`.
+The `App bundle` step of the `release-build` job (`xcode-27`) uses it and then
+runs `scripts/verify_v3_only_build.sh RuSwitcherPro.app`. Never install an
+unsigned bundle. `scripts/tests/test_build_app.py` covers both paths with a stub
+`swift` and `security`.
+
+The external native harness builds its own probe from the same sources and
+cannot launch the bundle `build_app.sh` produces, so only an operator
+installation exercises the built bundle itself.
 
 Install atomically:
 
