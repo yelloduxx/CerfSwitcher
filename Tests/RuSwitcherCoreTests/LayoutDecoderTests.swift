@@ -374,7 +374,7 @@ final class LayoutDecoderTests: XCTestCase {
     }
 
     func testTypedPunctuationWinsWhenBothInterpretationsAreWords() {
-        for (typed, expected) in [("b[", "и["), ("xnj,", "что,"), ("yjxm.", "ночь.")] {
+        for (typed, expected) in [("xnj,", "что,"), ("yjxm.", "ночь.")] {
             let result = evaluate(typed, context: ["это"])
             XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
             XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
@@ -385,6 +385,23 @@ final class LayoutDecoderTests: XCTestCase {
         let result = evaluate("(yt...", context: ["это"])
         XCTAssertEqual(result.decision.candidate.replacement, "(не...")
         XCTAssertEqual(result.decision.verdict, .switchToConverted)
+    }
+
+    func testBracketKeyAtWordEndIsTargetLetter() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        for (typed, expected) in [("b[", "их"), ("yb[", "них"), ("dct[", "всех"), ("lheub[", "других")] {
+            let result = evaluate(
+                typed,
+                current: "en",
+                target: "ru",
+                context: ["я", "видел"],
+                belief: russianBelief
+            )
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
     }
 
     func testTrailingUnderscoreIsPreservedWithoutBlockingWord() {

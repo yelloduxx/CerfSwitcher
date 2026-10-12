@@ -89,6 +89,14 @@ final class MixedPhraseDecoderTests: XCTestCase {
         ]), "революция началась online")
     }
 
+    func testWordEndingInBracketKeyConvertsWholeWordInPhrase() {
+        XCTAssertEqual(simulate(initialLanguage: "ru", steps: [
+            Step("я"), Step("видел"),
+            Step("b[", manualLanguage: "en", expected: "их", shouldSwitch: true),
+            Step("вчера"),
+        ]), "я видел их вчера")
+    }
+
     func testSimpleRussianPhraseTypedInEnglishLayout() {
         XCTAssertEqual(simulate(initialLanguage: "en", steps: [
             Step("gjxtve", expected: "почему", shouldSwitch: true),
