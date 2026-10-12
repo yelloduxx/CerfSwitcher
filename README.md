@@ -219,6 +219,8 @@ Source baseline for build 130 (`de45597`, before the new validation work):
 - **Native release gate:** probes verify the exact RuSwitcher Pro bundle ID, build and executable hash, stage app-facing files in `/tmp`, and report `blocked` unless an isolated session or explicit focus permission is provided.
 - **CI:** every push and pull request runs tests, warnings-as-errors, ASan, deterministic simulators, the negative control and byte-for-byte model reproduction on macOS.
 
+Current source, not yet installed, has 320 XCTest cases: 44 typing, 174 core and 102 app-support. CI also runs the release-configuration tests and simulator on Xcode 27, because Swift 6.4 miscompiled bound `contains` predicates in optimized builds and emptied every lexical core ([swiftlang/swift#92539](https://github.com/swiftlang/swift/issues/92539)). Debug builds were unaffected.
+
 RuSwitcher Pro contains no usage-statistics reporter or endpoint.
 
 ### Settings
@@ -437,6 +439,8 @@ swift run -c release RuSwitcherTypingSimulator \
 - **Новые проверки ranked English:** не менее 90% recall на отложенной выборке каждого уровня SCOWL и ноль ложных замен на 50 000 частых корректных токенов, 50 000 дополнительных английских слов и более чем 3 000 сгенерированных русских OOV-форм.
 - **Нативный release-gate:** probe проверяет bundle ID, build и хеш именно RuSwitcher Pro, передаёт приложению файлы через `/tmp` и возвращает `blocked`, если нет отдельной сессии либо явного разрешения забрать фокус.
 - **CI:** каждый push и pull request запускает тесты, warnings-as-errors, ASan, детерминированные симуляторы, отрицательный контроль и побайтовую проверку воспроизводимости модели на macOS.
+
+Текущий исходный код, ещё не установленный, содержит 320 XCTest-тестов: 44 typing, 174 core и 102 app-support. CI также запускает тесты и симулятор в release-конфигурации на Xcode 27: Swift 6.4 неправильно компилировал переданные по ссылке предикаты `contains` в оптимизированной сборке и опустошал лексическое ядро каждого слова ([swiftlang/swift#92539](https://github.com/swiftlang/swift/issues/92539)). Debug-сборка не затронута.
 
 В приложении нет reporter или endpoint для статистики использования.
 
