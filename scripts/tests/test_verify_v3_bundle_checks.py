@@ -36,19 +36,23 @@ while [ "$#" -gt 0 ]; do
 done
 exit 0
 """
-TOOLS = shutil.which("jq") and shutil.which("cc") and shutil.which("lipo")
+REQUIRED_TOOLS = ("jq", "cc", "lipo")
+UNIVERSAL = ("arm64", "x86_64")
 
 
-def compile_binary(destination: Path, source: str, *flags: str) -> None:
+def compile_binary(destination: Path, source: str, *flags: str,
+                   architectures: tuple[str, ...] = UNIVERSAL) -> None:
     source_file = destination.with_suffix(".c")
     source_file.write_text(source)
-    subprocess.run(["cc", str(source_file), "-o", str(destination), *flags], check=True,
-                   capture_output=True)
+    architecture_flags = [flag for name in architectures for flag in ("-arch", name)]
+    subprocess.run(["cc", str(source_file), "-o", str(destination), *architecture_flags, *flags],
+                   check=True, capture_output=True)
 
 
-@unittest.skipUnless(TOOLS, "jq, cc and lipo are required")
 class VerifyV3BundleChecksTests(unittest.TestCase):
     def setUp(self):
+        missing = [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
+        self.assertEqual(missing, [], f"required tools not found on PATH: {missing}")
         self.directory = Path(tempfile.mkdtemp(prefix="verify-v3-bundle-"))
         self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
         (self.directory / "scripts").mkdir()
@@ -62,6 +66,7 @@ class VerifyV3BundleChecksTests(unittest.TestCase):
 
     def make_bundle(self) -> Path:
         bundle = self.directory / "Fake.app"
+        shutil.rmtree(bundle, ignore_errors=True)
         (bundle / "Contents" / "MacOS").mkdir(parents=True)
         (bundle / "Contents" / "Resources").mkdir()
         (bundle / "Contents" / "Resources" / "language-model-v1.bin").write_bytes(b"model")
@@ -114,6 +119,26 @@ class VerifyV3BundleChecksTests(unittest.TestCase):
         result = self.run_script(bundle)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("alternate decoder symbol found in application executable", result.stdout)
+
+    def testMissingLanguageModelFails(self):
+        bundle = self.make_bundle()
+        compile_binary(self.binary(bundle), "int main(void){return 0;}")
+        (bundle / "Contents" / "Resources" / "language-model-v1.bin").unlink()
+        result = self.run_script(bundle)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("language-model-v1.bin", result.stdout)
+        self.assertNotIn("PASS", result.stdout)
+
+    def testSingleArchitectureExecutableFails(self):
+        for architecture in UNIVERSAL:
+            with self.subTest(architecture=architecture):
+                bundle = self.make_bundle()
+                compile_binary(self.binary(bundle), "int main(void){return 0;}",
+                               architectures=(architecture,))
+                result = self.run_script(bundle)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("not universal", result.stdout)
+                self.assertNotIn("PASS", result.stdout)
 
     def testAbsentDefaultBundleIsReportedAsSkipped(self):
         result = self.run_script()
