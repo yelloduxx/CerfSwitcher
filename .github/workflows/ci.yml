@@ -39,7 +39,7 @@ jobs:
       - name: Unit tests
         run: swift test
 
-      - name: Corpus artifact integrity
+      - name: Script tests
         run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Warnings as errors
@@ -53,15 +53,6 @@ jobs:
           bash scripts/run_randomized_layout_suite.sh
           bash scripts/verify_simulator_negative_control.sh
           bash scripts/run_headless_typing_simulator.sh
-          python3 scripts/run_physical_typing_suite.py
-          bash scripts/verify_v3_only_build.sh
-
-      - name: Reproduce language model
-        run: |
-          python3 scripts/build_language_model.py \
-            --output "$RUNNER_TEMP/language-model-v1.bin"
-          cmp Sources/RuSwitcherCore/Resources/language-model-v1.bin \
-            "$RUNNER_TEMP/language-model-v1.bin"
 
       - name: Physical typing suite
         run: |
@@ -73,5 +64,12 @@ jobs:
           fi
           exit "$status"
 
-      - name: Script tests
-        run: python3 -m unittest discover -s scripts/tests -v
+      - name: V3-only build check
+        run: bash scripts/verify_v3_only_build.sh
+
+      - name: Reproduce language model
+        run: |
+          python3 scripts/build_language_model.py \
+            --output "$RUNNER_TEMP/language-model-v1.bin"
+          cmp Sources/RuSwitcherCore/Resources/language-model-v1.bin \
+            "$RUNNER_TEMP/language-model-v1.bin"
