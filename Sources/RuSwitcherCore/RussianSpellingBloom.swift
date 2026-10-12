@@ -8,9 +8,13 @@ struct RussianSpellingBloom: Sendable {
     let wordCount: Int
     private let hashCount: Int
     private let bitCount: Int
-    private let data: Data
+    private let storage: Data
+    private let bitsOffset: Int
 
-    init(data: Data) throws {
+    /// Reads the filter in place from the mapped model; nothing is copied.
+    init(storage: Data, range: Range<Int>) throws {
+        guard range.count >= Self.headerSize else { throw LanguageModelError.invalidSection(13) }
+        let data = Data(storage[range.lowerBound..<(range.lowerBound + Self.headerSize)])
         guard data.count >= Self.headerSize,
               String(data: data.prefix(4), encoding: .ascii) == "RSBF",
               Self.readUInt16(data, at: 4) == 1 else {
@@ -22,10 +26,11 @@ struct RussianSpellingBloom: Sendable {
         guard hashCount > 0,
               bitCount > 0,
               bitCount.nonzeroBitCount == 1,
-              data.count == Self.headerSize + bitCount / 8 else {
+              range.count == Self.headerSize + bitCount / 8 else {
             throw LanguageModelError.invalidSection(13)
         }
-        self.data = data
+        self.storage = storage
+        bitsOffset = range.lowerBound + Self.headerSize
     }
 
     func contains(_ word: String) -> Bool {
@@ -36,7 +41,7 @@ struct RussianSpellingBloom: Sendable {
         let mask = UInt64(bitCount - 1)
         for index in 0..<hashCount {
             let bit = (first &+ UInt64(index) &* second) & mask
-            let byte = data[Self.headerSize + Int(bit >> 3)]
+            let byte = storage[bitsOffset + Int(bit >> 3)]
             guard byte & (1 << UInt8(bit & 7)) != 0 else { return false }
         }
         return true

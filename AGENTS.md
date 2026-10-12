@@ -376,12 +376,22 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model `2026.10-v3.2-context`, current
-  SHA-256 `f96e9202dc46af4def858920925a4e24186556dd1bf059e598e705b8ab7d4e99` (10.7 MB).
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.3-mapped` (format 3),
+  current SHA-256
+  `cdf51ccc7fc15efd162bf95710339f99d33bd2f43332ac234a06f2589bb69591` (15.0 MB).
+  Format 3 (build 143) stores every score table as an `RSHT` open-addressing
+  hash table that `ModelScoreTable` reads in place from the memory-mapped file;
+  the Russian Bloom filter is read in place too. Only metadata, thresholds and
+  the productive list are JSON. Values stay float64, so decisions are
+  bit-identical to format 2 (identical FLORES and 5,000-phrase results). Load
+  fell from ~200 ms to ~19 ms and the model's dirty footprint from ~55 MB to
+  ~0.3 MB (its ~15 MB of pages are clean, file-backed and reclaimable).
+  `build_language_model.py --reencode OLD.bin` converts a format-2 model without
+  re-downloading sources; only format 3 loads.
   Sections 14/15 hold Tatoeba-derived ln P(word | previous) for words whose keys
   spell a frequent word in the other layout (build 139). Sections 16/17 hold
   Tatoeba-attested words outside the frequency list (count >= 2), placed below
-  every listed word (build 140). Older models load without them. `scripts/v4_training_sources.json` still pins the earlier model
+  every listed word (build 140). `scripts/v4_training_sources.json` still pins the earlier model
   that V4 research was bootstrapped from.
 - Production `.app` contains no V4 model. `layout-model-v4.json` and
   `LayoutRerankerV4.mlmodelc` belong only to `Experimental/V4`.

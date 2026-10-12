@@ -122,14 +122,9 @@ public enum LanguageModelError: Error, Equatable {
     case invalidSection(Int)
 }
 
-/// Immutable, memory-mapped model. JSON is used only inside individually
-/// checksummed binary sections; large spelling tiers use compact sorted vectors.
+/// Immutable, memory-mapped model. Score tables are read in place
+/// (`ModelScoreTable`); JSON is left only for small settings sections.
 public final class LanguageModelStore: @unchecked Sendable {
-    private struct RankedEnglishSpellingSection: Decodable {
-        let words: [String]
-        let tiers: Data
-    }
-
     private enum Section: UInt16, CaseIterable {
         case metadata = 1
         case ruWords = 2
@@ -166,17 +161,16 @@ public final class LanguageModelStore: @unchecked Sendable {
     public let thresholds: LanguageModelThresholds
     public let productiveRussianParts: Set<String>
     public let productiveRussianSuffixes: Set<String>
-    private let extendedEnglishWords: [String]
-    private let extendedEnglishTiers: Data
+    private let extendedEnglishTiers: ModelScoreTable
     private let extendedRussianWords: RussianSpellingBloom
 
-    private let words: [String: [String: Double]]
+    private let words: [String: ModelScoreTable]
     private let rarestWordLogProbability: [String: Double]
-    private let characters: [String: [String: Double]]
-    private let bigrams: [String: [String: Double]]
-    private let trigrams: [String: [String: Double]]
-    private let followers: [String: [String: Double]]
-    private let attestedWords: [String: [String: Double]]
+    private let characters: [String: ModelScoreTable]
+    private let bigrams: [String: ModelScoreTable]
+    private let trigrams: [String: ModelScoreTable]
+    private let followers: [String: ModelScoreTable]
+    private let attestedWords: [String: ModelScoreTable]
 
     public convenience init(contentsOf url: URL) throws {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
@@ -189,7 +183,7 @@ public final class LanguageModelStore: @unchecked Sendable {
             throw LanguageModelError.invalidHeader
         }
         let version = Int(Self.readUInt16(data, at: 4))
-        guard version == 1 || version == 2 else {
+        guard version == 3 else {
             throw LanguageModelError.unsupportedVersion(version)
         }
         let count = Int(Self.readUInt16(data, at: 6))
@@ -199,10 +193,9 @@ public final class LanguageModelStore: @unchecked Sendable {
         guard count > 0, directoryEnd <= data.count, data.count - directoryEnd == payloadLength else {
             throw LanguageModelError.invalidDirectory
         }
-        let payload = data[directoryEnd...]
-        guard Self.fnv1a64(payload) == checksum else { throw LanguageModelError.checksumMismatch }
+        guard Self.fnv1a64(data, from: directoryEnd) == checksum else { throw LanguageModelError.checksumMismatch }
 
-        var sectionData: [Section: Data] = [:]
+        var sectionRanges: [Section: Range<Int>] = [:]
         for index in 0..<count {
             let base = 20 + index * 12
             guard let kind = Section(rawValue: Self.readUInt16(data, at: base)) else { continue }
@@ -212,16 +205,27 @@ public final class LanguageModelStore: @unchecked Sendable {
                 throw LanguageModelError.invalidDirectory
             }
             let start = directoryEnd + offset
-            sectionData[kind] = data.subdata(in: start..<(start + length))
+            sectionRanges[kind] = start..<(start + length)
         }
 
         let decoder = JSONDecoder()
         func decode<T: Decodable>(_ type: T.Type, section: Section) throws -> T {
-            guard let value = sectionData[section] else {
+            guard let range = sectionRanges[section] else {
                 throw LanguageModelError.missingSection(Int(section.rawValue))
             }
-            do { return try decoder.decode(type, from: value) }
+            do { return try decoder.decode(type, from: data.subdata(in: range)) }
             catch { throw LanguageModelError.invalidSection(Int(section.rawValue)) }
+        }
+        func table(_ section: Section) throws -> ModelScoreTable {
+            guard let range = sectionRanges[section] else {
+                throw LanguageModelError.missingSection(Int(section.rawValue))
+            }
+            return try ModelScoreTable(storage: data, range: range, section: Int(section.rawValue))
+        }
+        // Optional since model 2026.10-v3.2: older models simply have no
+        // next-word evidence for ambiguous pairs.
+        func optionalTable(_ section: Section) throws -> ModelScoreTable {
+            sectionRanges[section] == nil ? .empty : try table(section)
         }
 
         metadata = try decode(LanguageModelMetadata.self, section: .metadata)
@@ -231,54 +235,18 @@ public final class LanguageModelStore: @unchecked Sendable {
         productiveRussianSuffixes = Set(productive.compactMap { value in
             value.hasPrefix("-") ? String(value.dropFirst()) : nil
         })
-        words = [
-            "ru": try decode([String: Double].self, section: .ruWords),
-            "en": try decode([String: Double].self, section: .enWords),
-        ]
-        rarestWordLogProbability = words.mapValues { $0.values.min() ?? 0 }
-        characters = [
-            "ru": try decode([String: Double].self, section: .ruCharacters),
-            "en": try decode([String: Double].self, section: .enCharacters),
-        ]
-        bigrams = [
-            "ru": try decode([String: Double].self, section: .ruBigrams),
-            "en": try decode([String: Double].self, section: .enBigrams),
-        ]
-        trigrams = [
-            "ru": try decode([String: Double].self, section: .ruTrigrams),
-            "en": try decode([String: Double].self, section: .enTrigrams),
-        ]
-        if version >= 2 {
-            let ranked = try decode(RankedEnglishSpellingSection.self, section: .extendedEnglish)
-            guard ranked.words.count == ranked.tiers.count,
-                  zip(ranked.words, ranked.words.dropFirst()).allSatisfy({ $0.0 < $0.1 }),
-                  ranked.tiers.allSatisfy({ EnglishSpellingTier(rawValue: Int($0)) != nil })
-            else {
-                throw LanguageModelError.invalidSection(Int(Section.extendedEnglish.rawValue))
-            }
-            extendedEnglishWords = ranked.words
-            extendedEnglishTiers = ranked.tiers
-        } else {
-            extendedEnglishWords = try decode([String].self, section: .extendedEnglish).sorted()
-            extendedEnglishTiers = Data(
-                repeating: UInt8(EnglishSpellingTier.standard.rawValue),
-                count: extendedEnglishWords.count
-            )
-        }
-        // Optional since model 2026.10-v3.2: older models simply have no
-        // next-word evidence for ambiguous pairs.
-        followers = [
-            "ru": try sectionData[.ruFollowers].map { _ in try decode([String: Double].self, section: .ruFollowers) } ?? [:],
-            "en": try sectionData[.enFollowers].map { _ in try decode([String: Double].self, section: .enFollowers) } ?? [:],
-        ]
-        attestedWords = [
-            "ru": try sectionData[.ruAttested].map { _ in try decode([String: Double].self, section: .ruAttested) } ?? [:],
-            "en": try sectionData[.enAttested].map { _ in try decode([String: Double].self, section: .enAttested) } ?? [:],
-        ]
-        guard let russianBloomData = sectionData[.extendedRussian] else {
+        words = ["ru": try table(.ruWords), "en": try table(.enWords)]
+        rarestWordLogProbability = words.mapValues { $0.minimumValue() ?? 0 }
+        characters = ["ru": try table(.ruCharacters), "en": try table(.enCharacters)]
+        bigrams = ["ru": try table(.ruBigrams), "en": try table(.enBigrams)]
+        trigrams = ["ru": try table(.ruTrigrams), "en": try table(.enTrigrams)]
+        extendedEnglishTiers = try table(.extendedEnglish)
+        followers = ["ru": try optionalTable(.ruFollowers), "en": try optionalTable(.enFollowers)]
+        attestedWords = ["ru": try optionalTable(.ruAttested), "en": try optionalTable(.enAttested)]
+        guard let russianBloomRange = sectionRanges[.extendedRussian] else {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
-        extendedRussianWords = try RussianSpellingBloom(data: russianBloomData)
+        extendedRussianWords = try RussianSpellingBloom(storage: data, range: russianBloomRange)
     }
 
     public func contains(_ word: String, language: String) -> Bool {
@@ -290,35 +258,21 @@ public final class LanguageModelStore: @unchecked Sendable {
     }
 
     public func englishSpellingTier(_ word: String) -> EnglishSpellingTier? {
-        let normalized = Self.normalize(word)
-        var lowerBound = 0
-        var upperBound = extendedEnglishWords.count
-        while lowerBound < upperBound {
-            let middle = lowerBound + (upperBound - lowerBound) / 2
-            if extendedEnglishWords[middle] < normalized {
-                lowerBound = middle + 1
-            } else {
-                upperBound = middle
-            }
-        }
-        guard lowerBound < extendedEnglishWords.count,
-              extendedEnglishWords[lowerBound] == normalized else { return nil }
-        return EnglishSpellingTier(rawValue: Int(extendedEnglishTiers[lowerBound]))
+        extendedEnglishTiers.value(for: Self.normalize(word)).flatMap { EnglishSpellingTier(rawValue: Int($0)) }
     }
 
     public func trainingExtendedEnglishWords(limit: Int? = nil) -> [String] {
-        guard let limit else { return extendedEnglishWords }
-        return Array(extendedEnglishWords.prefix(max(0, limit)))
+        let words = extendedEnglishTiers.entries().map(\.key)
+        guard let limit else { return words }
+        return Array(words.prefix(max(0, limit)))
     }
 
     public func trainingExtendedEnglishWords(
         minimumTier: EnglishSpellingTier,
         limit: Int? = nil
     ) -> [String] {
-        let values = extendedEnglishWords.indices.compactMap { index in
-            Int(extendedEnglishTiers[index]) >= minimumTier.rawValue
-                ? extendedEnglishWords[index]
-                : nil
+        let values = extendedEnglishTiers.entries().compactMap { entry in
+            Int(entry.value) >= minimumTier.rawValue ? entry.key : nil
         }
         guard let limit else { return values }
         return Array(values.prefix(max(0, limit)))
@@ -335,13 +289,13 @@ public final class LanguageModelStore: @unchecked Sendable {
     }
 
     public func wordLogProbability(_ word: String, language: String) -> Double? {
-        words[Self.canonical(language)]?[Self.normalize(word)]
+        words[Self.canonical(language)]?.value(for: Self.normalize(word))
     }
 
     /// Deterministic frequency order used by offline quality gates. The app
     /// itself never enumerates the model in the event-tap path.
     public func trainingWords(language: String, limit: Int? = nil) -> [String] {
-        let ranked = (words[Self.canonical(language)] ?? [:])
+        let ranked = (words[Self.canonical(language)]?.entries() ?? [])
             .sorted {
                 if $0.value == $1.value { return $0.key < $1.key }
                 return $0.value > $1.value
@@ -359,7 +313,7 @@ public final class LanguageModelStore: @unchecked Sendable {
         var count = 0
         for size in 2...5 where padded.count >= size {
             for index in 0...(padded.count - size) {
-                total += model[String(padded[index..<(index + size)])] ?? -16
+                total += model.value(for: String(padded[index..<(index + size)])) ?? -16
                 count += 1
             }
         }
@@ -371,13 +325,13 @@ public final class LanguageModelStore: @unchecked Sendable {
     public func attestedWordLogProbability(_ word: String, language: String) -> Double? {
         let normalized = Self.normalize(word)
         let canonical = Self.canonical(language)
-        return words[canonical]?[normalized] ?? attestedWords[canonical]?[normalized]
+        return words[canonical]?.value(for: normalized) ?? attestedWords[canonical]?.value(for: normalized)
     }
 
     /// ln P(word | previous) from conversational text, present only for words
     /// whose keys also spell a frequent word in the other layout.
     public func followerLogProbability(previous: String, word: String, language: String) -> Double? {
-        followers[Self.canonical(language)]?[[Self.normalize(previous), Self.normalize(word)].joined(separator: "\u{1f}")]
+        followers[Self.canonical(language)]?.value(for: [Self.normalize(previous), Self.normalize(word)].joined(separator: "\u{1f}"))
     }
 
     public func phraseLogProbability(context: [String], candidate: String, language: String) -> Double? {
@@ -386,10 +340,10 @@ public final class LanguageModelStore: @unchecked Sendable {
         let normalizedContext = context.map(Self.normalize).filter { !$0.isEmpty }
         if normalizedContext.count >= 2 {
             let key = (Array(normalizedContext.suffix(2)) + [normalizedCandidate]).joined(separator: "\u{1f}")
-            if let score = trigrams[lang]?[key] { return score }
+            if let score = trigrams[lang]?.value(for: key) { return score }
         }
         if let previous = normalizedContext.last {
-            return bigrams[lang]?[[previous, normalizedCandidate].joined(separator: "\u{1f}")]
+            return bigrams[lang]?.value(for: [previous, normalizedCandidate].joined(separator: "\u{1f}"))
         }
         return nil
     }
@@ -414,12 +368,14 @@ public final class LanguageModelStore: @unchecked Sendable {
         (0..<8).reduce(UInt64(0)) { $0 | UInt64(data[offset + $1]) << UInt64($1 * 8) }
     }
 
-    private static func fnv1a64(_ data: Data.SubSequence) -> UInt64 {
-        var value: UInt64 = 0xcbf29ce484222325
-        for byte in data {
-            value ^= UInt64(byte)
-            value = value &* 0x100000001b3
+    private static func fnv1a64(_ data: Data, from start: Int) -> UInt64 {
+        data.withUnsafeBytes { raw in
+            var value: UInt64 = 0xcbf29ce484222325
+            for byte in raw[start...] {
+                value ^= UInt64(byte)
+                value = value &* 0x100000001b3
+            }
+            return value
         }
-        return value
     }
 }

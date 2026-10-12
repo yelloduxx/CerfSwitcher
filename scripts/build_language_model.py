@@ -65,6 +65,14 @@ RU_HUNSPELL_AFFIXES = Path("scripts/data/ru_RU.aff.gz")
 TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
 TATOEBA_FOLLOWERS_SHA256 = "9fd0be0d0b15af570641ce8187b5894d8984c607e03cf90e895ca543a83dce82"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
+MODEL_FORMAT_VERSION = 3
+MODEL_VERSION = "2026.10-v3.3-mapped"
+# Sections read in place at runtime: string keys to float64 values.
+TABLE_SECTIONS = {
+    "ru_words", "en_words", "ru_chars", "en_chars", "ru_bigrams", "en_bigrams",
+    "ru_trigrams", "en_trigrams", "en_extended", "ru_followers", "en_followers",
+    "ru_attested", "en_attested",
+}
 RUSSIAN_BLOOM_BITS = 1 << 25
 RUSSIAN_BLOOM_HASHES = 9
 
@@ -273,12 +281,66 @@ def json_bytes(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def ranked_english_section(words: dict[str, int]) -> dict[str, object]:
-    ordered = sorted(words)
-    return {
-        "words": ordered,
-        "tiers": base64.b64encode(bytes(words[word] for word in ordered)).decode("ascii"),
-    }
+def table_bytes(values: dict[str, float]) -> bytes:
+    """An open-addressing hash table the app reads in place from the mapped
+    model: header, slots (entry index + 1, 0 empty), entries sorted by key
+    (key offset, float64; a key ends where the next begins) and the UTF-8 key
+    blob."""
+    keys = sorted(values, key=lambda key: key.encode("utf-8"))
+    slot_count = 1
+    while slot_count < 2 * len(keys) or slot_count <= len(keys):
+        slot_count *= 2
+    slots = [0] * slot_count
+    entries = bytearray()
+    blob = bytearray()
+    for index, key in enumerate(keys):
+        encoded = key.encode("utf-8")
+        entries.extend(struct.pack("<Id", len(blob), float(values[key])))
+        blob.extend(encoded)
+        slot = fnv1a64(encoded) & (slot_count - 1)
+        while slots[slot]:
+            slot = (slot + 1) & (slot_count - 1)
+        slots[slot] = index + 1
+    header = struct.pack("<4sHHIII", b"RSHT", 1, 0, len(keys), slot_count, len(blob))
+    return header + struct.pack(f"<{slot_count}I", *slots) + bytes(entries) + bytes(blob)
+
+
+def model_sections(values: dict[str, object]) -> list[tuple[int, bytes]]:
+    sections = []
+    for name, value in values.items():
+        if isinstance(value, bytes):
+            data = value
+        elif name in TABLE_SECTIONS:
+            data = table_bytes(value)
+        else:
+            data = json_bytes(value)
+        sections.append((SECTION[name], data))
+    return sections
+
+
+def read_model_values(path: Path) -> dict[str, object]:
+    """Decode a format-2 model so it can be re-encoded without its sources."""
+    data = path.read_bytes()
+    magic, version, count, _, _ = struct.unpack("<4sHHIQ", data[:20])
+    if magic != b"RSLM" or version != 2:
+        raise RuntimeError(f"{path} is not a format-2 model")
+    names = {kind: name for name, kind in SECTION.items()}
+    start = 20 + count * 12
+    values: dict[str, object] = {}
+    for index in range(count):
+        kind, _, offset, length = struct.unpack("<HHII", data[20 + index * 12:32 + index * 12])
+        raw = data[start + offset:start + offset + length]
+        name = names[kind]
+        if name == "ru_extended":
+            values[name] = raw
+        elif name == "en_extended":
+            ranked = json.loads(raw)
+            values[name] = dict(zip(ranked["words"], base64.b64decode(ranked["tiers"])))
+        else:
+            values[name] = json.loads(raw)
+    values["metadata"]["formatVersion"] = MODEL_FORMAT_VERSION
+    values["metadata"]["modelVersion"] = MODEL_VERSION
+    return values
 
 
 def fnv1a64(data: bytes) -> int:
@@ -292,7 +354,7 @@ def fnv1a64(data: bytes) -> int:
 def write_model(output: Path, sections: list[tuple[int, bytes]]) -> None:
     payload = b"".join(data for _, data in sections)
     directory_size = len(sections) * 12
-    header = struct.pack("<4sHHIQ", b"RSLM", 2, len(sections), len(payload), fnv1a64(payload))
+    header = struct.pack("<4sHHIQ", b"RSLM", MODEL_FORMAT_VERSION, len(sections), len(payload), fnv1a64(payload))
     offset = 0
     directory = bytearray()
     for kind, data in sections:
@@ -312,7 +374,12 @@ def main() -> None:
     parser.add_argument("--english-wordlist", type=Path, default=SCOWL_ARCHIVE)
     parser.add_argument("--russian-dictionary", type=Path, default=RU_HUNSPELL_ARCHIVE)
     parser.add_argument("--russian-affixes", type=Path, default=RU_HUNSPELL_AFFIXES)
+    parser.add_argument("--reencode", type=Path, help="re-encode a format-2 model instead of building from sources")
     args = parser.parse_args()
+    if args.reencode:
+        write_model(args.output, model_sections(read_model_values(args.reencode)))
+        print(f"wrote {args.output} ({args.output.stat().st_size} bytes, sha256={sha256(args.output)})")
+        return
 
     paths = {key: source_path(key, args.source_dir, args.cache_dir) for key in SOURCES}
     ru_words = read_words(paths["ngrams/1grams_russian.csv"], "ru", CURATED_RU)
@@ -327,8 +394,8 @@ def main() -> None:
     tatoeba = read_tatoeba(TATOEBA_FOLLOWERS)
     followers = tatoeba["followers"]
     metadata = {
-        "formatVersion": 2,
-        "modelVersion": "2026.10-v3.2-context",
+        "formatVersion": MODEL_FORMAT_VERSION,
+        "modelVersion": MODEL_VERSION,
         "source": "orgtre/google-books-ngram-frequency",
         "sourceRevision": REVISION,
         "license": "CC BY 3.0",
@@ -381,17 +448,14 @@ def main() -> None:
         "en_trigrams": read_phrases(paths["ngrams/3grams_english.csv"], "en", 3),
         "productive": PRODUCTIVE_RU + ["-" + suffix for suffix in PRODUCTIVE_RU_SUFFIXES],
         "thresholds": thresholds,
-        "en_extended": ranked_english_section(en_extended),
+        "en_extended": en_extended,
         "ru_extended": bloom_bytes(ru_extended),
         "ru_followers": followers["ru"],
         "en_followers": followers["en"],
         "ru_attested": attested_section(tatoeba["attested"]["ru"], ru_words),
         "en_attested": attested_section(tatoeba["attested"]["en"], en_words),
     }
-    write_model(args.output, [
-        (SECTION[name], value if isinstance(value, bytes) else json_bytes(value))
-        for name, value in values.items()
-    ])
+    write_model(args.output, model_sections(values))
     print(f"wrote {args.output} ({args.output.stat().st_size} bytes, sha256={sha256(args.output)})")
 
 
