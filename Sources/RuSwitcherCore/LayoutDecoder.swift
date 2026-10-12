@@ -315,19 +315,52 @@ public enum LayoutDecoder {
                 && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian))
         // A lone capital is usually an initial or a letter name, except when it
         // is not a word at all and its other-layout key is: `Ш` → `I`, `(Ш)` →
-        // `(I)`. A trailing period still marks an initial (`Ш.`).
-        let capitalIsOtherLayoutWord = currentCanonical == "ru"
-            && literal.count == 1
+        // `(I)`. A trailing period still marks an initial (`Ш.`). A Latin
+        // capital becomes Russian only after Russian text or at the start
+        // (`D` → `В`), never after English (`plan B`).
+        let previousLanguage = contextWords.last
+            .flatMap(SmartTokenizer.languageHint)
+            .map(LanguageCode.canonical)
+        let capitalIsOtherLayoutWord = literal.count == 1
             && !candidate.typedRaw.contains(".")
             && model.wordLogProbability(literal, language: currentCanonical) == nil
-            && !model.isExtendedRussianWord(literal)
+            && !(currentCanonical == "ru" && model.isExtendedRussianWord(literal))
             && targetKnownForShape != nil
+            && (currentCanonical == "ru" || previousLanguage == nil || previousLanguage == targetCanonical)
+        // A hyphenated word is a word when every part is (`премьер-министра`).
+        func isWordOrHyphenatedWord(_ text: String, language: String) -> Bool {
+            let parts = text.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+            return parts.count >= 2 && parts.allSatisfy { part in
+                !part.isEmpty
+                    && (model.attestedWordLogProbability(part, language: language) != nil
+                        || (language == "en" ? model.isExtendedEnglishWord(part) : model.isExtendedRussianWord(part)))
+            }
+        }
+        // An all-caps part makes a code (`ru-RU`), not a hyphenated word.
+        let typedHasCodePart = candidate.typedRaw.split(separator: "-").contains { part in
+            let letters = part.filter(\.isLetter)
+            return letters.count >= 2 && letters == letters.uppercased()
+        }
+        let hyphenatedTargetWord = !typedHasCodePart
+            && isWordOrHyphenatedWord(converted, language: targetCanonical)
+            && !isWordOrHyphenatedWord(literal, language: currentCanonical)
+        // An acronym converts when its other reading is a word in use (`CIF/` →
+        // `США.`) and its own letters spell no word.
+        let typedLetters = candidate.typedRaw.filter(\.isLetter)
+        let literalLetters = literal.filter(\.isLetter)
+        let attestedAcronymPair = typedLetters.count >= 2
+            && typedLetters == typedLetters.uppercased()
+            && SmartTokenizer.isAllUppercaseWord(candidate.replacement)
+            && model.attestedWordLogProbability(converted, language: targetCanonical) != nil
+            && model.attestedWordLogProbability(literalLetters, language: currentCanonical) == nil
+            && !(currentCanonical == "en" ? model.isExtendedEnglishWord(literalLetters) : model.isExtendedRussianWord(literalLetters))
+        let softShapeOverride = confirmedAcronymPair || attestedAcronymPair || hyphenatedTargetWord
         if (SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw) && !capitalIsOtherLayoutWord)
-            || (sourceShapeIsProtected && !confirmedAcronymPair)
+            || (sourceShapeIsProtected && !softShapeOverride)
             || (convertedShape.kind.blocksAutomaticConversion
                 && candidate.kind != .trailingPunctuation
                 && candidate.kind != .wrappingPunctuation
-                && !confirmedAcronymPair) {
+                && !softShapeOverride) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])
         }
 
@@ -611,6 +644,8 @@ public enum LayoutDecoder {
 
         let margin = convertedScore - literalScore
         let hasLexicalEvidence = targetKnown != nil
+            || attestedAcronymPair
+            || hyphenatedTargetWord
             || rankedExtendedEnglishTarget
             || strongExtendedRussianTarget
             || compound != nil

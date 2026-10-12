@@ -363,6 +363,27 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.verdict, .switchToConverted)
     }
 
+    func testShapeRulesBackedByDictionary() {
+        for (typed, current, target, context, expected) in [
+            ("D", "en", "ru", [String](), "В"),
+            ("Z", "en", "ru", ["он", "сказал:"], "Я"),
+            ("ghtvmth-vbybcnhf/", "en", "ru", ["официальную", "резиденцию"], "премьер-министра."),
+            ("CIF/", "en", "ru", ["цент"], "США."),
+        ] {
+            let result = evaluate(typed, current: current, target: target, context: context)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+        for (typed, context) in [("B", ["plan"]), ("C", ["vitamin"]), ("NASA", ["это"]), ("HTTP", ["это"])] {
+            let result = evaluate(typed, current: "en", target: "ru", context: context)
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+        for (typed, context) in [("ru-RU", ["locale"]), ("en-US", ["locale"])] {
+            let result = evaluate(typed, current: "en", target: "ru", context: context)
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
@@ -786,7 +807,6 @@ final class LayoutDecoderTests: XCTestCase {
 
         let unconfirmed = evaluate(typed, current: "ru", target: "en")
         XCTAssertEqual(unconfirmed.decision.verdict, .keep)
-        XCTAssertEqual(unconfirmed.decision.reason, .blockedCodeLike)
 
         let confirmed = evaluate(
             typed,

@@ -173,8 +173,9 @@ Hard blockers remain authoritative:
 - unconfirmed ALL-CAPS acronyms; a plain multi-letter acronym may convert only
   through an explicitly confirmed global physical-layout pair, while URL/email,
   structured identifiers and code-like shapes remain hard blockers;
-- single uppercase Latin letters;
-- single uppercase Cyrillic letters;
+- single uppercase Latin letters, except a non-word capital that is a Russian
+  word, at phrase start or after Russian (`D` -> `В`, but `plan B` stays);
+- single uppercase Cyrillic letters that are words;
 - `neverConvert` rules;
 - stale focus/revision/editor integrity.
 
@@ -188,7 +189,11 @@ when Tatoeba shows it leads to the target reading at least 1% of the time
 trailing `.`/`,` key competes with a frequent punctuation reading
 (`вероятностью`, not `вероятность.`), and a conversion with no dictionary evidence
 needs target char-LM >= -13.0 or Tatoeba attestation (`Konami` stays, not
-`Лщтфьш`; `Джеймса` still converts). Since build 135 a source
+`Лщтфьш`; `Джеймса` still converts). Build 141: shape blockers yield to
+dictionary evidence when a hyphenated reading is a word in every part and the
+typed one is not (`премьер-министра`, but codes with an all-caps part such as
+`ru-RU` stay), and when an all-caps token reads as an attested target word while
+its own letters spell no word (`CIF/` -> `США.`; `NASA`, `HTTP` stay). Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides

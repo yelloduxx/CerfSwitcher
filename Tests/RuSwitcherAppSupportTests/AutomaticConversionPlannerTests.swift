@@ -152,7 +152,7 @@ final class AutomaticConversionPlannerTests: XCTestCase {
             snapshot: snapshot("ЫУЩ", source: "test.source.ru"), original: "ЫУЩ", converted: "SEO",
             currentLanguage: "ru", targetLanguage: "en", targetLayoutID: "test.target.en", model: model
         )
-        XCTAssertEqual(assertKept(unconfirmed, text: "ЫУЩ", language: "ru")?.decision.reason, .blockedCodeLike)
+        XCTAssertEqual(assertKept(unconfirmed, text: "ЫУЩ", language: "ru")?.decision.verdict, .keep)
 
         var confirmationPairs: [[String]] = []
         var biasPairs: [[String]] = []
