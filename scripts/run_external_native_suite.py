@@ -190,11 +190,14 @@ def assess(fixture, host, app, driver, pids, automatic, input_marker, *, editor=
 
 
 def valid_warmup_evidence(host, driver):
-    warmup = driver.get("warmup", {"postedNanoseconds": 0, "postNanoseconds": 0})
-    return (isinstance(warmup, dict)
-            and all(type(warmup.get(key)) is int and warmup[key] >= 0 for key in ("postedNanoseconds", "postNanoseconds"))
-            and isinstance(host.get("warmupEvents", []), list)
-            and all(isinstance(event, dict) for event in host.get("warmupEvents", [])))
+    events = host.get("warmupEvents", [])
+    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+        return False
+    if "warmup" not in driver:
+        return True
+    warmup = driver["warmup"]
+    return isinstance(warmup, dict) and all(
+        type(warmup.get(key)) is int and warmup[key] >= 0 for key in ("postedNanoseconds", "postNanoseconds"))
 
 
 def warmup_failures(host, driver, records, input_marker, editor):

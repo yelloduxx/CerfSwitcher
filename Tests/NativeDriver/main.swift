@@ -212,8 +212,8 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
     }
     try wait(until: DispatchTime.now().uptimeNanoseconds + 100_000_000, cancelled: cancelled)
     guard currentLayoutID() == stimulus.initialLayoutID else { throw DriverError.blockedLayout }
-    // The first real post in a process pays a one-time cost. Pay it on a release that is
-    // not part of the schedule, then let it settle before the schedule starts.
+    // Hypothesis: the first real post in a process pays a one-time cost. Pay it on a release
+    // outside the schedule, then let it settle before the schedule starts.
     let warmupEvent = try prepareWarmup(stimulus, config: config, source: eventSource)
     let warmupStarted = DispatchTime.now().uptimeNanoseconds
     warmupEvent.post(tap: .cghidEventTap)
