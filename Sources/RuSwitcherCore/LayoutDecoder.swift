@@ -380,14 +380,23 @@ public enum LayoutDecoder {
         let frequentTargetOutranksRareSource = literal.count >= 2
             && sourceSpellingOnly
             && (frequencyGap ?? -.infinity) >= Self.rareSourceFrequencyMargin
+        // Two frequent readings (`руку`/`here`) follow the language of the
+        // words just typed: English prose continues in English, Russian in
+        // Russian.
+        let recentTwoLanguages = recentLanguages.suffix(2)
+        let contextContinuesInTarget = literal.count >= 2
+            && targetKnown != nil
+            && recentTwoLanguages.count == 2
+            && recentTwoLanguages.allSatisfy { $0 == targetCanonical }
         if literal.count >= 2,
            sourceKnown != nil || sourceExtendedRussian,
            targetKnown != nil || targetExtendedEnglish || targetExtendedRussian,
            !frequentEnglishTargetBeatsWeakSource,
-           !frequentTargetOutranksRareSource {
+           !frequentTargetOutranksRareSource,
+           !contextContinuesInTarget {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
         }
-        if literal.count >= 2, englishSourceConfidence == .frequent {
+        if literal.count >= 2, englishSourceConfidence == .frequent, !contextContinuesInTarget {
             return fixed(
                 baseCandidate,
                 verdict: .keep,
@@ -404,7 +413,7 @@ public enum LayoutDecoder {
             )
         }
         if literal.count >= 2, sourceExtendedRussian, !frequentEnglishTargetBeatsWeakSource,
-           !frequentTargetOutranksRareSource {
+           !frequentTargetOutranksRareSource, !contextContinuesInTarget {
             return fixed(
                 baseCandidate,
                 verdict: .keep,
@@ -454,6 +463,9 @@ public enum LayoutDecoder {
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
         }
         if strongExtendedRussianTarget {
+            convertedScore += max(0, currentBeliefScore - targetBeliefScore)
+        }
+        if contextContinuesInTarget {
             convertedScore += max(0, currentBeliefScore - targetBeliefScore)
         }
         if frequentTargetOutranksRareSource, let frequencyGap {

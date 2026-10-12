@@ -53,16 +53,6 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.candidate.replacement, "помощью")
     }
 
-    func testTwoKnownWordsOnSameKeysRemainLiteral() {
-        var russianBelief = LanguageBelief.neutral
-        russianBelief.observe(language: "ru")
-        russianBelief.observe(language: "ru")
-        let result = evaluate("here", context: ["это", "текст"], belief: russianBelief)
-        XCTAssertEqual(KeyMapping.convert("here"), "руку")
-        XCTAssertEqual(result.decision.verdict, .keep)
-        XCTAssertEqual(result.decision.reason, .blockedContext)
-    }
-
     func testSingleRussianConjunctionAfterEnglishInsertionUsesRecentMixedContext() {
         let mixed = evaluate("f", context: ["sent", "файл", "к", "review"])
         XCTAssertEqual(mixed.decision.candidate.replacement, "а")
@@ -144,13 +134,13 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(russianContext.decision.verdict, .keep)
     }
 
-    func testFrequentEnglishTargetCannotOverrideKnownRussianWord() {
+    func testFrequentEnglishTargetCannotOverrideKnownRussianWordInRussianContext() {
         for word in ["рук", "руб", "шею"] {
             let result = evaluate(
                 word,
                 current: "ru",
                 target: "en",
-                context: ["this", "text"]
+                context: ["это", "текст"]
             )
             XCTAssertEqual(result.decision.verdict, .keep, word)
         }
@@ -669,10 +659,26 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
-    func testFrequentRussianWordsOnFrequentEnglishKeysStayLiteral() {
-        let result = evaluate("руку", current: "ru", target: "en", context: ["это", "текст"])
+    func testTwoFrequentReadingsFollowTheContextLanguage() {
         XCTAssertEqual(KeyMapping.convert("руку"), "here")
-        XCTAssertEqual(result.decision.verdict, .keep)
+        var english = LanguageBelief.neutral
+        english.observe(language: "en")
+        english.observe(language: "en")
+        var russian = LanguageBelief.neutral
+        russian.observe(language: "ru")
+        russian.observe(language: "ru")
+        let toEnglish = evaluate("руку", current: "ru", target: "en", context: ["come", "over"], belief: english)
+        XCTAssertEqual(toEnglish.decision.candidate.replacement, "here")
+        XCTAssertEqual(toEnglish.decision.verdict, .switchToConverted)
+        let toRussian = evaluate("here", current: "en", target: "ru", context: ["дай", "мне"], belief: russian)
+        XCTAssertEqual(toRussian.decision.candidate.replacement, "руку")
+        XCTAssertEqual(toRussian.decision.verdict, .switchToConverted)
+        let staysRussian = evaluate("руку", current: "ru", target: "en", context: ["дай", "мне"], belief: russian)
+        XCTAssertEqual(staysRussian.decision.verdict, .keep)
+        let staysEnglish = evaluate("here", current: "en", target: "ru", context: ["come", "over"], belief: english)
+        XCTAssertEqual(staysEnglish.decision.verdict, .keep)
+        let mixed = evaluate("руку", current: "ru", target: "en", context: ["это", "текст"])
+        XCTAssertEqual(mixed.decision.verdict, .keep)
     }
 
     func testKnownEnglishWordCanStartAfterRussianContext() {

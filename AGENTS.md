@@ -179,8 +179,10 @@ Hard blockers remain authoritative:
 - stale focus/revision/editor integrity.
 
 Unknown valid Russian words must not convert to English from script score alone.
-Both-known pairs such as `here`/`руку` use a strict safety threshold and normally
-stay unchanged unless explicitly confirmed by the user. Since build 135 a source
+Both-known pairs such as `here`/`руку` follow the language of the last two
+context tokens (build 138): after two English words `руку` becomes `here`, after
+two Russian words `here` becomes `руку`; otherwise they stay unchanged unless
+explicitly confirmed by the user. Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides

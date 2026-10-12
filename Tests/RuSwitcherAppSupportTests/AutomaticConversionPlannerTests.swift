@@ -17,7 +17,6 @@ final class AutomaticConversionPlannerTests: XCTestCase {
 
         for (original, converted, current, target) in [
             ("here", "руку", "en", "ru"),
-            ("руку", "here", "ru", "en"),
         ] {
             let plan = AutomaticConversionPlanner.prepare(
                 snapshot: snapshot(original, context: ["this", "text"], belief: belief),
