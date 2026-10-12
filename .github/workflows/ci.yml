@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -62,3 +62,16 @@ jobs:
             --output "$RUNNER_TEMP/language-model-v1.bin"
           cmp Sources/RuSwitcherCore/Resources/language-model-v1.bin \
             "$RUNNER_TEMP/language-model-v1.bin"
+
+      - name: Physical typing suite
+        run: |
+          status=0
+          python3 scripts/run_physical_typing_suite.py || status=$?
+          if [ "$status" -eq 77 ]; then
+            echo "::warning title=Physical typing suite skipped::required system keyboard layout is unavailable on this runner (blockedEnvironment, exit 77)"
+            exit 0
+          fi
+          exit "$status"
+
+      - name: Script tests
+        run: python3 -m unittest discover -s scripts/tests -v
