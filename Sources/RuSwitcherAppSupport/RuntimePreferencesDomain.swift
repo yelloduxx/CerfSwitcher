@@ -13,7 +13,7 @@ public enum RuntimePreferencesDomain {
             "--hid-probe-file",
             "--hid-transport-probe-file",
         ])
-        guard arguments.contains(where: probeArguments.contains),
+        guard arguments.contains(where: { argument in probeArguments.contains(argument) }),
               !arguments.contains("--hid-use-standard-preferences") else { return nil }
         return hidProbeSuiteName
     }
