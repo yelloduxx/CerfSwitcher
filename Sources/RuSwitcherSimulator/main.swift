@@ -66,6 +66,8 @@ private struct PhraseStepResult: Codable, Sendable {
     let expectedResolved: String
     let actualResolved: String
     let passed: Bool
+    let calibrationFeatures: [String: Double]?
+    let calibrationCandidate: String?
 }
 
 private struct PhraseResult: Codable, Sendable {
@@ -515,6 +517,7 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
 private struct EngineDecision {
     let decision: AutoConvertDecision
     let margin: Double
+    let calibrationFeatures: [String: Double]?
 }
 
 private func evaluateEngine(
@@ -537,7 +540,7 @@ private func evaluateEngine(
         policy: .empty,
         model: model
     )
-    return EngineDecision(decision: v3.decision, margin: v3.confidenceMargin)
+    return EngineDecision(decision: v3.decision, margin: v3.confidenceMargin, calibrationFeatures: v3.calibrationFeatures)
 }
 
 private func evaluate(
@@ -610,7 +613,9 @@ private func evaluatePhrase(
             actualReason: String(describing: evaluation.decision.reason),
             expectedResolved: step.expectedResolved,
             actualResolved: resolved,
-            passed: passed
+            passed: passed,
+            calibrationFeatures: evaluation.calibrationFeatures,
+            calibrationCandidate: evaluation.calibrationFeatures.map { _ in evaluation.decision.candidate.replacement }
         ))
         output += resolved + step.separator
         let contextToken = SmartTokenizer.lexicalCore(of: resolved)

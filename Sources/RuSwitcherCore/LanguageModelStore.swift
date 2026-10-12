@@ -9,6 +9,29 @@ public struct LanguageModelMetadata: Codable, Equatable, Sendable {
     public let wordCounts: [String: Int]
 }
 
+/// Logistic weights over the decoder's own evidence, fitted on FLORES
+/// development phrases by `scripts/fit_undecided_calibration.py`. They decide
+/// only words that the rules leave undecided.
+public struct UndecidedCalibration: Codable, Equatable, Sendable {
+    public let features: [String]
+    public let mean: [Double]
+    public let scale: [Double]
+    public let weights: [Double]
+    public let bias: Double
+    public let threshold: Double
+
+    public func accepts(_ values: [String: Double]) -> Bool {
+        guard mean.count == features.count, scale.count == features.count, weights.count == features.count
+        else { return false }
+        var score = bias
+        for (index, name) in features.enumerated() {
+            guard let value = values[name], scale[index] > 0 else { return false }
+            score += weights[index] * (value - mean[index]) / scale[index]
+        }
+        return 1 / (1 + exp(-score)) >= threshold
+    }
+}
+
 public struct LanguageModelThresholds: Codable, Equatable, Sendable {
     public let short: Double
     public let russianContext: Double
@@ -30,6 +53,7 @@ public struct LanguageModelThresholds: Codable, Equatable, Sendable {
     public let englishTargetStrongCharacterContextRecovery: Double
     public let compoundBonus: Double
     public let confirmedBonus: Double
+    public let undecidedCalibration: UndecidedCalibration?
 
     private enum CodingKeys: String, CodingKey {
         case short, russianContext, neutral, englishContext
@@ -43,7 +67,7 @@ public struct LanguageModelThresholds: Codable, Equatable, Sendable {
         case englishTargetStandardContextRecovery
         case englishTargetRareContextRecovery
         case englishTargetStrongCharacterContextRecovery
-        case compoundBonus, confirmedBonus
+        case compoundBonus, confirmedBonus, undecidedCalibration
     }
 
     public init(from decoder: Decoder) throws {
@@ -97,6 +121,7 @@ public struct LanguageModelThresholds: Codable, Equatable, Sendable {
         ) ?? 1.0
         compoundBonus = try values.decode(Double.self, forKey: .compoundBonus)
         confirmedBonus = try values.decode(Double.self, forKey: .confirmedBonus)
+        undecidedCalibration = try values.decodeIfPresent(UndecidedCalibration.self, forKey: .undecidedCalibration)
     }
 }
 

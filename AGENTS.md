@@ -218,7 +218,21 @@ legacy gate unchanged at 45. Build 146 (model 3.4): one previous Russian word
 that Tatoeba shows leading to the reading is enough (`большие herb` -> `руки`);
 contractions are attested (`шеэы` -> `it's`) and an English possessive is
 attested through its base (`Тфвфдэы` -> `Nadal's`). FLORES dev: 1,099 safe
-misses, 20 wrong, 13 false positives; legacy 44 safe misses. Since build 135 a source
+misses, 20 wrong, 13 false positives; legacy 44 safe misses. Build 148 adds a
+calibrated score: a word the rules leave undecided is decided by one logistic
+regression over the decoder's own evidence (`LayoutDecoderEvaluation.calibrationFeatures`:
+margin, threshold, belief, char-LM rates, attestation, dictionary flags,
+direction, capital, unusual key). `scripts/fit_undecided_calibration.py` fits it
+on FLORES development steps that the simulator exports, and its threshold is
+the lowest probability above every development negative. Short plain words,
+acronyms, a kept layout-letter prefix and a typed suffix whose key means
+something else in the target layout (`?` is the Russian comma) stay with the
+rules (`tv`, `cm` stay). FLORES dev: 905 safe misses, 17 wrong, 13 false
+positives. On the held-out calibration split (`make_flores_mixed_tsv.py
+--split calibration`, 2,000 phrases) build 144 had 399 misses and 16 wrong,
+build 147 318 and 12, build 148 271 and 11, all with 0 false positives. The
+calibration split was consulted twice for error analysis while choosing the
+exclusions, so it is no longer fully blind. Legacy: 44. Since build 135 a source
 known only to a spelling dictionary (Hunspell, or SCOWL rare tier) is not "known"
 against a frequent target: when the target's unigram log-probability exceeds the
 rarest listed source-language word by 2.5 (natural log), frequency decides
@@ -393,9 +407,11 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model `2026.10-v3.5-compact` (format 3,
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.6-calibrated` (format 3,
   `RSHT` table version 2), current SHA-256
-  `717607d8680cfa2df6dfe44f96b2662b96a64cdeab3465724b6d6cc140d3d425` (12.6 MB).
+  `5ea6832c649fe643679c2c62cc6b176e94eff717fb82cc71449e4ac95da257cf` (12.6 MB).
+  Its thresholds carry `undecidedCalibration` from
+  `scripts/data/undecided-calibration.json` (build 148).
   Build 147 fills hash tables to at most 70% (was at most 50%) and stores
   table values as float32 (8-byte entries, was 12): 15.6 -> 12.6 MB with
   every decision identical on all 122,986 FLORES dev steps and the legacy gate

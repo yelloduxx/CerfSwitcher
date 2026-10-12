@@ -10,6 +10,7 @@ public enum AutoConvertDecisionReason: Equatable, Sendable {
     case dictionary
     case scriptScore
     case characterModel
+    case calibratedScore
     case phraseContext
     case compound
     case confirmedByUser

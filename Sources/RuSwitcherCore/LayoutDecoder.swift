@@ -22,6 +22,7 @@ public enum DecoderEvidence: Equatable, Sendable {
     case englishTargetDictionary
     case russianSourceDictionary
     case russianTargetDictionary
+    case calibrated
 }
 
 public struct LayoutDecoderEvaluation: Equatable, Sendable {
@@ -30,6 +31,9 @@ public struct LayoutDecoderEvaluation: Equatable, Sendable {
     public let convertedScore: Double
     public let threshold: Double
     public let evidence: [DecoderEvidence]
+    /// Features of a word the rules left undecided, for the calibrated score
+    /// and for refitting it offline.
+    public let calibrationFeatures: [String: Double]?
 
     public var confidenceMargin: Double { convertedScore - literalScore }
 
@@ -38,13 +42,15 @@ public struct LayoutDecoderEvaluation: Equatable, Sendable {
         literalScore: Double,
         convertedScore: Double,
         threshold: Double,
-        evidence: [DecoderEvidence]
+        evidence: [DecoderEvidence],
+        calibrationFeatures: [String: Double]? = nil
     ) {
         self.decision = decision
         self.literalScore = literalScore
         self.convertedScore = convertedScore
         self.threshold = threshold
         self.evidence = evidence
+        self.calibrationFeatures = calibrationFeatures
     }
 }
 
@@ -699,13 +705,38 @@ public enum LayoutDecoder {
                 && (model.characterLogProbability(converted, language: targetCanonical)
                     >= Self.unlistedTargetCharacterFloor
                     || model.attestedWordLogProbability(converted, language: targetCanonical) != nil))
-        let verdict: LayoutVerdict = margin >= threshold && hasLexicalEvidence
+        let ruleVerdict: LayoutVerdict = margin >= threshold && hasLexicalEvidence
             ? .switchToConverted
             : (sourceKnown != nil || sourceExtendedRussian ? .keep : .undecided)
+        // Short plain words, acronyms and typed keys kept with another meaning
+        // in the target layout (`[`, `?`) stay with the rules.
+        let typedCore = SmartTokenizer.lexicalCore(of: candidate.typedRaw)
+        let calibrationFeatures: [String: Double]? = ruleVerdict == .undecided
+            && (converted.count >= 3 || (converted.count == 2 && candidate.typedRaw.contains(where: Self.isUnusualInProse)))
+            && !(typedCore.count > 1 && typedCore == typedCore.uppercased())
+            && !Self.preservesLayoutLetterPrefix(candidate)
+            && !(Self.preservesTypedSuffix(candidate) && KeyMapping.convert(candidate.suffix) != candidate.suffix)
+            ? Self.calibrationFeatures(
+                literal: literal,
+                converted: converted,
+                typed: candidate.typedRaw,
+                currentLanguage: currentCanonical,
+                targetLanguage: targetCanonical,
+                margin: margin,
+                threshold: threshold,
+                targetProbability: targetProbability,
+                contextWords: contextWords,
+                model: model
+            )
+            : nil
+        let calibrated = calibrationFeatures.map { model.thresholds.undecidedCalibration?.accepts($0) == true } == true
+        let verdict: LayoutVerdict = calibrated ? .switchToConverted : ruleVerdict
         if verdict == .undecided { evidence.append(.abstained) }
+        if calibrated { evidence.append(.calibrated) }
         let reason: AutoConvertDecisionReason
         if verdict == .switchToConverted {
-            if compound != nil && targetKnown == nil { reason = .compound }
+            if calibrated { reason = .calibratedScore }
+            else if compound != nil && targetKnown == nil { reason = .compound }
             else if evidence.contains(.phraseContext) { reason = .phraseContext }
             else if rankedExtendedEnglishTarget { reason = .dictionary }
             else if targetKnown != nil || strongExtendedRussianTarget {
@@ -720,8 +751,50 @@ public enum LayoutDecoder {
             literalScore: literalScore,
             convertedScore: convertedScore,
             threshold: threshold,
-            evidence: evidence
+            evidence: evidence,
+            calibrationFeatures: calibrationFeatures
         )
+    }
+
+    private static func calibrationFeatures(
+        literal: String,
+        converted: String,
+        typed: String,
+        currentLanguage: String,
+        targetLanguage: String,
+        margin: Double,
+        threshold: Double,
+        targetProbability: Double,
+        contextWords: [String],
+        model: LanguageModelStore
+    ) -> [String: Double] {
+        func characterRate(_ word: String, _ language: String) -> Double {
+            max(-20, model.characterLogProbability(word, language: language) / Double(max(1, word.count)))
+        }
+        let sourceAttested = model.attestedWordLogProbability(literal, language: currentLanguage)
+        let targetAttested = model.attestedWordLogProbability(converted, language: targetLanguage)
+        let targetDictionary = targetLanguage == "ru"
+            ? model.isExtendedRussianWord(converted)
+            : model.isExtendedEnglishWord(converted)
+        func flag(_ value: Bool) -> Double { value ? 1 : 0 }
+        return [
+            "dir": flag(currentLanguage == "en"),
+            "margin": margin,
+            "threshold": threshold,
+            "convLen6": Double(min(converted.count, 6)),
+            "pTarget": targetProbability,
+            "lastIsTarget": flag(contextWords.last.flatMap(SmartTokenizer.languageHint) == targetLanguage),
+            "charConv": characterRate(converted, targetLanguage),
+            "charLit": characterRate(literal, currentLanguage),
+            "srcAtt": max(-30, sourceAttested ?? -30),
+            "tgtAtt": max(-30, targetAttested ?? -30),
+            "srcAttested": flag(sourceAttested != nil),
+            "tgtAttested": flag(targetAttested != nil),
+            "tgtDict": flag(targetDictionary),
+            "tgtFreq": flag(model.wordLogProbability(converted, language: targetLanguage) != nil),
+            "unusual": flag(typed.contains(where: isUnusualInProse)),
+            "capital": flag(typed.first?.isUppercase == true),
+        ]
     }
 
     private static func lexicalScore(

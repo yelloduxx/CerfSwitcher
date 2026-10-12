@@ -436,6 +436,20 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
+    func testCalibratedScoreDecidesUndecidedNames() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        for (typed, current, target, context, expected) in [
+            ("Aewpzym/", "en", "ru", ["провинции"], "Фуцзянь."),
+            ("Скфшпыдшыеб", "ru", "en", ["или"], "Craigslist,"),
+        ] {
+            let result = evaluate(typed, current: current, target: target, context: context, belief: russianBelief)
+            XCTAssertEqual(result.decision.reason, .calibratedScore, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+        XCTAssertNotNil(model.thresholds.undecidedCalibration)
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")

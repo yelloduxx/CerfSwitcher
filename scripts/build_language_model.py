@@ -63,10 +63,11 @@ RU_HUNSPELL_ARCHIVE = Path("scripts/data/ru_RU.dic.gz")
 RU_HUNSPELL_ARCHIVE_SHA256 = "f8cd59e9489e05b2e816cb0f414a96634eb4908ec9fed56216dd223f36efee4f"
 RU_HUNSPELL_AFFIXES = Path("scripts/data/ru_RU.aff.gz")
 TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
+UNDECIDED_CALIBRATION = Path("scripts/data/undecided-calibration.json")
 TATOEBA_FOLLOWERS_SHA256 = "c4bea788a3101a14f2fcc7ae78cfad4b4f90a25eb68e0fc4040f35645d4f8f85"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
 MODEL_FORMAT_VERSION = 3
-MODEL_VERSION = "2026.10-v3.5-compact"
+MODEL_VERSION = "2026.10-v3.6-calibrated"
 # Sections read in place at runtime: string keys to float64 values.
 TABLE_SECTIONS = {
     "ru_words", "en_words", "ru_chars", "en_chars", "ru_bigrams", "en_bigrams",
@@ -435,6 +436,7 @@ def main() -> None:
         "englishTargetStrongCharacterContextRecovery": 1.0,
         "compoundBonus": 4.8,
         "confirmedBonus": 20.0,
+        "undecidedCalibration": json.loads(UNDECIDED_CALIBRATION.read_text(encoding="utf-8")),
     }
     values = {
         "metadata": metadata,

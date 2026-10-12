@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a mixed-layout TSV from the FLORES development split.
+"""Build a mixed-layout TSV from the FLORES development or calibration split.
 
 Each EN/RU pair yields five realistic phrases: Russian typed fully in the
 English layout, English typed fully in the Russian layout, a Russian sentence
@@ -52,13 +52,14 @@ def main() -> int:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--split", choices=["development", "calibration"], default="development")
     args = parser.parse_args()
     rng = random.Random(args.seed)
     rows = [["wrong_input", "expected_output", "token_pattern"]]
     with gzip.open(args.corpus, "rt", encoding="utf-8") as source:
         for line in source:
             record = json.loads(line)
-            if record["split"] != "development":
+            if record["split"] != args.split:
                 continue
             ru = record["texts"]["ru"].translate(QUOTES).split()
             en = record["texts"]["en"].translate(QUOTES).split()
