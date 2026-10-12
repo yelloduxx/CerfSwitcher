@@ -86,19 +86,19 @@ class VerifyNegativeControlTests(unittest.TestCase):
         result = self.run_script(report([word_failure("unrelated-word-case")], [phrase_failure(CONTROL_ID)]), 1)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FAIL", result.stdout)
-        self.assertIn("unrelated-word-case", result.stdout)
+        self.assertIn("other failing ids: unrelated-word-case", result.stdout)
 
     def testExtraPhraseFailureNextToTheControlFails(self):
         result = self.run_script(
             report([], [phrase_failure(CONTROL_ID), phrase_failure("unrelated-phrase-case")]), 1)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FAIL", result.stdout)
-        self.assertIn("unrelated-phrase-case", result.stdout)
+        self.assertIn("other failing ids: unrelated-phrase-case", result.stdout)
 
     def testUnrelatedFailureWithoutTheControlFails(self):
         result = self.run_script(report([], [phrase_failure("unrelated-phrase-case")]), 1)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unrelated-phrase-case", result.stdout)
+        self.assertIn("other failing ids: unrelated-phrase-case", result.stdout)
 
     def testStaleReportCannotSatisfyAFailedRun(self):
         (self.temporary / REPORT_NAME).write_text(json.dumps(report([], [phrase_failure(CONTROL_ID)])))

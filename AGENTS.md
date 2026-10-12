@@ -1066,6 +1066,31 @@ bash scripts/run_native_release_smoke.sh
   with only the `isMember` closure, so it predates this fix. The broken base
   measured 0.66 us/word only because empty cores skipped classification.
 
+### False-green verification scripts (October 12, P01b)
+
+- `scripts/verify_simulator_negative_control.sh` deletes its report before
+  running the simulator, so a report from an earlier run cannot satisfy it. After
+  the expected non-zero exit it requires `.failed == 1`, an empty `failures`
+  list and `phraseFailures` holding only `intentional-negative-control`. The
+  intentional phrase is reported under `phraseFailures`, not `failures`.
+  Any other failing id is printed after `FAIL`.
+- `scripts/verify_v3_only_build.sh` fails when the bundle executable is missing
+  or `lipo -archs` rejects it. `otool -L` exits 0 on a non-Mach-O file, so it is
+  not a Mach-O gate. `otool` and `nm` output is captured before `grep`, so their
+  errors fail the script. A missing default bundle prints
+  `SKIP: app bundle checks` and the final line says the bundle was not checked;
+  an explicit bundle argument that does not exist fails.
+- `scripts/tests/test_verify_negative_control.py` and
+  `scripts/tests/test_verify_v3_bundle_checks.py` run the real scripts against a
+  stub `swift` and, for bundle checks, tiny `cc`-built binaries. They build
+  nothing from this package and finish in about 2 seconds. Each negative case
+  fails against the pre-fix scripts. The older `test_verify_v3_only_build.py`
+  keeps the slow package-graph cases that run the real toolchain.
+- On Swift 6.4, `swift build --arch arm64 --arch x86_64` writes products to
+  `.build/out/Products/Release`, so `build_app.sh` stops with "built product
+  not found". The bundle checks above were run against a bundle assembled with
+  that path patched in a throwaway copy. `build_app.sh` itself is unchanged.
+
 ## Build, Signing and Installation
 
 Before installation:
