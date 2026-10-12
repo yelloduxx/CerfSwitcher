@@ -290,7 +290,14 @@ public enum LayoutDecoder {
         let sourceShapeIsProtected = shape.kind.blocksAutomaticConversion
             && !(convertedShape.kind == .lexical
                 && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian))
-        if SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw)
+        // A lone capital is usually an initial or a letter name, except when it
+        // is not a word at all and its other-layout key is: `Ш` → `I`.
+        let capitalIsOtherLayoutWord = currentCanonical == "ru"
+            && candidate.typedRaw.count == 1
+            && model.wordLogProbability(literal, language: currentCanonical) == nil
+            && !model.isExtendedRussianWord(literal)
+            && targetKnownForShape != nil
+        if (SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw) && !capitalIsOtherLayoutWord)
             || (sourceShapeIsProtected && !confirmedAcronymPair)
             || (convertedShape.kind.blocksAutomaticConversion
                 && candidate.kind != .trailingPunctuation
@@ -331,8 +338,7 @@ public enum LayoutDecoder {
                 || (recentEnglishCount > 0 && recentEnglishCount >= recentRussianCount))
         let directConsumesLeadingPunctuation = targetCanonical == "ru"
             && targetExtendedRussian
-            && candidate.prefix.isEmpty
-            && candidate.typedRaw.first.map(Self.isPunctuation) == true
+            && candidate.typedRaw.dropFirst(candidate.prefix.count).first.map(Self.isPunctuation) == true
         let englishSourceConfidence: EnglishSourceConfidence? = currentCanonical == "en" && targetCanonical == "ru"
             ? (directConsumesLeadingPunctuation
                 ? .unlikely

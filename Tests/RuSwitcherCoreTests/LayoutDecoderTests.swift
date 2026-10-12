@@ -649,6 +649,24 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
+    func testCommaKeyInsideWrapperIsLetter() {
+        for (typed, expected) in [("[,eath_", "[буфер_"), ("{,eath", "{буфер")] {
+            let result = evaluate(typed, context: ["это"])
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
+    func testLoneCapitalThatIsNoWordTakesOtherLayoutWord() {
+        let converted = evaluate("Ш", current: "ru", target: "en", context: ["today"])
+        XCTAssertEqual(converted.decision.candidate.replacement, "I")
+        XCTAssertEqual(converted.decision.verdict, .switchToConverted)
+        for (typed, current, target) in [("В", "ru", "en"), ("B", "en", "ru")] {
+            let kept = evaluate(typed, current: current, target: target, context: ["plan"])
+            XCTAssertNotEqual(kept.decision.verdict, .switchToConverted, typed)
+        }
+    }
+
     func testFrequentRussianWordsOnFrequentEnglishKeysStayLiteral() {
         let result = evaluate("руку", current: "ru", target: "en", context: ["это", "текст"])
         XCTAssertEqual(KeyMapping.convert("руку"), "here")

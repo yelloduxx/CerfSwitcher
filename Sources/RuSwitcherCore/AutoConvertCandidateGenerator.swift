@@ -17,9 +17,12 @@ public enum AutoConvertCandidateGenerator {
         ]
 
         let shape = SmartTokenizer.shape(of: typed)
-        if !shape.lexicalCore.isEmpty, !shape.prefix.isEmpty {
-            let typedCharacters = Array(typed)
-            let prefixCount = shape.prefix.count
+        // Every prefix length is a reading: `[,eath_` is `[` + `буфер` + `_`,
+        // because the comma key inside the wrapper is the letter `б`.
+        let typedCharacters = Array(typed)
+        let prefixCounts = shape.lexicalCore.isEmpty ? 0..<0 : 1..<(shape.prefix.count + 1)
+        for prefixCount in prefixCounts {
+            let prefix = String(typedCharacters.prefix(prefixCount))
             let remainder = Array(typedCharacters.dropFirst(prefixCount))
             let maximumPreservedSuffix = min(3, remainder.count)
             for suffixLength in 0...maximumPreservedSuffix {
@@ -33,7 +36,7 @@ public enum AutoConvertCandidateGenerator {
                 let candidate = AutoConvertCandidate(
                     typedRaw: typed,
                     convertedRaw: converted,
-                    prefix: shape.prefix,
+                    prefix: prefix,
                     convertedWord: KeyMapping.convert(String(coreCharacters)),
                     suffix: String(suffixCharacters),
                     kind: .wrappingPunctuation
@@ -45,7 +48,7 @@ public enum AutoConvertCandidateGenerator {
                     let translatedCandidate = AutoConvertCandidate(
                         typedRaw: typed,
                         convertedRaw: converted,
-                        prefix: shape.prefix,
+                        prefix: prefix,
                         convertedWord: KeyMapping.convert(String(coreCharacters)),
                         suffix: translatedSuffix,
                         kind: .wrappingPunctuation
