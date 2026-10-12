@@ -373,8 +373,11 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.verdict, .switchToConverted)
     }
 
-    func testTypedPunctuationWinsWhenBothInterpretationsAreWords() {
-        for (typed, expected) in [("xnj,", "что,"), ("yjxm.", "ночь.")] {
+    func testLayoutLetterWinsWhenBothInterpretationsAreWords() {
+        for (typed, expected) in [
+            ("xnj,", "чтоб"), ("yjxm.", "ночью"), ("xfcnm.", "частью"), ("j,", "об"),
+            ("ghbdtn,", "привет,"),
+        ] {
             let result = evaluate(typed, context: ["это"])
             XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
             XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
@@ -408,9 +411,11 @@ final class LayoutDecoderTests: XCTestCase {
     }
 
     func testClosingBracketEndingBracketedSpanStaysBracket() {
-        let result = evaluate("ghfdbkmysq]", context: ["это"])
-        XCTAssertEqual(result.decision.candidate.replacement, "правильный]")
-        XCTAssertEqual(result.decision.verdict, .switchToConverted)
+        for (typed, expected) in [("ghfdbkmysq]", "правильный]"), ("yj]", "он]")] {
+            let result = evaluate(typed, context: ["это"])
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+        }
     }
 
     func testTrailingUnderscoreIsPreservedWithoutBlockingWord() {

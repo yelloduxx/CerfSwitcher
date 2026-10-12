@@ -139,6 +139,16 @@ public enum LayoutDecoder {
                     return false
                 }
             }
+            // The same holds at the end: the `.` and `,` keys are `ю` and `б` in
+            // the Russian layout, so `xfcnm.` is `частью`, not `часть.`. Typed
+            // punctuation stays only when the letter reading is not a word
+            // (`ghbdtn,` → `привет,`).
+            let lhsLayoutLetterSuffix = preservesLayoutLetterSuffix(lhs.decision.candidate)
+            let rhsLayoutLetterSuffix = preservesLayoutLetterSuffix(rhs.decision.candidate)
+            if lhsLayoutLetterSuffix != rhsLayoutLetterSuffix {
+                if lhsLayoutLetterSuffix, hasLexicalTargetEvidence(rhs) { return true }
+                if rhsLayoutLetterSuffix, hasLexicalTargetEvidence(lhs) { return false }
+            }
             let lhsHasPhraseEvidence = lhs.evidence.contains(.phraseContext)
             let rhsHasPhraseEvidence = rhs.evidence.contains(.phraseContext)
             if lhsHasPhraseEvidence != rhsHasPhraseEvidence {
@@ -195,6 +205,14 @@ public enum LayoutDecoder {
         guard !candidate.prefix.isEmpty else { return false }
         let convertedPrefix = KeyMapping.convert(candidate.prefix)
         return convertedPrefix.contains(where: \.isLetter)
+    }
+
+    /// A closing bracket is a natural word end (`yj]` → `он]`), so only other
+    /// keys count, read in the conversion direction of this candidate.
+    private static func preservesLayoutLetterSuffix(_ candidate: AutoConvertCandidate) -> Bool {
+        preservesTypedSuffix(candidate)
+            && !candidate.suffix.contains(where: { "]}".contains($0) })
+            && candidate.convertedRaw.suffix(candidate.suffix.count).contains(where: \.isLetter)
     }
 
     private static func hasLexicalTargetEvidence(_ evaluation: LayoutDecoderEvaluation) -> Bool {
