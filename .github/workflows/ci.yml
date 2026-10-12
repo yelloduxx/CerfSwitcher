@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -39,7 +39,7 @@ jobs:
       - name: Unit tests
         run: swift test
 
-      - name: Corpus artifact integrity
+      - name: Script tests
         run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Warnings as errors
@@ -53,8 +53,18 @@ jobs:
           bash scripts/run_randomized_layout_suite.sh
           bash scripts/verify_simulator_negative_control.sh
           bash scripts/run_headless_typing_simulator.sh
-          python3 scripts/run_physical_typing_suite.py
-          bash scripts/verify_v3_only_build.sh
+
+      - name: Physical typing suite
+        run: |
+          status=0
+          python3 scripts/run_physical_typing_suite.py || status=$?
+          if [ "$status" -eq 77 ]; then
+            echo "::error title=Physical typing suite blocked::required system keyboard layout is missing on this runner (exit 77); the negative controls, legacy-oracle isolation and Unicode-deletion safety checks did not run"
+          fi
+          exit "$status"
+
+      - name: V3-only build check
+        run: bash scripts/verify_v3_only_build.sh
 
       - name: Reproduce language model
         run: |

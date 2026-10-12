@@ -25,8 +25,9 @@ if app_dependencies != {"RuSwitcherCore", "RuSwitcherAppSupport"}:
     raise SystemExit(f"unexpected RuSwitcher dependencies: {sorted(app_dependencies)}")
 if set(targets["RuSwitcherSimulator"]["target_dependencies"]) != {"RuSwitcherCore"}:
     raise SystemExit("corpus simulator is not V3-only")
-if set(targets["RuSwitcherTypingSimulator"]["target_dependencies"]) != {"RuSwitcherCore"}:
-    raise SystemExit("typing simulator is not V3-only")
+typing_dependencies = set(targets["RuSwitcherTypingSimulator"]["target_dependencies"])
+if typing_dependencies != {"RuSwitcherCore", "RuSwitcherAppSupport", "RuSwitcherTestSupport"}:
+    raise SystemExit(f"unexpected typing simulator dependencies: {sorted(typing_dependencies)}")
 PY
 
 for removed in \
@@ -40,7 +41,7 @@ for removed in \
     fi
 done
 
-if rg -q 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel|RuSwitcherExperimentalV4|LayoutDetector' \
+if grep -R -E -q 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel|RuSwitcherExperimentalV4|LayoutDetector' \
     "$ROOT/Sources/RuSwitcher"; then
     echo "FAIL: production executable still references an alternate decoder"
     exit 1
@@ -57,11 +58,11 @@ if [ -d "$APP" ]; then
         echo "FAIL: V4 artifact found in application bundle"
         exit 1
     fi
-    if otool -L "$BINARY" | rg -q 'CoreML'; then
+    if otool -L "$BINARY" | grep -E 'CoreML' >/dev/null; then
         echo "FAIL: production executable links CoreML"
         exit 1
     fi
-    if nm -j "$BINARY" 2>/dev/null | rg -q 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel'; then
+    if nm -j "$BINARY" 2>/dev/null | grep -E 'SmartAutoConvertEngine|ContextualLayoutDecoder|ContextualLayoutModel' >/dev/null; then
         echo "FAIL: alternate decoder symbol found in application executable"
         exit 1
     fi
