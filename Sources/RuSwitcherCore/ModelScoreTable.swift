@@ -4,11 +4,11 @@ import Foundation
 /// so loading parses nothing and the scores stay clean file-backed pages.
 /// Layout (little-endian): `RSHT`, version, reserved, entry count, slot
 /// count, key-blob length; slots holding entry index + 1 (0 = empty);
-/// entries sorted by key as (key offset, float64), a key ending where the
+/// entries sorted by key as (key offset, float32), a key ending where the
 /// next begins; then the UTF-8 key blob.
 struct ModelScoreTable: Sendable {
     private static let headerSize = 20
-    private static let entrySize = 12
+    private static let entrySize = 8
 
     static let empty = ModelScoreTable()
 
@@ -43,7 +43,7 @@ struct ModelScoreTable: Sendable {
             )
         }
         guard header.magic == UInt32(littleEndian: 0x5448_5352),
-              header.version == 1,
+              header.version == 2,
               header.slots > header.count,
               header.slots.nonzeroBitCount == 1,
               range.count == Self.headerSize + header.slots * 4 + header.count * Self.entrySize + header.keys
@@ -81,10 +81,7 @@ struct ModelScoreTable: Sendable {
                     let key = keyRange(index, in: raw)
                     if key.count == utf8.count,
                        memcmp(raw.baseAddress! + keysOffset + key.lowerBound, utf8.baseAddress!, utf8.count) == 0 {
-                        return Double(bitPattern: UInt64(littleEndian: raw.loadUnaligned(
-                            fromByteOffset: entriesOffset + index * Self.entrySize + 4,
-                            as: UInt64.self
-                        )))
+                        return value(at: index, in: raw)
                     }
                     slot = (slot + 1) & mask
                 }
@@ -100,24 +97,22 @@ struct ModelScoreTable: Sendable {
                 let bytes = UnsafeRawBufferPointer(
                     rebasing: raw[(keysOffset + key.lowerBound)..<(keysOffset + key.upperBound)]
                 )
-                let value = Double(bitPattern: UInt64(littleEndian: raw.loadUnaligned(
-                    fromByteOffset: entriesOffset + index * Self.entrySize + 4,
-                    as: UInt64.self
-                )))
-                return (String(decoding: bytes, as: UTF8.self), value)
+                return (String(decoding: bytes, as: UTF8.self), value(at: index, in: raw))
             }
         }
     }
 
     func minimumValue() -> Double? {
         storage.withUnsafeBytes { raw in
-            (0..<count).lazy.map { index in
-                Double(bitPattern: UInt64(littleEndian: raw.loadUnaligned(
-                    fromByteOffset: entriesOffset + index * Self.entrySize + 4,
-                    as: UInt64.self
-                )))
-            }.min()
+            (0..<count).lazy.map { index in value(at: index, in: raw) }.min()
         }
+    }
+
+    private func value(at index: Int, in raw: UnsafeRawBufferPointer) -> Double {
+        Double(Float(bitPattern: UInt32(littleEndian: raw.loadUnaligned(
+            fromByteOffset: entriesOffset + index * Self.entrySize + 4,
+            as: UInt32.self
+        ))))
     }
 
     private func keyStart(_ index: Int, in raw: UnsafeRawBufferPointer) -> Int {

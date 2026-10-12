@@ -66,7 +66,7 @@ TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
 TATOEBA_FOLLOWERS_SHA256 = "c4bea788a3101a14f2fcc7ae78cfad4b4f90a25eb68e0fc4040f35645d4f8f85"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
 MODEL_FORMAT_VERSION = 3
-MODEL_VERSION = "2026.10-v3.4-mapped"
+MODEL_VERSION = "2026.10-v3.5-compact"
 # Sections read in place at runtime: string keys to float64 values.
 TABLE_SECTIONS = {
     "ru_words", "en_words", "ru_chars", "en_chars", "ru_bigrams", "en_bigrams",
@@ -284,24 +284,24 @@ def json_bytes(value: object) -> bytes:
 def table_bytes(values: dict[str, float]) -> bytes:
     """An open-addressing hash table the app reads in place from the mapped
     model: header, slots (entry index + 1, 0 empty), entries sorted by key
-    (key offset, float64; a key ends where the next begins) and the UTF-8 key
+    (key offset, float32; a key ends where the next begins) and the UTF-8 key
     blob."""
     keys = sorted(values, key=lambda key: key.encode("utf-8"))
     slot_count = 1
-    while slot_count < 2 * len(keys) or slot_count <= len(keys):
+    while slot_count * 7 < len(keys) * 10 or slot_count <= len(keys):
         slot_count *= 2
     slots = [0] * slot_count
     entries = bytearray()
     blob = bytearray()
     for index, key in enumerate(keys):
         encoded = key.encode("utf-8")
-        entries.extend(struct.pack("<Id", len(blob), float(values[key])))
+        entries.extend(struct.pack("<If", len(blob), float(values[key])))
         blob.extend(encoded)
         slot = fnv1a64(encoded) & (slot_count - 1)
         while slots[slot]:
             slot = (slot + 1) & (slot_count - 1)
         slots[slot] = index + 1
-    header = struct.pack("<4sHHIII", b"RSHT", 1, 0, len(keys), slot_count, len(blob))
+    header = struct.pack("<4sHHIII", b"RSHT", 2, 0, len(keys), slot_count, len(blob))
     return header + struct.pack(f"<{slot_count}I", *slots) + bytes(entries) + bytes(blob)
 
 

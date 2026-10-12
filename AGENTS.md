@@ -393,9 +393,14 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model `2026.10-v3.4-mapped` (format 3),
-  current SHA-256
-  `81b443e8c8adda4c3ba7a764a0131187da6554f0901920cbfbb2e7593f4021fa` (15.6 MB).
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.5-compact` (format 3,
+  `RSHT` table version 2), current SHA-256
+  `717607d8680cfa2df6dfe44f96b2662b96a64cdeab3465724b6d6cc140d3d425` (12.6 MB).
+  Build 147 fills hash tables to at most 70% (was at most 50%) and stores
+  table values as float32 (8-byte entries, was 12): 15.6 -> 12.6 MB with
+  every decision identical on all 122,986 FLORES dev steps and the legacy gate
+  (44). Load ~14 ms, lookup ~4 us. The 4.2 MB Russian Bloom filter is
+  unchanged; halving it would raise its false-positive rate to ~0.4%.
   Model 3.4 (build 146) widens the Tatoeba statistics: followers cover every
   word whose keys spell a frequent or attested word in the other layout
   (17,831 EN and 4,220 RU pairs, was 7,862 and 134), and attested English words
@@ -408,7 +413,7 @@ Bundled resources:
   fell from ~200 ms to ~19 ms and the model's dirty footprint from ~55 MB to
   ~0.3 MB (its ~15 MB of pages are clean, file-backed and reclaimable).
   `build_language_model.py --reencode OLD.bin` converts a format-2 model without
-  re-downloading sources; only format 3 loads.
+  re-downloading sources; only format 3 with version-2 tables loads.
   Sections 14/15 hold Tatoeba-derived ln P(word | previous) for words whose keys
   spell a frequent word in the other layout (build 139). Sections 16/17 hold
   Tatoeba-attested words outside the frequency list (count >= 2), placed below
