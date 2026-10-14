@@ -43,19 +43,31 @@ final class SettingsWindowController {
         win.center()
         win.isReleasedWhenClosed = false
 
-        let tabView = NSTabView(frame: win.contentView!.bounds)
+        win.contentView = makeContentView(frame: win.contentView!.bounds)
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        window = win
+    }
+
+    private func makeContentView(frame: NSRect) -> NSTabView {
+        let tabView = NSTabView(frame: frame)
         tabView.autoresizingMask = [.width, .height]
 
         tabView.addTabViewItem(createGeneralTab())
         tabView.addTabViewItem(createExceptionsTab())
         tabView.addTabViewItem(createAboutTab())
         tabView.addTabViewItem(createAdvancedTab())
+        return tabView
+    }
 
-        win.contentView = tabView
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        window = win
+    /// Every settings page as a standalone view, for offscreen snapshots.
+    func snapshotPages() -> [(name: String, view: NSView)] {
+        ["general", "exceptions", "about", "advanced"].enumerated().map { index, name in
+            let tabView = makeContentView(frame: NSRect(x: 0, y: 0, width: 480, height: 660))
+            tabView.selectTabViewItem(at: index)
+            return (name, tabView)
+        }
     }
 
     /// Обновить состояние чекбокса автопереключения извне

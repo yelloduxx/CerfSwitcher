@@ -1,7 +1,9 @@
 import AppKit
 import RuSwitcherAppSupport
 
-if CommandLine.arguments.contains("--external-native-probe") {
+if CommandLine.arguments.contains(RuntimePreferencesDomain.settingsSnapshotArgument) {
+    SettingsSnapshotRenderer.run(arguments: CommandLine.arguments)
+} else if CommandLine.arguments.contains("--external-native-probe") {
     ExternalNativeProbe.run()
 } else if CommandLine.arguments.count >= 3,
    CommandLine.arguments[1] == "--ax-resolver-probe" {
