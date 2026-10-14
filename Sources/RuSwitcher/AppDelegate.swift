@@ -154,6 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.reconfigureTap()  // уровень tap зависит от режима
             self?.rebuildMenu()
         }
+        settingsController.onCheckPermissions = { [weak self] in
+            self?.runPermissionWizard(interactive: true)
+        }
         settingsController.onCaretFlagChanged = { [weak self] _ in
             self?.rebuildMenu()          // синхронизировать галочку в меню
             self?.syncCaretIndicator()   // создать/снести индикатор + обновить гейт onUserInput

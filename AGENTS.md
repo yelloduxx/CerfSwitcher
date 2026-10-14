@@ -475,6 +475,27 @@ Keep `THIRD_PARTY_NOTICES.md`, source archives under `scripts/data`, manifest
 hashes and `build_app.sh` resource copying synchronized. The app performs no model
 downloads and no network inference.
 
+## Settings Window
+
+- SwiftUI hosted in an AppKit `NSWindow` (macOS 13 APIs only, no `@Observable`).
+  Sections: Overview (status hero, permission chips, feature tiles, trigger
+  keycaps, interface language), Keyboard, Exceptions, Advanced, About.
+- `SettingsModel` mirrors SettingsManager. Every write goes through
+  `SettingsChange` to `SettingsWindowController.apply`, which sets the same
+  SettingsManager property and fires the same callback as before. Booleans are
+  one registry, `SettingsToggle`, keyed to their SettingsManager key paths.
+- The model re-reads SettingsManager and permissions whenever the window
+  becomes key; `updateAutoSwitchState`/`updateCaretFlagState` refresh it too.
+- Exception lists reuse the AppKit `ExceptionListEditor` through an
+  `NSViewRepresentable`. Its container uses Auto Layout: with autoresizing
+  masks SwiftUI's sizing pass left the first row scrolled out of view.
+- New strings exist in `en` and `ru`; the other 14 languages fall back to `en`.
+- `bash scripts/render_settings_snapshots.sh <prefix>` renders every page in
+  light/dark and ru/en to `.build/settings-ui/` without showing a window,
+  activating the app or reading user preferences (isolated
+  `com.ruswitcher.settingssnapshot` suite). Offscreen controls draw in the
+  inactive-window style, so switches look grey in the PNGs.
+
 ## Privacy
 
 - Decoder, models and personal learning are local.

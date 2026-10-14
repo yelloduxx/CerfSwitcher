@@ -34,41 +34,71 @@ final class ExceptionListEditor: NSObject, NSTableViewDataSource, NSTableViewDel
     }
 
     /// Контейнер: прокручиваемая таблица + строка кнопок «+»/«−» снизу.
+    /// Constraints, not autoresizing: a host that first sizes the container
+    /// below the strip height would otherwise leave the table misplaced.
     func makeContainer(frame: NSRect) -> NSView {
         let container = NSView(frame: frame)
-        let stripH: CGFloat = 26
 
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: stripH, width: frame.width, height: frame.height - stripH))
+        let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.borderType = .bezelBorder
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        scroll.automaticallyAdjustsContentInsets = false
 
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("col"))
-        col.width = frame.width - 4
+        col.resizingMask = .autoresizingMask
         table.addTableColumn(col)
+        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         table.headerView = nil
-        table.rowHeight = 22
+        table.style = .fullWidth
+        table.rowHeight = 26
+        table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
         scroll.documentView = table
-        container.addSubview(scroll)
 
-        let addBtn = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
-        addBtn.title = "+"
-        addBtn.bezelStyle = .smallSquare
-        addBtn.target = self
-        addBtn.action = #selector(addTapped)
-        container.addSubview(addBtn)
+        let separator = NSBox()
+        separator.boxType = .separator
 
-        removeButton.frame = NSRect(x: 30, y: 0, width: 28, height: 24)
-        removeButton.title = "−"
-        removeButton.bezelStyle = .smallSquare
-        removeButton.target = self
-        removeButton.action = #selector(removeTapped)
+        let addButton = stripButton(symbol: "plus", action: #selector(addTapped))
+        addButton.setAccessibilityLabel(L10n.commonAdd)
+        configureStripButton(removeButton, symbol: "minus", action: #selector(removeTapped))
         removeButton.isEnabled = false
-        container.addSubview(removeButton)
 
+        for view in [scroll, separator, addButton, removeButton] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            separator.topAnchor.constraint(equalTo: scroll.bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            addButton.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 3),
+            addButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
+            addButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+            removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 2),
+        ])
         return container
+    }
+
+    private func stripButton(symbol: String, action: Selector) -> NSButton {
+        let button = NSButton()
+        configureStripButton(button, symbol: symbol, action: action)
+        return button
+    }
+
+    private func configureStripButton(_ button: NSButton, symbol: String, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.isBordered = false
+        button.target = self
+        button.action = action
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
     }
 
     // MARK: - Table data

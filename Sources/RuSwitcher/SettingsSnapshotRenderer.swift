@@ -46,15 +46,8 @@ enum SettingsSnapshotRenderer {
     }
 
     private static func render(_ view: NSView, appearance: NSAppearance?, to url: URL) throws {
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: view.frame.size),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = L10n.settingsTitle
+        let window = SettingsWindowController.makeWindow(content: view)
         window.appearance = appearance
-        window.contentView = view
         for _ in 0..<3 {
             view.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
