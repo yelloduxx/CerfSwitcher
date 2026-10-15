@@ -1,7 +1,7 @@
-# RuSwitcher Pro
+# Cerf Switcher
 
 <p align="center">
-  <img src="icon.png" width="128" alt="RuSwitcher Pro icon">
+  <img src="icon.png" width="128" alt="Cerf Switcher icon">
 </p>
 
 <p align="center">
@@ -25,7 +25,9 @@
 
 ## English
 
-Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and RuSwitcher Pro converts the last word in place. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
+The name: typing the Russian word «сука» with the keyboard left in the English layout gives `cerf`, which is exactly the mistake this app fixes.
+
+Typed `ghbdtn` when you meant `привет`? By default, tap **Shift twice** and Cerf Switcher converts the last word in place. Manual conversion works with any two installed layouts; automatic conversion is tuned and tested for EN↔RU. The trigger remains configurable, and auto-conversion can fix a wrong layout at the end of a word.
 
 The current `main` build is **4.0.0 (129)**. It uses Smart Engine V3.1 as the only production decoder. V4 remains an isolated research package and is not loaded by the application.
 
@@ -37,25 +39,25 @@ The current `main` build is **4.0.0 (129)**. It uses Smart Engine V3.1 as the on
 | Tap **Shift** twice again | Reverse conversion (toggle back) |
 | Select text, tap **Shift** twice | Selected text is converted |
 
-The default is double Shift. The trigger is configurable — **Option**, **Command**, **Control** or **Shift** (left or right side, single or double-tap), or a **two-key combo** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) for the Windows-style Alt+Shift feel. A real selection always has priority. Without a selection, RuSwitcher Pro converts the current or just-completed buffered word. After navigation or a focus change it can recover the exact word before the caret only when that text field exposes readable Accessibility text.
+The default is double Shift. The trigger is configurable — **Option**, **Command**, **Control** or **Shift** (left or right side, single or double-tap), or a **two-key combo** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) for the Windows-style Alt+Shift feel. A real selection always has priority. Without a selection, Cerf Switcher converts the current or just-completed buffered word. After navigation or a focus change it can recover the exact word before the caret only when that text field exposes readable Accessibility text.
 
 ### Automatic conversion
 
-RuSwitcher Pro can also fix the layout **automatically as you type**, with no key press. Turn it on in **Settings → Auto-conversion** (off by default). The production Smart Engine V3 is a fully local noisy-channel decoder. It compares the literal and opposite-layout hypotheses using word frequency, RU/EN spelling data, character n-grams, recent phrase language, compound analysis and learned manual corrections. It abstains when the evidence is unsafe.
+Cerf Switcher can also fix the layout **automatically as you type**, with no key press. Turn it on in **Settings → Auto-conversion** (off by default). The production Smart Engine V3 is a fully local noisy-channel decoder. It compares the literal and opposite-layout hypotheses using word frequency, RU/EN spelling data, character n-grams, recent phrase language, compound analysis and learned manual corrections. It abstains when the evidence is unsafe.
 
 It handles common short words (`b` → `и`, `z` → `я`), long words such as `ghbdtncnde.` → `приветствую`, trailing punctuation (`ghbdtn,` → `привет,`) and unknown compounds such as `cegthcgbyf` → `суперспина` (`супер` + `спина`). Corrections happen only after Space, Enter or Tab, never halfway through a word; punctuation remains part of the token until that boundary so repeated marks cannot be corrupted by a mid-sequence layout switch. To avoid dangerous false fixes it skips words with digits / URLs / email-like text, single uppercase Latin letters (`plan B`), unlearned ALL-CAPS acronyms, camelCase / mixed-script code identifiers, terminals / IDEs / password managers, and password fields. A plain multi-letter acronym can be taught explicitly with the manual trigger; structured identifiers remain blocked.
 
 For Latin input, an English-first source gate protects frequent words and a separate 80,000+ form ESDB/SCOWL spelling lexicon before considering RU conversion. Words outside both dictionaries are classified by English character probability: plausible English OOV forms get a keep bias, while English-unlikely physical-key strings may switch when the Russian hypothesis has stronger lexical, character or contextual evidence. For RU→EN, V3.1 ranks exact English spellings by reproducible SCOWL common/standard/rare tiers and combines that rank with character plausibility and phrase context. It converts only when the Cyrillic source is unknown and the candidate has at least four letters; a valid Russian source, code-like text and other hard blockers still win. This fixes whole classes of real English words that the former single character threshold missed, without per-word overrides.
 
-Russian spelling evidence uses an offline-expanded LibreOffice Hunspell dictionary represented by a compact 4 MB Bloom filter with more than one million inflected forms. It confirms words such as verb imperatives without adding per-word exceptions and protects valid Russian source forms. When both physical interpretations are real words (`туче`/`next`), RuSwitcher Pro keeps the literal text unless explicit learning provides stronger evidence.
+Russian spelling evidence uses an offline-expanded LibreOffice Hunspell dictionary represented by a compact 4 MB Bloom filter with more than one million inflected forms. It confirms words such as verb imperatives without adding per-word exceptions and protects valid Russian source forms. When both physical interpretations are real words (`туче`/`next`), Cerf Switcher keeps the literal text unless explicit learning provides stronger evidence.
 
-The input state is revision-based: Backspace updates the current physical token, while word deletion, navigation, Cut/Paste/Undo, mouse clicks and focus changes invalidate stale state. Before an automatic replacement RuSwitcher Pro performs a read-only Accessibility check when the target supports it, then posts one ordered replacement transaction. This prevents stale selection, duplicate insertion and deletion at the wrong caret.
+The input state is revision-based: Backspace updates the current physical token, while word deletion, navigation, Cut/Paste/Undo, mouse clicks and focus changes invalidate stale state. Before an automatic replacement Cerf Switcher performs a read-only Accessibility check when the target supports it, then posts one ordered replacement transaction. This prevents stale selection, duplicate insertion and deletion at the wrong caret.
 
 Undoing an automatic correction or immediately editing it provides local negative feedback; a successful manual conversion creates an explicit global confirmation. One-character pairs are deliberately not persisted, so an accidental correction cannot make ordinary `а` or `и` change everywhere. In an AX-blind field, an unverified manual correction is held provisionally: the next ordinary keystroke or a 1.2-second grace period confirms it, while Backspace, Delete, Undo, Cut/Paste or another double Shift cancels it. Learned word pairs and their counters can be exported to a versioned JSON backup and merged back through **Settings → Advanced**. Reimporting the same file is safe and does not duplicate rules. Learned state can also be reset there. The explicit **Always convert** and **Never convert** lists remain hard overrides.
 
 #### Apps without readable Accessibility text
 
-Some terminals and Chromium/Electron editors do not expose the text before the caret. Manual double Shift still converts a freshly typed buffered word without destructive Backspace: RuSwitcher Pro selects the exact suffix with marked Shift+Left events and types the opposite-layout physical keys over that selection. It cannot recover an arbitrary old word after navigation or a focus change if the host exposes no text.
+Some terminals and Chromium/Electron editors do not expose the text before the caret. Manual double Shift still converts a freshly typed buffered word without destructive Backspace: Cerf Switcher selects the exact suffix with marked Shift+Left events and types the opposite-layout physical keys over that selection. It cannot recover an arbitrary old word after navigation or a focus change if the host exposes no text.
 
 Automatic conversion in such hosts is available through **Settings → Auto-conversion → Also in apps without Accessibility** and is off by default. This mode cannot verify the text by read-back, so it relies on the current focus and input revision. Keep terminals or other sensitive tools in the application exception list unless you deliberately accept that trade-off. Password managers and secure-input fields remain blocked.
 
@@ -74,20 +76,20 @@ convert the same token.
 This is an optional compatibility mode, not a universal replacement. It works in
 clients that implement the macOS text-input protocol. Raw terminal surfaces,
 games, remote sessions, secure fields and fully custom editors may bypass or
-restrict input methods; use the normal RuSwitcher Pro event-tap mode there.
+restrict input methods; use the normal Cerf Switcher event-tap mode there.
 
 **Three exception lists** let you tune it (Settings → Auto-conversion):
 - **Apps** — where auto-conversion stays off (terminals, IDEs and password managers are pre-filled; password managers can't be removed).
-- **Never convert** — words it must never touch (nicknames, logins, brands). After a wrong fix, tap the trigger to undo and RuSwitcher Pro offers to add the word here.
+- **Never convert** — words it must never touch (nicknames, logins, brands). After a wrong fix, tap the trigger to undo and Cerf Switcher offers to add the word here.
 - **Always convert** — words to always fix even if they aren't in the dictionary (compound words, slang). Add the **target** word — the result you want.
 
 ### Remote desktop (beta — new in 2.5)
 
-RuSwitcher Pro works through **Apple Screen Sharing**. Type into a remote Mac's session and fix wrong-layout text right there — by trigger or automatically — just like on your local machine. Run RuSwitcher Pro on **both** Macs and turn on **Remote Desktop mode** (beta, marked in the menu). Conversion happens on the Mac you're controlling, where the text actually lives.
+Cerf Switcher works through **Apple Screen Sharing**. Type into a remote Mac's session and fix wrong-layout text right there — by trigger or automatically — just like on your local machine. Run Cerf Switcher on **both** Macs and turn on **Remote Desktop mode** (beta, marked in the menu). Conversion happens on the Mac you're controlling, where the text actually lives.
 
 ### Layout flag at the cursor (beta — new in 2.6)
 
-After you switch layout, RuSwitcher Pro can briefly show the layout flag **right next to the text cursor** — so you see which layout you're in without glancing at the menu bar. It hides as you start typing. Turn it on in the menu or Settings (off by default). It works wherever the app exposes the cursor position via Accessibility (native apps and most text fields); a few apps that draw their own text (e.g. the VS Code editor) don't expose it — there macOS's own input indicator covers the gap.
+After you switch layout, Cerf Switcher can briefly show the layout flag **right next to the text cursor** — so you see which layout you're in without glancing at the menu bar. It hides as you start typing. Turn it on in the menu or Settings (off by default). It works wherever the app exposes the cursor position via Accessibility (native apps and most text fields); a few apps that draw their own text (e.g. the VS Code editor) don't expose it — there macOS's own input indicator covers the gap.
 
 ### Features
 
@@ -101,7 +103,7 @@ After you switch layout, RuSwitcher Pro can briefly show the layout flag **right
 - **Layout flag at the cursor (beta)** — briefly show the layout flag next to the text cursor right after a switch.
 - **Monochrome menu-bar icon (optional)** *(new in 2.6.1)* — a system-style `РУ/EN` badge instead of the colored flag; adapts to light/dark automatically. Off by default.
 - **Universal binary** — runs natively on both Apple Silicon and Intel Macs.
-- **Clipboard-free normal path** — automatic conversion and current/previous-word manual conversion type the replacement directly. A selected-text fallback may briefly use the pasteboard when AX cannot read the selection; it preserves all types and restores the old contents only while RuSwitcher Pro still owns the temporary value.
+- **Clipboard-free normal path** — automatic conversion and current/previous-word manual conversion type the replacement directly. A selected-text fallback may briefly use the pasteboard when AX cannot read the selection; it preserves all types and restores the old contents only while Cerf Switcher still owns the temporary value.
 - **Smart word detection** — converts the last typed word, including punctuation, or the word immediately before the caret after navigation.
 - **Selected text** — select any text and tap the trigger to convert it in place.
 - **Tap again to undo** — reverse conversion if you changed your mind.
@@ -113,16 +115,19 @@ After you switch layout, RuSwitcher Pro can briefly show the layout flag **right
 
 ### Installation
 
-This fork is installed separately as **RuSwitcher Pro**, so it can coexist with
+This fork is installed separately as **Cerf Switcher**, so it can coexist with
 the author's original `RuSwitcher.app`. It currently publishes beta tags but no
-DMG or Homebrew release. Build it from source:
+DMG or Homebrew release. On first launch Cerf Switcher copies the settings,
+learned corrections and personal lexicon of a previous RuSwitcher Pro install
+(`com.ruswitcher.pro`) once; the old preferences are left untouched. Build it
+from source:
 
 ```bash
 git clone https://github.com/yelloduxx/RuSwitcher.git
 cd RuSwitcher
 SIGN_ID="<your code-signing identity>" bash build_app.sh
-ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
-open "/Applications/RuSwitcherPro.app"
+ditto "CerfSwitcher.app" "/Applications/CerfSwitcher.app"
+open "/Applications/CerfSwitcher.app"
 ```
 
 To build and register the optional native Input Method companion:
@@ -132,7 +137,7 @@ SIGN_ID="<your trusted code-signing identity>" bash build_input_method.sh
 bash scripts/install_input_method.sh
 ```
 
-Then enable **RuSwitcher EN** and **RuSwitcher RU** in System Settings → Keyboard
+Then enable the **EN** and **RU** sources of **Cerf Switcher Input Method** in System Settings → Keyboard
 → Text Input. Input methods are launched by a protected macOS service. On current
 macOS, activation requires an Apple-issued Apple Development or Developer ID
 identity; the reusable self-signed identity can build and verify the bundle but
@@ -142,7 +147,7 @@ Requires macOS 13+, Xcode Command Line Tools and a trusted code-signing identity
 
 ### Permissions
 
-On first launch, RuSwitcher Pro requests two macOS permissions:
+On first launch, Cerf Switcher requests two macOS permissions:
 
 1. **Accessibility** — to read and modify text in applications.
 2. **Input Monitoring** — to detect keyboard events.
@@ -216,12 +221,12 @@ Source baseline for build 130 (`de45597`, before the new validation work):
 - **202 tests:** 201 passed, 1 skipped because the international layout was not enabled, 0 failed. Test-only layout lookup now also reads installed-but-disabled layouts without enabling them, so that quote-composition test can actually run.
 - **5,000 mixed-layout phrases / 59,388 labelled tokens:** 58,938 exact (99.2423%); all 450 failures were safe misses, with zero false or wrong replacements and zero duplicate transactions. A clean build-126 checkout produces the same 450 misses.
 - **New ranked-English gates:** at least 90% held-out recall in every SCOWL tier, plus zero false replacements across 50,000 frequent correct tokens, 50,000 extended English spellings and more than 3,000 generated Russian OOV forms.
-- **Native release gate:** probes verify the exact RuSwitcher Pro bundle ID, build and executable hash, stage app-facing files in `/tmp`, and report `blocked` unless an isolated session or explicit focus permission is provided.
+- **Native release gate:** probes verify the exact Cerf Switcher bundle ID, build and executable hash, stage app-facing files in `/tmp`, and report `blocked` unless an isolated session or explicit focus permission is provided.
 - **CI:** every push and pull request runs tests, warnings-as-errors, ASan, deterministic simulators, the negative control and byte-for-byte model reproduction on macOS.
 
 Current source, not yet installed, has 320 XCTest cases: 44 typing, 174 core and 102 app-support. CI also runs the release-configuration tests and simulator on Xcode 27, because Swift 6.4 miscompiled bound `contains` predicates in optimized builds and emptied every lexical core ([swiftlang/swift#92539](https://github.com/swiftlang/swift/issues/92539)). Debug builds were unaffected.
 
-RuSwitcher Pro contains no usage-statistics reporter or endpoint.
+Cerf Switcher contains no usage-statistics reporter or endpoint.
 
 ### Settings
 
@@ -236,7 +241,7 @@ The menu-bar menu also has quick toggles for Automatic conversion, Layout sound,
 
 ### Support the project
 
-If you find RuSwitcher Pro useful:
+If you find Cerf Switcher useful:
 
 - [**Boosty**](https://boosty.to/ruswitcher) — donate
 - **Star** this repo on GitHub
@@ -249,7 +254,9 @@ If you find RuSwitcher Pro useful:
 
 ## Русский
 
-Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и RuSwitcher Pro сконвертирует последнее слово прямо у каретки. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
+Название: если набрать русское слово «сука», забыв переключить раскладку с английской, получится `cerf`. Именно такие ошибки приложение и исправляет.
+
+Набрали `ghbdtn` вместо `привет`? По умолчанию нажмите **Shift два раза** — и Cerf Switcher сконвертирует последнее слово прямо у каретки. Ручная конвертация работает с любой парой установленных раскладок; автоконверсия настроена и проверена для EN↔RU. Триггер настраивается, а автоконверсия исправляет неверную раскладку на границе слова.
 
 Текущая версия в `main` — **4.0.0 (build 130)**. В приложении работает только продакшен-движок Smart Engine V3.1. V4 остаётся отдельным исследовательским пакетом и приложением не загружается.
 
@@ -261,17 +268,17 @@ If you find RuSwitcher Pro useful:
 | Нажать **Shift** два раза повторно | Обратная конвертация (переключение назад) |
 | Выделить текст, нажать **Shift** два раза | Выделенный текст сконвертирован |
 
-По умолчанию используется двойной Shift. Триггер настраивается — **Option**, **Command**, **Control** или **Shift** (левый или правый, одиночный или двойной тап), либо **комбо из двух клавиш** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) — в стиле привычного Alt+Shift. Настоящее выделение всегда имеет приоритет. Без выделения RuSwitcher Pro конвертирует текущее или только что завершённое слово из внутреннего буфера. После навигации или смены фокуса точное слово перед кареткой можно восстановить только в поле, которое отдаёт читаемый текст через Accessibility.
+По умолчанию используется двойной Shift. Триггер настраивается — **Option**, **Command**, **Control** или **Shift** (левый или правый, одиночный или двойной тап), либо **комбо из двух клавиш** (⌘+⇧, ⌃+⇧, ⌘+⌥, ⌃+⌥) — в стиле привычного Alt+Shift. Настоящее выделение всегда имеет приоритет. Без выделения Cerf Switcher конвертирует текущее или только что завершённое слово из внутреннего буфера. После навигации или смены фокуса точное слово перед кареткой можно восстановить только в поле, которое отдаёт читаемый текст через Accessibility.
 
 ### Автоматическая конверсия
 
-RuSwitcher Pro умеет исправлять раскладку **автоматически по ходу набора**, без нажатий. Включается в **Настройки → Автоконверсия** (по умолчанию выключено). Продакшен-движок Smart Engine V3 — полностью локальный noisy-channel decoder. Он сравнивает исходную и противоположную раскладки по частотам слов, RU/EN-словарям, символьным n-граммам, языку недавней фразы, составным словам и подтверждённым ручным исправлениям. При недостаточной уверенности текст остаётся неизменным.
+Cerf Switcher умеет исправлять раскладку **автоматически по ходу набора**, без нажатий. Включается в **Настройки → Автоконверсия** (по умолчанию выключено). Продакшен-движок Smart Engine V3 — полностью локальный noisy-channel decoder. Он сравнивает исходную и противоположную раскладки по частотам слов, RU/EN-словарям, символьным n-граммам, языку недавней фразы, составным словам и подтверждённым ручным исправлениям. При недостаточной уверенности текст остаётся неизменным.
 
 Теперь авто-конверсия обрабатывает частые короткие слова (`b` → `и`, `z` → `я`), длинные слова вроде `ghbdtncnde.` → `приветствую`, пунктуацию в конце (`ghbdtn,` → `привет,`) и неизвестные слитные слова вроде `cegthcgbyf` → `суперспина` (`супер` + `спина`). Исправление выполняется только после Space, Enter или Tab, но не посреди слова; пунктуация остаётся частью токена до этой границы, поэтому многоточие и повторные знаки не повреждаются переключением раскладки. Защищены цифры, URL/email, одиночные заглавные латинские буквы (`plan B`), необученные ALL-CAPS-аббревиатуры, camelCase, смешанные идентификаторы, терминалы, IDE, менеджеры паролей и защищённые поля. Чистую многобуквенную аббревиатуру можно явно обучить ручным триггером; структурированный код всё равно останется заблокированным.
 
 Для латинского ввода сначала работает English-first защита: частотный словарь и отдельный орфографический ESDB/SCOWL-слой более чем из 80 тысяч дополнительных форм. Точное английское слово остаётся неизменным; незнакомая, но похожая на английскую форма получает keep-bias. Переключение разрешается, когда исходная строка на английскую не похожа, а русская гипотеза сильнее по словарю, символьной модели или контексту. Для RU→EN V3.1 делит точные английские формы на воспроизводимые уровни SCOWL common/standard/rare и совместно учитывает этот ранг, символьную правдоподобность и контекст фразы. Исходная кириллическая форма должна быть неизвестной, а кандидат — не короче четырёх букв; настоящее русское слово, код и остальные жёсткие блокировки всё равно имеют приоритет. Поэтому исправляется целый класс пропущенных английских слов, а не отдельные примеры из хардкода.
 
-Русские словоформы проверяются по офлайн-развёрнутому Hunspell-словарю LibreOffice, упакованному в компактный Bloom-фильтр размером 4 МБ и содержащему более миллиона форм. Он распознаёт, в частности, глагольные формы без исключений для отдельных слов и защищает корректные русские слова. Если обе интерпретации реальны (`туче`/`next`), RuSwitcher Pro оставляет исходный текст, пока персональное обучение не даст более сильное основание.
+Русские словоформы проверяются по офлайн-развёрнутому Hunspell-словарю LibreOffice, упакованному в компактный Bloom-фильтр размером 4 МБ и содержащему более миллиона форм. Он распознаёт, в частности, глагольные формы без исключений для отдельных слов и защищает корректные русские слова. Если обе интерпретации реальны (`туче`/`next`), Cerf Switcher оставляет исходный текст, пока персональное обучение не даст более сильное основание.
 
 Состояние ввода теперь ревизионное: обычный Backspace удаляет физическую клавишу из текущего токена, а удаление слова, навигация, Cut/Paste/Undo, клик и смена поля инвалидируют устаревший снимок. Перед автоматической заменой выполняется read-only AX-проверка, если поле её поддерживает, после чего вся замена отправляется одной упорядоченной транзакцией. Это защищает от выделения вместо замены, дублирования и удаления текста не у той каретки.
 
@@ -279,7 +286,7 @@ RuSwitcher Pro умеет исправлять раскладку **автома
 
 #### Приложения без читаемого Accessibility-текста
 
-Некоторые терминалы и редакторы на Chromium/Electron не отдают программе текст перед кареткой. Двойной Shift всё равно меняет свежее слово из внутреннего буфера без разрушительного Backspace: RuSwitcher Pro выделяет точный хвост помеченными событиями Shift+Left и печатает поверх выделения физические клавиши целевой раскладки. Но произвольное старое слово после клика, навигации или смены окна в таком поле восстановить нельзя.
+Некоторые терминалы и редакторы на Chromium/Electron не отдают программе текст перед кареткой. Двойной Shift всё равно меняет свежее слово из внутреннего буфера без разрушительного Backspace: Cerf Switcher выделяет точный хвост помеченными событиями Shift+Left и печатает поверх выделения физические клавиши целевой раскладки. Но произвольное старое слово после клика, навигации или смены окна в таком поле восстановить нельзя.
 
 Автоконверсию для таких приложений можно отдельно включить: **Настройки → Автоконверсия → Также в приложениях без Accessibility**. По умолчанию этот режим выключен. Без read-back программа опирается только на актуальность фокуса и ревизии ввода, поэтому терминалы и другие чувствительные приложения лучше оставить в списке исключений, если этот компромисс вам не нужен. Менеджеры паролей и secure-input поля блокируются всегда.
 
@@ -298,7 +305,7 @@ AX-чтение, удаление через CGEvent, пачка Backspace ил�
 Это дополнительный режим совместимости, а не универсальная замена. Он работает в
 полях, реализующих стандартный macOS Text Input API. Raw-terminal, игры, удалённые
 сессии, secure-поля и полностью самописные редакторы могут обходить или ограничивать
-Input Method; там нужно использовать обычный event-tap режим RuSwitcher Pro.
+Input Method; там нужно использовать обычный event-tap режим Cerf Switcher.
 
 **Три списка исключений** для тонкой настройки (Настройки → Автоконверсия):
 - **Приложения** — где авто-конверсия выключена (терминалы, IDE, менеджеры паролей уже в списке; менеджеры паролей удалить нельзя).
@@ -307,11 +314,11 @@ Input Method; там нужно использовать обычный event-ta
 
 ### Режим удалённого стола (бета — новое в 2.5)
 
-RuSwitcher Pro работает через **Apple Screen Sharing**. Печатаете в сессии удалённого Mac — и неправильная раскладка исправляется прямо там, по триггеру или автоматически, как на локальной машине. Запустите RuSwitcher Pro на **обеих** машинах и включите **Режим удалённого стола** (бета, помечен в меню). Конверсия происходит на управляемой машине, где и находится текст.
+Cerf Switcher работает через **Apple Screen Sharing**. Печатаете в сессии удалённого Mac — и неправильная раскладка исправляется прямо там, по триггеру или автоматически, как на локальной машине. Запустите Cerf Switcher на **обеих** машинах и включите **Режим удалённого стола** (бета, помечен в меню). Конверсия происходит на управляемой машине, где и находится текст.
 
 ### Флаг у курсора (бета — новое в 2.6)
 
-После переключения раскладки RuSwitcher Pro может ненадолго показать флаг раскладки **прямо у текстового курсора** — видно, в какой раскладке печатаете, не глядя в меню-бар. Прячется, как только начинаете печатать. Включается в меню или Настройках (по умолчанию выключено). Работает там, где приложение отдаёт позицию курсора через Accessibility (нативные приложения и большинство текстовых полей); некоторые приложения, рисующие текст сами (например, редактор VS Code), позицию не отдают — там раскладку показывает встроенный индикатор macOS.
+После переключения раскладки Cerf Switcher может ненадолго показать флаг раскладки **прямо у текстового курсора** — видно, в какой раскладке печатаете, не глядя в меню-бар. Прячется, как только начинаете печатать. Включается в меню или Настройках (по умолчанию выключено). Работает там, где приложение отдаёт позицию курсора через Accessibility (нативные приложения и большинство текстовых полей); некоторые приложения, рисующие текст сами (например, редактор VS Code), позицию не отдают — там раскладку показывает встроенный индикатор macOS.
 
 ### Возможности
 
@@ -325,7 +332,7 @@ RuSwitcher Pro работает через **Apple Screen Sharing**. Печат�
 - **Флаг у курсора (бета)** — ненадолго показывает флаг раскладки у текстового курсора сразу после переключения.
 - **Монохромная иконка в меню-баре (опционально)** *(новое в 2.6.1)* — системная плашка `РУ/EN` вместо цветного флага, сама подстраивается под светлую/тёмную тему. По умолчанию выключена.
 - **Universal-сборка** — нативно на Apple Silicon и Intel.
-- **Обычный путь без буфера обмена** — автоконверсия и ручная замена текущего/предыдущего слова печатают текст напрямую. Fallback для выделенного текста может кратко использовать pasteboard, если AX не умеет прочитать выделение; он сохраняет все типы и восстанавливает прежнее содержимое, только пока временные данные принадлежат RuSwitcher Pro.
+- **Обычный путь без буфера обмена** — автоконверсия и ручная замена текущего/предыдущего слова печатают текст напрямую. Fallback для выделенного текста может кратко использовать pasteboard, если AX не умеет прочитать выделение; он сохраняет все типы и восстанавливает прежнее содержимое, только пока временные данные принадлежат Cerf Switcher.
 - **Умное определение слова** — конвертирует последнее набранное слово со знаками препинания или слово непосредственно перед кареткой после навигации.
 - **Выделенный текст** — выделите любой текст и нажмите триггер для конвертации на месте.
 - **Повторное нажатие — отмена** — обратная конвертация, если передумали.
@@ -337,16 +344,19 @@ RuSwitcher Pro работает через **Apple Screen Sharing**. Печат�
 
 ### Установка
 
-Форк устанавливается отдельно как **RuSwitcher Pro**, поэтому оригинальный
+Форк устанавливается отдельно как **Cerf Switcher**, поэтому оригинальный
 `RuSwitcher.app` автора можно оставить для сравнения. Пока публикуются beta-теги
-без DMG и Homebrew-релиза. Соберите приложение из исходников:
+без DMG и Homebrew-релиза. При первом запуске Cerf Switcher один раз копирует
+настройки, выученные исправления и персональный словарь прежней установки
+RuSwitcher Pro (`com.ruswitcher.pro`); старые настройки не изменяются. Соберите
+приложение из исходников:
 
 ```bash
 git clone https://github.com/yelloduxx/RuSwitcher.git
 cd RuSwitcher
 SIGN_ID="<ваша identity для подписи кода>" bash build_app.sh
-ditto "RuSwitcherPro.app" "/Applications/RuSwitcherPro.app"
-open "/Applications/RuSwitcherPro.app"
+ditto "CerfSwitcher.app" "/Applications/CerfSwitcher.app"
+open "/Applications/CerfSwitcher.app"
 ```
 
 Для сборки и регистрации дополнительного нативного Input Method:
@@ -356,7 +366,7 @@ SIGN_ID="<доверенная identity для подписи кода>" bash bu
 bash scripts/install_input_method.sh
 ```
 
-После этого включите **RuSwitcher EN** и **RuSwitcher RU** в Системных настройках
+После этого включите источники **EN** и **RU** из **Cerf Switcher Input Method** в Системных настройках
 → Клавиатура → Источники ввода. Input Method запускает защищённая служба macOS.
 На актуальной macOS для активации нужна Apple-issued identity типа Apple
 Development или Developer ID. Многоразовый самоподписанный сертификат позволяет
@@ -367,7 +377,7 @@ Development или Developer ID. Многоразовый самоподписа
 
 ### Разрешения
 
-При первом запуске RuSwitcher Pro запросит два системных разрешения macOS:
+При первом запуске Cerf Switcher запросит два системных разрешения macOS:
 
 1. **Универсальный доступ (Accessibility)** — для чтения и изменения текста в приложениях.
 2. **Мониторинг ввода (Input Monitoring)** — для отслеживания нажатий клавиш.
@@ -437,7 +447,7 @@ swift run -c release RuSwitcherTypingSimulator \
 - **202 теста:** 201 пройден, 1 пропущен из-за невключённой международной раскладки, 0 ошибок. Теперь тестовый загрузчик читает и установленные, но выключенные раскладки, не включая их: проверка композиции кавычек действительно выполняется.
 - **5 000 смешанных фраз / 59 388 размеченных токенов:** 58 938 точных результатов (99,2423%); оставшиеся 450 случаев — безопасные пропуски, без ложных или неправильных замен и без повторных транзакций. Чистая сборка build 126 даёт те же 450 пропусков.
 - **Новые проверки ranked English:** не менее 90% recall на отложенной выборке каждого уровня SCOWL и ноль ложных замен на 50 000 частых корректных токенов, 50 000 дополнительных английских слов и более чем 3 000 сгенерированных русских OOV-форм.
-- **Нативный release-gate:** probe проверяет bundle ID, build и хеш именно RuSwitcher Pro, передаёт приложению файлы через `/tmp` и возвращает `blocked`, если нет отдельной сессии либо явного разрешения забрать фокус.
+- **Нативный release-gate:** probe проверяет bundle ID, build и хеш именно Cerf Switcher, передаёт приложению файлы через `/tmp` и возвращает `blocked`, если нет отдельной сессии либо явного разрешения забрать фокус.
 - **CI:** каждый push и pull request запускает тесты, warnings-as-errors, ASan, детерминированные симуляторы, отрицательный контроль и побайтовую проверку воспроизводимости модели на macOS.
 
 Текущий исходный код, ещё не установленный, содержит 320 XCTest-тестов: 44 typing, 174 core и 102 app-support. CI также запускает тесты и симулятор в release-конфигурации на Xcode 27: Swift 6.4 неправильно компилировал переданные по ссылке предикаты `contains` в оптимизированной сборке и опустошал лексическое ядро каждого слова ([swiftlang/swift#92539](https://github.com/swiftlang/swift/issues/92539)). Debug-сборка не затронута.
@@ -457,7 +467,7 @@ swift run -c release RuSwitcherTypingSimulator \
 
 ### Поддержать проект
 
-Если RuSwitcher Pro вам полезен:
+Если Cerf Switcher вам полезен:
 
 - [**Boosty**](https://boosty.to/ruswitcher) — донат
 - **Star** на GitHub

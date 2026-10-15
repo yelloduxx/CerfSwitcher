@@ -1,4 +1,4 @@
-# RuSwitcher Pro Engineering Notes
+# Cerf Switcher Engineering Notes
 
 This file is the repository-level operating context for future agents. Keep it
 updated when architecture, behavior, model artifacts, tests, signing, or the
@@ -6,7 +6,7 @@ installed build changes.
 
 ## Product
 
-- RuSwitcher Pro is a local macOS menu-bar application for EN<->RU keyboard-layout
+- Cerf Switcher is a local macOS menu-bar application for EN<->RU keyboard-layout
   conversion. The quality target is Caramba/Punto-like behavior without cloud
   inference or telemetry containing user text.
 - Supported platform: macOS 13+; the release bundle is universal (`arm64` and
@@ -15,11 +15,26 @@ installed build changes.
 - Primary repository: `yelloduxx/RuSwitcher`; the production branch is `main`.
   `rashn/RuSwitcher` is the author's upstream repository, not a release source
   for this fork.
-- Production product on `main` is **RuSwitcher Pro** `4.0.0` build **130**:
-  - Bundle: `RuSwitcherPro.app` → `/Applications/RuSwitcherPro.app`
-  - Bundle ID: `com.ruswitcher.pro` · Executable: `RuSwitcherPro` · Dev tag: `pro`
-  - Logs: `~/Library/Logs/RuSwitcherPro/ruswitcher-pro.log` via
+- The product is **Cerf Switcher** `4.0.0` build **150**. The name is what
+  the Russian word «сука» becomes when typed in the English layout.
+  - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
+  - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
+  - Input Method: `com.cerfswitcher.inputmethod`, sources `.en` and `.ru`
+  - Logs: `~/Library/Logs/CerfSwitcher/cerf-switcher.log` via
     `ProductIdentity.logFilePath` (Settings and rslog must match)
+  - Renamed from **RuSwitcher Pro** (`com.ruswitcher.pro`,
+    `/Applications/RuSwitcherPro.app`). On a bundled launch, `main.swift` runs
+    `LegacyPreferencesMigration` before anything reads settings. It copies
+    every key of the `com.ruswitcher.pro` persistent domain once, keeps keys
+    the new domain already holds, sets
+    `com.cerfswitcher.migratedLegacyPreferences` and never changes the old
+    domain. Without an old domain it writes nothing. Defaults are the only
+    product-named user storage; logs are not migrated.
+  - Sibling detection still treats `com.ruswitcher.app`, `com.ruswitcher.lab`,
+    `com.ruswitcher.pro` and any process named `RuSwitcher*` as a conflicting
+    switcher. SwiftPM targets, modules, UserDefaults key names
+    (`com.ruswitcher.*`), the event marker and the signing identity keep their
+    RuSwitcher names.
   - Lineage: Lab 105 conversion core + AX 106–108 safety + runtime
     `ManualHostPolicy` capability detection + keyboard-deletion manual path for
     external hosts (build 118+) + non-destructive physical selection and
@@ -30,8 +45,9 @@ installed build changes.
     while structured identifiers remain protected (build 130).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
-  - Installed executable SHA-256:
+  - Last installed build was RuSwitcher Pro 130, executable SHA-256
     `2b59f4bc61eaad8754a75442d75d7798af37a576a9139dacc85f2b2c984044aa`.
+    Cerf Switcher has not been installed yet.
 - Verify the installed binary hash and PID after every local replacement; do
   not infer the running build from `version.json` alone.
 - Changing `ProductIdentity.bundleIdentifier` requires re-granting Accessibility
@@ -252,7 +268,7 @@ and synthetic events before mutating the token state.
 - Plain Backspace removes one physical key.
 - Option/Command+Backspace, forward Delete, Cut/Paste/Undo, arrows, mouse focus
   changes and tap recovery invalidate the token/revision as appropriate.
-- Synthetic RuSwitcher Pro events carry `kRuSwitcherEventMarker` and must never feed
+- Synthetic Cerf Switcher events carry `kRuSwitcherEventMarker` and must never feed
   back into the state machine.
 - macOS wake and session-active notifications debounce into one recovery: clear
   stale input/learning state, invalidate AX focus and recreate the event tap.
@@ -392,10 +408,10 @@ Adaptive learning behavior:
 ## Input Method Companion
 
 `RuSwitcherInputMethod` is an optional native input source, not another decoder.
-It exposes `com.ruswitcher.inputmethod.RuSwitcherPro.en` and `.ru`, keeps the
+It exposes `com.cerfswitcher.inputmethod.en` and `.ru`, keeps the
 unfinished token as marked text and calls `InputMethodCompositionSession` at
 Space, Enter or Tab. The session uses the bundled V3 model, phrase belief,
-always/never policy and the existing adaptive rules from the `com.ruswitcher.pro`
+always/never policy and the existing adaptive rules from the `com.cerfswitcher.app`
 defaults suite. It commits one final string through `IMKTextInput`; automatic
 conversion never posts deletion events, reads AX or touches the pasteboard.
 
@@ -574,7 +590,7 @@ a confirmation, buffered-token double Shift converts the unfinished word in the
 phrase `сегодня я ...`, and previous-token double Shift converts the last word
 after a Space. The probes assert a zero pasteboard `changeCount` delta for all
 three manual paths. The next physical-key input converts, and the conversion
-still works after restarting RuSwitcher Pro. Each native probe runs alone so two
+still works after restarting the app. Each native probe runs alone so two
 global event taps cannot process the same trigger. The script restores the
 complete preferences domain afterward, so it does not pollute the user's
 dictionary.
@@ -598,7 +614,7 @@ bash scripts/run_hid_stress_tests.sh
 bash scripts/run_native_release_smoke.sh
 ```
 
-- Every native script defaults to `/Applications/RuSwitcherPro.app` and rejects
+- Every native script defaults to `/Applications/CerfSwitcher.app` and rejects
   a bundle whose ID, version, build or executable hash differs from the current
   source-built app. The reference bundle is mandatory unless hash comparison is
   explicitly disabled. `RUSWITCH_EXPECTED_BUNDLE_ID`,
@@ -758,7 +774,7 @@ bash scripts/run_native_release_smoke.sh
   `com.ruswitcher.nativeprobe.<uuid>` domain. Test logs read that domain's debug
   flag, and isolated startup no longer deletes the user's obsolete stats file.
 - `--restart-installed-pro` is an explicit opt-in for stopping only the exact
-  `/Applications/RuSwitcherPro.app/Contents/MacOS/RuSwitcherPro` process after
+  `/Applications/CerfSwitcher.app/Contents/MacOS/CerfSwitcher` process after
   permission/signature checks, then restoring it with PID/hash verification.
   Other switcher processes block the run; the harness does not kill them.
 - The host records trusted marked events and its actual text/UTF-16 selection.
@@ -1191,7 +1207,7 @@ bash scripts/run_native_release_smoke.sh
   counts-only summary (words total/passed/failed, phrases total/passed) and
   failing when the simulator fails. A final `App bundle` step (P01c) builds the
   unsigned bundle with `RUSWITCH_UNSIGNED_BUNDLE=1 bash build_app.sh` and runs
-  `bash scripts/verify_v3_only_build.sh RuSwitcherPro.app`. `xcode-27` is a
+  `bash scripts/verify_v3_only_build.sh CerfSwitcher.app`. `xcode-27` is a
   preview label: if it disappears the job queues instead of failing,
   `timeout-minutes` does not cover queue time, and no branch protection
   requires the job.
@@ -1269,8 +1285,8 @@ Before installation:
 swift test
 git diff --check
 SIGN_ID='RuSwitcher Local Code Signing' bash build_app.sh
-codesign --verify --deep --strict RuSwitcherPro.app
-lipo -archs RuSwitcherPro.app/Contents/MacOS/RuSwitcherPro
+codesign --verify --deep --strict CerfSwitcher.app
+lipo -archs CerfSwitcher.app/Contents/MacOS/CerfSwitcher
 ```
 
 Build and register the optional Input Method separately:
@@ -1309,7 +1325,7 @@ CI checks only and is not installable`, and fails when combined with `SIGN_ID`.
 A value other than `1` is ignored with a `NOTE:` line and the script then
 requires a signing identity. The `App bundle` step of the `release-build` job
 (`xcode-27`) uses it and then runs
-`scripts/verify_v3_only_build.sh RuSwitcherPro.app`. Never install an unsigned
+`scripts/verify_v3_only_build.sh CerfSwitcher.app`. Never install an unsigned
 bundle. The bundle is not signed as a bundle, but its Mach-O keeps the linker's
 own signature: `codesign -dv` shows `Signature=adhoc` with
 `flags=0x20002(adhoc,linker-signed)` and `Info.plist=not bound`, while
@@ -1342,9 +1358,10 @@ Install atomically:
 
 1. Copy the built bundle to a unique staging path under `/Applications`.
 2. Verify the staged signature.
-3. Stop the running `RuSwitcher Pro` process.
+3. Stop the running `Cerf Switcher` process, and `RuSwitcher Pro`, which
+   would otherwise run as a conflicting sibling.
 4. Move the current app to a timestamped backup.
-5. Move staging to `/Applications/RuSwitcherPro.app`; do not overwrite the
+5. Move staging to `/Applications/CerfSwitcher.app`; do not overwrite the
    author's `/Applications/RuSwitcher.app` or another fork's bundle.
 6. Open the app and verify version, architectures, signature, SHA-256 and process.
 
