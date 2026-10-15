@@ -105,4 +105,4 @@ jobs:
       - name: App bundle
         run: |
           RUSWITCH_UNSIGNED_BUNDLE=1 bash build_app.sh
-          bash scripts/verify_v3_only_build.sh RuSwitcherPro.app
+          bash scripts/verify_v3_only_build.sh CerfSwitcher.app

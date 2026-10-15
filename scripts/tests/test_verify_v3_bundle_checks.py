@@ -12,7 +12,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY / "scripts" / "verify_v3_only_build.sh"
-EXECUTABLE = "RuSwitcherPro"
+EXECUTABLE = "CerfSwitcher"
 DESCRIPTION = {
     "targets": [
         {"name": "RuSwitcher", "target_dependencies": ["RuSwitcherCore", "RuSwitcherAppSupport"]},

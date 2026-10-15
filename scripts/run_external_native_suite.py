@@ -33,8 +33,8 @@ def source_digest(root):
     return value.hexdigest()
 
 
-INSTALLED_APP = Path("/Applications/RuSwitcherPro.app")
-INSTALLED_BINARY = INSTALLED_APP / "Contents/MacOS/RuSwitcherPro"
+INSTALLED_APP = Path("/Applications/CerfSwitcher.app")
+INSTALLED_BINARY = INSTALLED_APP / "Contents/MacOS/CerfSwitcher"
 
 
 def running_switchers():
@@ -42,7 +42,7 @@ def running_switchers():
     rows = []
     for line in output.splitlines():
         parts = line.strip().split(maxsplit=1)
-        if len(parts) == 2 and "RuSwitcher" in Path(parts[1]).name:
+        if len(parts) == 2 and any(name in Path(parts[1]).name for name in ("RuSwitcher", "CerfSwitcher")):
             rows.append((int(parts[0]), parts[1]))
     return rows
 
@@ -57,7 +57,7 @@ def restore_installed(expected_hash):
             if path == str(INSTALLED_BINARY):
                 return dict(pid=pid, sha256=expected_hash, verified=True)
         time.sleep(0.1)
-    raise RuntimeError("installed RuSwitcher Pro did not restart")
+    raise RuntimeError("installed Cerf Switcher did not restart")
 
 
 def write_json(path, data):
@@ -483,7 +483,7 @@ def main(argv=None, *, root=None):
     mode.add_argument("--preflight-only", action="store_true",
                       help="Build/sign and read access flags only; never open an editor, stop an app or post events")
     parser.add_argument("--restart-installed-pro", action="store_true",
-                        help="Explicitly permit quitting and restoring only /Applications/RuSwitcherPro.app")
+                        help="Explicitly permit quitting and restoring only /Applications/CerfSwitcher.app")
     parser.add_argument("--fixture", type=Path)
     parser.add_argument("--editor", choices=("nstextview", "webkit"), default="nstextview")
     parser.add_argument("--sample-process", action="store_true",
@@ -505,9 +505,9 @@ def main(argv=None, *, root=None):
     if live:
         running = running_switchers()
         if any(not args.restart_installed_pro or path != str(INSTALLED_BINARY) for _, path in running):
-            summary.update(status="blockedEnvironment", error="another RuSwitcher process is running")
+            summary.update(status="blockedEnvironment", error="another switcher process is running")
             write_json(root / ".build/external-native-last.json", summary)
-            print("BLOCKED: another RuSwitcher process is running; use an isolated macOS session", file=sys.stderr)
+            print("BLOCKED: another switcher process is running; use an isolated macOS session", file=sys.stderr)
             return 77
     fixture_path = args.fixture or root / "Tests/Fixtures/Simulator/physical-closed-loop.json"
     fixture = json.loads(fixture_path.read_text())
@@ -543,7 +543,7 @@ def main(argv=None, *, root=None):
             version = json.loads((root / "version.json").read_text())
             info = plistlib.loads((root / "Info.plist").read_bytes())
             info.update(CFBundleShortVersionString=version["version"], CFBundleVersion=str(version["build"]))
-            products = [bundle(binaries / "RuSwitcher", directory, "RuSwitcherPro", "com.ruswitcher.pro", info),
+            products = [bundle(binaries / "RuSwitcher", directory, "CerfSwitcher", "com.cerfswitcher.app", info),
                         bundle(binaries / "RuSwitcherNativeEditorHost", directory, "RuSwitcherNativeEditorHost", "com.ruswitcher.native-editor-host",
                                display_name="Keyboard Test Editor"),
                         bundle(binaries / "RuSwitcherNativeDriver", directory, "RuSwitcherNativeDriver", "com.ruswitcher.native-driver",
@@ -581,8 +581,8 @@ def main(argv=None, *, root=None):
                     raise BlockedEnvironment("another switcher appeared during preparation")
                 if running:
                     installed_info = plistlib.loads((INSTALLED_APP / "Contents/Info.plist").read_bytes())
-                    if installed_info.get("CFBundleIdentifier") != "com.ruswitcher.pro":
-                        raise RuntimeError("installed bundle identity does not match RuSwitcher Pro")
+                    if installed_info.get("CFBundleIdentifier") != "com.cerfswitcher.app":
+                        raise RuntimeError("installed bundle identity does not match Cerf Switcher")
                     expected_hash = digest(INSTALLED_BINARY)
                     for pid, path in running:
                         if (pid, path) not in running_switchers():

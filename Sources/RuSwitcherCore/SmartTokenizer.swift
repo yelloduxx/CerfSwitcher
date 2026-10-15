@@ -37,7 +37,8 @@ public struct TokenShape: Equatable, Sendable {
 
 public enum SmartTokenizer {
     private static let leadingPunctuation = CharacterSet(charactersIn: "([{<\"'«„“‘")
-    private static let trailingPunctuation = CharacterSet(charactersIn: ".,!?;:)]}>\"'»”’…_-—–")
+    // A trailing `/` is the Russian period key; an inner `/` still marks a path.
+    private static let trailingPunctuation = CharacterSet(charactersIn: ".,!?;:)]}>\"'»”’…_-—–/")
 
     public static func shape(of raw: String) -> TokenShape {
         guard !raw.isEmpty else {

@@ -334,13 +334,7 @@ public enum LayoutDecoder {
         if literal.isEmpty {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])
         }
-        // On the English layout a lone final `/` is the Russian period key, so
-        // `Fdcnhfkbb/` ends a sentence rather than naming a path.
-        let typedSlashes = candidate.typedRaw.filter { $0 == "/" }.count
-        let sourceKind = currentCanonical == "en" && typedSlashes == 1 && candidate.typedRaw.hasSuffix("/")
-            ? SmartTokenizer.shape(of: String(candidate.typedRaw.dropLast())).kind
-            : shape.kind
-        let sourceShapeIsProtected = sourceKind.blocksAutomaticConversion
+        let sourceShapeIsProtected = shape.kind.blocksAutomaticConversion
             && !(convertedShape.kind == .lexical
                 && (targetKnownForShape != nil || targetExtendedEnglish || targetExtendedRussian
                     || model.attestedWordLogProbability(converted, language: targetCanonical) != nil))

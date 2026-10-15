@@ -12,7 +12,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY / "build_app.sh"
-EXECUTABLE = "RuSwitcherPro"
+EXECUTABLE = "CerfSwitcher"
 SPM_PRODUCT = "RuSwitcher"
 MODEL = "language-model-v1.bin"
 NOTICES = ("THIRD_PARTY_NOTICES.md", "SCOWL_COPYRIGHT.txt", "RUSSIAN_HUNSPELL_COPYRIGHT.txt")
@@ -38,7 +38,7 @@ if [ "${STUB_CODESIGN_RECORD_ONLY:-}" = "1" ]; then
 fi
 exec /usr/bin/codesign "$@"
 """
-DEVELOPER_ID = "Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
+DEVELOPER_ID = "Developer ID Application: Example Developer (ABCDE12345)"
 LOCAL_IDENTITY = "RuSwitcher Local Code Signing"
 UNSIGNED_MARKER = "UNSIGNED: bundle is for CI checks only and is not installable"
 

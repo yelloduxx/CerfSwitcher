@@ -1,7 +1,9 @@
 import AppKit
 import RuSwitcherAppSupport
 
-if CommandLine.arguments.contains("--external-native-probe") {
+if CommandLine.arguments.contains(RuntimePreferencesDomain.settingsSnapshotArgument) {
+    SettingsSnapshotRenderer.run(arguments: CommandLine.arguments)
+} else if CommandLine.arguments.contains("--external-native-probe") {
     ExternalNativeProbe.run()
 } else if CommandLine.arguments.count >= 3,
    CommandLine.arguments[1] == "--ax-resolver-probe" {
@@ -25,6 +27,15 @@ if CommandLine.arguments.contains("--external-native-probe") {
         HIDIntegrationProbe.run(scenarioName: CommandLine.arguments[2], resultPath: resultPath)
     }
 } else {
+    // Before AppDelegate or SettingsManager read anything from the standard
+    // domain. Unbundled debug runs have another domain and must not copy.
+    if Bundle.main.bundleIdentifier == ProductIdentity.bundleIdentifier {
+        LegacyPreferencesMigration.run(
+            legacyDomain: ProductIdentity.legacyBundleIdentifier,
+            targetDomain: ProductIdentity.bundleIdentifier,
+            into: .standard
+        )
+    }
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate

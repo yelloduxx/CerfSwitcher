@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>RuSwitcher Input Method</string>
+    <string>Cerf Switcher Input Method</string>
     <key>CFBundleExecutable</key>
     <string>RuSwitcherInputMethod</string>
     <key>CFBundleIdentifier</key>
-    <string>com.ruswitcher.inputmethod.RuSwitcherPro</string>
+    <string>com.cerfswitcher.inputmethod</string>
     <key>CFBundleIconFile</key>
     <string>RuSwitcher.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>RuSwitcher Input Method</string>
+    <string>Cerf Switcher Input Method</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -28,12 +28,12 @@
     <dict>
         <key>tsInputModeListKey</key>
         <dict>
-            <key>com.ruswitcher.inputmethod.RuSwitcherPro.en</key>
+            <key>com.cerfswitcher.inputmethod.en</key>
             <dict>
                 <key>TISIconLabels</key>
                 <dict><key>Primary</key><string>EN</string></dict>
                 <key>TISInputSourceID</key>
-                <string>com.ruswitcher.inputmethod.RuSwitcherPro.en</string>
+                <string>com.cerfswitcher.inputmethod.en</string>
                 <key>TISIntendedLanguage</key>
                 <string>en</string>
                 <key>tsInputModeDefaultStateKey</key>
@@ -47,12 +47,12 @@
                 <key>tsInputModeScriptKey</key>
                 <string>smRoman</string>
             </dict>
-            <key>com.ruswitcher.inputmethod.RuSwitcherPro.ru</key>
+            <key>com.cerfswitcher.inputmethod.ru</key>
             <dict>
                 <key>TISIconLabels</key>
                 <dict><key>Primary</key><string>RU</string></dict>
                 <key>TISInputSourceID</key>
-                <string>com.ruswitcher.inputmethod.RuSwitcherPro.ru</string>
+                <string>com.cerfswitcher.inputmethod.ru</string>
                 <key>TISIntendedLanguage</key>
                 <string>ru</string>
                 <key>tsInputModeDefaultStateKey</key>
@@ -69,12 +69,12 @@
         </dict>
         <key>tsVisibleInputModeOrderedArrayKey</key>
         <array>
-            <string>com.ruswitcher.inputmethod.RuSwitcherPro.en</string>
-            <string>com.ruswitcher.inputmethod.RuSwitcherPro.ru</string>
+            <string>com.cerfswitcher.inputmethod.en</string>
+            <string>com.cerfswitcher.inputmethod.ru</string>
         </array>
     </dict>
     <key>InputMethodConnectionName</key>
-    <string>com.ruswitcher.inputmethod.RuSwitcherPro_Connection</string>
+    <string>com.cerfswitcher.inputmethod_Connection</string>
     <key>InputMethodServerControllerClass</key>
     <string>RuSwitcherInputController</string>
     <key>LSMinimumSystemVersion</key>
@@ -88,7 +88,7 @@
     <key>TISIntendedLanguage</key>
     <string>mul</string>
     <key>TISInputSourceID</key>
-    <string>com.ruswitcher.inputmethod.RuSwitcherPro</string>
+    <string>com.cerfswitcher.inputmethod</string>
     <key>tsInputMethodIconFileKey</key>
     <string>RuSwitcher.icns</string>
     <key>tsInputMethodCharacterRepertoireKey</key>

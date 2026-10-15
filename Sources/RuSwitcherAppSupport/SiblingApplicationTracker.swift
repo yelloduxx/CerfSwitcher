@@ -50,6 +50,7 @@ public struct SiblingApplicationTracker {
         guard application.processID != ownProcessID else { return false }
         return application.bundleID == "com.ruswitcher.app"
             || application.bundleID == "com.ruswitcher.lab"
+            || application.bundleID == "com.ruswitcher.pro"
             || application.bundleID == ownBundleID
             || application.name?.contains("RuSwitcher") == true
     }

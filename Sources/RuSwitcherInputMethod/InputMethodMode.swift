@@ -5,7 +5,7 @@ enum InputMethodMode: String, CaseIterable {
     case english = "en"
     case russian = "ru"
 
-    static let bundleIdentifier = "com.ruswitcher.inputmethod.RuSwitcherPro"
+    static let bundleIdentifier = "com.cerfswitcher.inputmethod"
 
     var sourceID: String {
         "\(Self.bundleIdentifier).\(rawValue)"

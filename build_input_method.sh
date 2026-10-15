@@ -4,8 +4,8 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_NAME="RuSwitcherInputMethod"
 APP_NAME="RuSwitcherInputMethod"
-DISPLAY_NAME="RuSwitcher Input Method"
-BUNDLE_ID="com.ruswitcher.inputmethod.RuSwitcherPro"
+DISPLAY_NAME="Cerf Switcher Input Method"
+BUNDLE_ID="com.cerfswitcher.inputmethod"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
 BUILD_DIR="$PROJECT_DIR/.build/apple/Products/Release"
 VERSION_JSON="$PROJECT_DIR/version.json"
@@ -44,12 +44,12 @@ if [[ "$ARCHS" != *"arm64"* || "$ARCHS" != *"x86_64"* ]]; then
     exit 1
 fi
 
-DEV_SIGN_ID="Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
 LOCAL_SIGN_ID="RuSwitcher Local Code Signing"
 SIGN_ID="${SIGN_ID:-}"
 IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+DEV_SIGN_ID=$(echo "$IDENTITIES" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
 if [ -z "$SIGN_ID" ]; then
-    if echo "$IDENTITIES" | grep -Fq "\"$DEV_SIGN_ID\""; then
+    if [ -n "$DEV_SIGN_ID" ]; then
         SIGN_ID="$DEV_SIGN_ID"
     elif echo "$IDENTITIES" | grep -Fq "\"$LOCAL_SIGN_ID\""; then
         SIGN_ID="$LOCAL_SIGN_ID"

@@ -353,4 +353,13 @@ final class AdaptiveRuleBookTests: XCTestCase {
             XCTAssertEqual(error as? LearnedCorrectionsArchiveError, .invalidRule)
         }
     }
+
+    func testConfirmedPairMatchesTheWordWithEdgePunctuation() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ye", converted: "ну")
+        XCTAssertTrue(book.isConfirmed(original: "ye?", converted: "ну,", appBundleID: nil))
+        XCTAssertTrue(book.isConfirmed(original: "(ye)", converted: "(ну)", appBundleID: nil))
+        XCTAssertFalse(book.isConfirmed(original: "ye.", converted: "ную", appBundleID: nil))
+        XCTAssertFalse(book.isConfirmed(original: "yes", converted: "нуы", appBundleID: nil))
+    }
 }

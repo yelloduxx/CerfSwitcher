@@ -31,4 +31,10 @@ final class RuntimePreferencesDomainTests: XCTestCase {
         ]), "com.ruswitcher.nativeprobe." + id.lowercased())
         XCTAssertNil(RuntimePreferencesDomain.isolatedSuiteName(arguments: ["RuSwitcher", "--external-native-probe", "invalid"]))
     }
+
+    func testSettingsSnapshotsNeverReadUserPreferences() {
+        XCTAssertEqual(RuntimePreferencesDomain.isolatedSuiteName(arguments: [
+            "RuSwitcher", "--render-settings-snapshots", "/tmp/out", "--hid-use-standard-preferences"
+        ]), "com.ruswitcher.settingssnapshot")
+    }
 }

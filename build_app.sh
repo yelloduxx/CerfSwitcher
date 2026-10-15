@@ -2,12 +2,12 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Production product identity: RuSwitcher Pro.
+# Production product identity: Cerf Switcher.
 SPM_PRODUCT_NAME="RuSwitcher"
-APP_NAME="RuSwitcherPro"
-APP_EXECUTABLE="RuSwitcherPro"
-APP_DISPLAY_NAME="RuSwitcher Pro"
-BUNDLE_ID="com.ruswitcher.pro"
+APP_NAME="CerfSwitcher"
+APP_EXECUTABLE="CerfSwitcher"
+APP_DISPLAY_NAME="Cerf Switcher"
+BUNDLE_ID="com.cerfswitcher.app"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
 BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME")
 VERSION_JSON="$PROJECT_DIR/version.json"
@@ -111,14 +111,14 @@ fi
 # 7. Подписываем стабильной identity. Developer ID сохраняет разрешения между
 #    публичными обновлениями; локальный сертификат сохраняет их между нашими
 #    локальными сборками после одного повторного разрешения в macOS.
-DEV_SIGN_ID="Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
 LOCAL_SIGN_ID="RuSwitcher Local Code Signing"
 SIGN_ID="${SIGN_ID:-}"
 SIGN_KIND="explicit identity"
 IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+DEV_SIGN_ID=$(echo "$IDENTITIES" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
 
 if [ -z "$SIGN_ID" ]; then
-    if echo "$IDENTITIES" | grep -Fq "\"$DEV_SIGN_ID\""; then
+    if [ -n "$DEV_SIGN_ID" ]; then
         SIGN_ID="$DEV_SIGN_ID"
         SIGN_KIND="Developer ID"
     elif echo "$IDENTITIES" | grep -Fq "\"$LOCAL_SIGN_ID\""; then
@@ -127,7 +127,7 @@ if [ -z "$SIGN_ID" ]; then
     else
         echo "ERROR: no signing identity found."
         echo "Install either:"
-        echo "  - $DEV_SIGN_ID"
+        echo "  - a Developer ID Application identity"
         echo "  - $LOCAL_SIGN_ID"
         exit 1
     fi
