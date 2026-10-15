@@ -421,8 +421,10 @@ Adaptive learning behavior:
   Latin or only Cyrillic letters with inner `-`/`'`, 2 to 64 characters, at
   most 20,000; numbers, links, emails and mixed scripts are counted as
   skipped. `UserDictionaryStore` saves the spellings as a string array under
-  `com.ruswitcher.userDictionary.v1`. Import reads `.txt`/`.csv` up to 5 MB;
-  export writes one word per line. The dictionary is not part of "reset
+  `com.ruswitcher.userDictionary.v1`. Import reads `.txt`/`.csv` up to 5 MB
+  (UTF-16 with BOM, UTF-8, else Windows-1251); export writes one word per
+  line. A listed word is never a personal-lexicon sighting, so removing it
+  from the page really removes it. The dictionary is not part of "reset
   learned corrections", the learned-rule archive or the Input Method. Hard
   blockers still win: a camelCase entry (`GitHub`) is stored, but `ПшеРги`
   stays blocked as code-like. An entry counts as attested, so the build-141
