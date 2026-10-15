@@ -194,6 +194,17 @@ Hard blockers remain authoritative:
 - `neverConvert` rules;
 - stale focus/revision/editor integrity.
 
+The app switches layouts only after a conversion. When the previous context
+token was kept as typed in the other language, the user switched layouts by
+hand, so a short word or a word valid in the current layout stays as typed
+(`родители vs` keeps `vs`). Only confirmed pairs and `alwaysConvert` override
+this. The rule is token-level: applying it per candidate let a worse
+punctuation reading win (`{jy}` became `{онЪ`). The legacy event-stream gate
+calls the decoder without layout history and does not exercise this rule;
+planner and decoder unit tests cover it. A broader "short Russian word after
+two English words stays" rule was rejected: it cost 343 corpus misses and
+broke Russian text with English terms (`pull request yt`).
+
 Unknown valid Russian words must not convert to English from script score alone.
 Both-known pairs such as `here`/`руку` follow the language of the last two
 context tokens (build 138): after two English words `руку` becomes `here`, after

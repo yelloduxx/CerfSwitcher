@@ -31,6 +31,26 @@ final class AutomaticConversionPlannerTests: XCTestCase {
         }
     }
 
+    func testWordTypedAfterSwitchingLayoutByHandStaysAsTyped() throws {
+        let model = try XCTUnwrap(LanguageModelStore.bundled)
+        let typedInRussian = [InputContextToken(text: "наши", language: "ru"), InputContextToken(text: "родители", language: "ru")]
+        let kept = AutomaticConversionPlanner.prepare(
+            snapshot: snapshot("vs", contextTokens: typedInRussian),
+            original: "vs", converted: "мы",
+            currentLanguage: "en", targetLanguage: "ru", targetLayoutID: "test.target", model: model
+        )
+        assertKept(kept, text: "vs", language: "en")
+
+        let convertedBefore = [InputContextToken(text: "наши", language: "ru", wasConverted: true),
+                               InputContextToken(text: "родители", language: "ru", wasConverted: true)]
+        let converted = AutomaticConversionPlanner.prepare(
+            snapshot: snapshot("vs", contextTokens: convertedBefore),
+            original: "vs", converted: "мы",
+            currentLanguage: "en", targetLanguage: "ru", targetLayoutID: "test.target", model: model
+        )
+        XCTAssertEqual(try replacement(in: converted).transaction.replacement, "мы")
+    }
+
     func testPhysicalPunctuationTailAndUndecidedBoundaryHandling() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
         for (original, converted, expected) in [
@@ -267,6 +287,7 @@ final class AutomaticConversionPlannerTests: XCTestCase {
         _ text: String,
         boundary: InputBoundary = .space(count: 1),
         context: [String] = [],
+        contextTokens: [InputContextToken]? = nil,
         belief: LanguageBelief = .neutral,
         capsAt: Int? = nil,
         integrity: EditorIntegrity = .clean,
@@ -277,7 +298,7 @@ final class AutomaticConversionPlannerTests: XCTestCase {
                 TypedKey(keyCode: 0, shift: capsAt == index, caps: capsAt == index,
                          producedText: String(character), sourceLayoutID: source)
             },
-            context: context.map { InputContextToken(text: $0) },
+            context: contextTokens ?? context.map { InputContextToken(text: $0) },
             boundary: boundary,
             focus: .init(processID: 4242, bundleID: "test.host", identifier: "field-9"),
             sequence: 73, capturedAt: Date(timeIntervalSince1970: 100),

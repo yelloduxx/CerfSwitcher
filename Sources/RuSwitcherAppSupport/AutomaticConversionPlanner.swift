@@ -44,6 +44,7 @@ public enum AutomaticConversionPlanner {
             typed: original, converted: converted, currentLanguage: currentLanguage, targetLanguage: targetLanguage,
             capsLock: snapshot.keys.contains(where: \.caps), contextWords: snapshot.context.map(\.text),
             languageBelief: snapshot.languageBelief, integrity: snapshot.integrity,
+            switchedLayoutByHand: switchedLayoutByHand(context: snapshot.context, currentLanguage: currentLanguage),
             policy: policy, adaptiveBias: adaptiveBias, isConfirmed: isConfirmed, model: model
         )
         guard evaluation.decision.verdict == .switchToConverted else {
@@ -66,5 +67,13 @@ public enum AutomaticConversionPlanner {
         return .replace(.init(transaction: transaction, deliveredKeyCount: snapshot.deliveredKeyCount,
                               currentFocus: snapshot.focus, currentRevision: snapshot.editRevision,
                               allowUnavailablePost: allowUnavailablePost), evaluation: evaluation)
+    }
+
+    /// The app switches layouts only after a conversion, so a word kept as
+    /// typed in one language followed by keys from the other layout means the
+    /// user changed the layout on purpose.
+    private static func switchedLayoutByHand(context: [InputContextToken], currentLanguage: String) -> Bool {
+        guard let previous = context.last, !previous.wasConverted, let language = previous.language else { return false }
+        return LanguageCode.canonical(language) != LanguageCode.canonical(currentLanguage)
     }
 }
