@@ -35,6 +35,10 @@ public struct UserDictionary: Equatable, Sendable {
         add(words)
     }
 
+    public func contains(_ word: String) -> Bool {
+        keys.contains(FrequentWordLexicon.normalize(word))
+    }
+
     public var wordsByLanguage: [String: Set<String>] {
         var result: [String: Set<String>] = ["ru": [], "en": []]
         for word in words {
@@ -83,6 +87,15 @@ public struct UserDictionary: Equatable, Sendable {
     /// One word per line, the same shape `add(text:)` reads back.
     public var exportedText: String {
         words.isEmpty ? "" : words.joined(separator: "\n") + "\n"
+    }
+
+    /// Text of an imported file: UTF-16 with a byte-order mark, UTF-8, or
+    /// otherwise Windows-1251, the usual encoding of Russian CSV exports.
+    public static func decodeFile(_ data: Data) -> String? {
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf16)
+        }
+        return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .windowsCP1251)
     }
 
     public static func tokens(in text: String) -> [String] {

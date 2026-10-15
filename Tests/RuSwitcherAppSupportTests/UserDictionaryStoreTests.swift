@@ -23,6 +23,8 @@ final class UserDictionaryStoreTests: XCTestCase {
         XCTAssertEqual(store.add(text: "Figma\nкринж, Nuxt 42"), UserDictionary.Report(added: 3, duplicates: 0, invalid: 1, overLimit: 0))
         XCTAssertEqual(defaults.stringArray(forKey: UserDictionaryStore.storageKey), ["Figma", "кринж", "Nuxt"])
         let reloaded = UserDictionaryStore(defaults: defaults)
+        XCTAssertTrue(reloaded.contains("FIGMA"))
+        XCTAssertFalse(reloaded.contains("Tesla"))
         XCTAssertEqual(reloaded.words, ["Figma", "кринж", "Nuxt"])
         XCTAssertEqual(reloaded.wordsByLanguage, ["en": ["figma", "nuxt"], "ru": ["кринж"]])
         reloaded.remove(["figma"])

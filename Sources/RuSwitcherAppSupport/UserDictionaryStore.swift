@@ -18,6 +18,8 @@ public final class UserDictionaryStore: @unchecked Sendable {
 
     public var words: [String] { locked { dictionary.words } }
 
+    public func contains(_ word: String) -> Bool { locked { dictionary.contains(word) } }
+
     public var wordsByLanguage: [String: Set<String>] { locked { dictionary.wordsByLanguage } }
 
     public var exportedText: String { locked { dictionary.exportedText } }

@@ -249,8 +249,9 @@ final class SettingsWindowController {
                 showLearningAlert(title: L10n.settingsDictionaryFileError, detail: L10n.settingsDictionaryFileTooLarge)
                 return
             }
-            var encoding = String.Encoding.utf8
-            let text = try String(contentsOf: url, usedEncoding: &encoding)
+            guard let text = UserDictionary.decodeFile(try Data(contentsOf: url)) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
             dictionaryChanged(report: Self.describe(SettingsManager.shared.userDictionary.add(text: text)))
             rslog("user_dictionary_imported")
         } catch {

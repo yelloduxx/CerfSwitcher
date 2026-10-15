@@ -43,7 +43,9 @@ final class PersonalLexiconObserver: @unchecked Sendable {
             return
         }
         queue.async { [self] in
-            guard fieldAllowsLearning(focus) else { return }
+            // A listed word is already known; as a personal word it would
+            // outlive its removal from the dictionary.
+            guard !dictionary.contains(word), fieldAllowsLearning(focus) else { return }
             if store.observe(word: word, language: language) { refreshModel() }
             scheduleFlush()
         }

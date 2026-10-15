@@ -43,6 +43,15 @@ final class UserDictionaryTests: XCTestCase {
         XCTAssertEqual(dictionary.add(["waaaa"]).added, 1)
     }
 
+    func testFilesDecodeAsUTF8UTF16OrWindows1251() {
+        let words = "Figma\nкринж\n"
+        XCTAssertEqual(UserDictionary.decodeFile(Data(words.utf8)), words)
+        XCTAssertEqual(UserDictionary.decodeFile(words.data(using: .windowsCP1251)!), words)
+        let utf16 = words.data(using: .utf16)!
+        XCTAssertTrue(utf16.starts(with: [0xFF, 0xFE]) || utf16.starts(with: [0xFE, 0xFF]))
+        XCTAssertEqual(UserDictionary.decodeFile(utf16), words)
+    }
+
     func testRemoveIgnoresCaseAndExportReadsBack() {
         var dictionary = UserDictionary(words: ["Figma", "кринж", "bad@mail.ru", "Tesla"])
         XCTAssertEqual(dictionary.words, ["Figma", "кринж", "Tesla"])
