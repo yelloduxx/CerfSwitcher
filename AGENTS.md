@@ -211,8 +211,10 @@ typed one is not (`премьер-министра`, but codes with an all-caps 
 `ru-RU` stay), and when an all-caps token reads as an attested target word while
 its own letters spell no word (`CIF/` -> `США.`; `NASA`, `HTTP` stay). Build 142
 targets proper names: on the English layout a lone final `/` is the Russian
-period key, not a path (`Fdcnhfkbb/` -> `Австралии.`); a capital right after a
-hyphen is a name part, not camelCase (`Сан-Франциско`); a Tatoeba-attested
+period key, not a path (`Fdcnhfkbb/` -> `Австралии.`). `SmartTokenizer` strips
+it as trailing punctuation, so the typed core is checked as a word too (`here/`
+and `but/` stay; inner slashes as in `src/main` or `a/b/` remain identifiers);
+a capital right after a hyphen is a name part, not camelCase (`Сан-Франциско`); a Tatoeba-attested
 target reading over typed letters that spell no word gets the dictionary bonus
 and passes the unknown-English gate (`Дщы` -> `Los`, `ВТФ` -> `DNA`), unless it
 keeps a leading layout-letter key as punctuation; and a word keeping such a key
@@ -373,6 +375,8 @@ Adaptive learning behavior:
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.
+- Learned pairs match by lexical core, so `ye`→`ну` also applies to `ye?` →
+  `ну,`; a different core (`ye.` → `ную`) does not match.
 - Simple switch-only actions do not train.
 - Adaptive rules persist in `UserDefaults`.
 - Personal lexicon (build 149): a plain word that no frequency list knows,

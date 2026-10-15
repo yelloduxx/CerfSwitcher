@@ -47,9 +47,15 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
         lastUsed = try values.decodeIfPresent(Date.self, forKey: .lastUsed) ?? Date()
     }
 
+    /// Pairs match by lexical core, so a learned word still applies when the
+    /// user types punctuation next to it (`ye?` → `ну,`).
     public func matchesPair(original: String, converted: String) -> Bool {
-        self.original == FrequentWordLexicon.normalize(original)
-            && self.converted == FrequentWordLexicon.normalize(converted)
+        Self.core(self.original) == Self.core(original)
+            && Self.core(self.converted) == Self.core(converted)
+    }
+
+    private static func core(_ text: String) -> String {
+        FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: text))
     }
 
     public func matches(original: String, converted: String, appBundleID: String?) -> Bool {

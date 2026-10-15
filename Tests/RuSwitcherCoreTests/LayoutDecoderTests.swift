@@ -879,6 +879,69 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(result.decision.reason, .confirmedByUser)
     }
 
+    func testLearnedPairAppliesWhenPunctuationFollowsTheWord() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ye", converted: "ну")
+        let result = LayoutDecoder.evaluate(
+            typed: "ye?",
+            converted: KeyMapping.convert("ye?"),
+            currentLanguage: "en",
+            targetLanguage: "ru",
+            capsLock: false,
+            contextWords: [],
+            languageBelief: .neutral,
+            policy: .empty,
+            isConfirmed: { book.isConfirmed(original: $0, converted: $1, appBundleID: nil) },
+            model: model
+        )
+        XCTAssertEqual(result.decision.verdict, .switchToConverted)
+        XCTAssertEqual(result.decision.candidate.replacement, "ну,")
+    }
+
+    func testRussianPeriodKeyAfterWordIsNotAPath() {
+        for (typed, expected) in [("ghbdtn/", "привет."), ("ujhjlf/", "города.")] {
+            let result = evaluate(typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+    }
+
+    func testOpeningBracketKeyAtWordEndIsRussianLetter() {
+        for (typed, expected) in [("b[", "их"), ("dct[", "всех"), ("jcnhjdf[/", "островах."), ("buhf[?", "играх,")] {
+            let result = evaluate(typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+    }
+
+    func testMuchMoreFrequentReadingWinsAWordInBothLanguages() {
+        for (typed, expected) in [("ult", "где"), ("dbl", "вид"), ("ult/", "где."), ("'nj", "это")] {
+            let result = evaluate(typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
+        }
+    }
+
+    func testCloseFrequenciesKeepAWordInBothLanguages() {
+        XCTAssertEqual(evaluate("here").decision.verdict, .keep)
+        XCTAssertEqual(evaluate("keys").decision.verdict, .keep)
+        XCTAssertEqual(evaluate("руку", current: "ru", target: "en").decision.verdict, .keep)
+    }
+
+    func testEnglishContextKeepsWordsInBothLanguages() {
+        var english = LanguageBelief.neutral
+        english.observe(language: "en")
+        english.observe(language: "en")
+        XCTAssertNotEqual(evaluate("cerf", context: ["a", "small"], belief: english).decision.verdict, .switchToConverted)
+        XCTAssertEqual(evaluate("here", context: ["a", "small"], belief: english).decision.verdict, .keep)
+    }
+
+    func testTrailingSlashDoesNotVoteForTheOtherLayout() {
+        for typed in ["here/", "her/", "keys/", "but/", "http/", "src/main", "/usr", "a/b/"] {
+            XCTAssertNotEqual(evaluate(typed).decision.verdict, .switchToConverted, typed)
+        }
+    }
+
     func testInvalidatedEditorBlocksDecoder() {
         let result = evaluate("ghbdtn", integrity: .invalidated)
         XCTAssertEqual(result.decision.verdict, .keep)

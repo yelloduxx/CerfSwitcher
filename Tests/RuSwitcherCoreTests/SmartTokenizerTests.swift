@@ -2,6 +2,16 @@ import XCTest
 @testable import RuSwitcherCore
 
 final class SmartTokenizerTests: XCTestCase {
+    func testTrailingSlashIsPunctuationButInnerSlashIsAPath() {
+        let word = SmartTokenizer.shape(of: "ghbdtn/")
+        XCTAssertEqual(word.lexicalCore, "ghbdtn")
+        XCTAssertEqual(word.suffix, "/")
+        XCTAssertEqual(word.kind, .lexical)
+        for path in ["src/main", "/usr", "a/b/", "~/Documents"] {
+            XCTAssertEqual(SmartTokenizer.shape(of: path).kind, .identifier, path)
+        }
+    }
+
     func testSeparatesUnicodeQuotesAndPunctuation() {
         let shape = SmartTokenizer.shape(of: "«привет,»")
         XCTAssertEqual(shape.prefix, "«")
