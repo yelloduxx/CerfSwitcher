@@ -237,17 +237,44 @@ public enum LayoutDecoder {
             return preservedDecorationCount(lhs.decision.candidate)
                 < preservedDecorationCount(rhs.decision.candidate)
         } ?? fallback(typed: typed, converted: converted)
-        // The previous word was typed as-is in the other layout, so the user
-        // switched layouts by hand: a short word, or a word in both layouts,
-        // is what they meant (`родители vs`). Only their own rules override it.
-        guard switchedLayoutByHand, best.decision.verdict == .switchToConverted,
+        guard best.decision.verdict == .switchToConverted,
               best.decision.reason != .confirmedByUser, best.decision.reason != .alwaysConvert else { return best }
+        // The same rule as for typed wrappers, in reverse: a typed first letter
+        // never becomes a leading `<` or `,` (`Будды,` is not `<ells?`).
+        if typed.first?.isLetter == true,
+           let first = best.decision.candidate.replacement.first, !first.isLetter, !"([{\"'«".contains(first) {
+            return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
+        }
         let currentCanonical = LanguageCode.canonical(currentLanguage)
         let literal = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: typed))
-        let literalIsWord = model.wordLogProbability(literal, language: currentCanonical) != nil
-            || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
-        guard literal.count <= 3 || literalIsWord else { return best }
-        return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
+        // The previous word was typed as-is in the other layout, so the user
+        // switched layouts by hand: a single letter, or a word of that
+        // language, is what they meant (`родители vs`).
+        if switchedLayoutByHand {
+            let literalIsWord = model.attestedWordLogProbability(literal, language: currentCanonical) != nil
+                || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
+            if literal.count <= 1 || literalIsWord {
+                return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
+            }
+        }
+        let replacementRaw = best.decision.candidate.replacement
+        let replacement = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: replacementRaw))
+        let sameDecoration = typed.count == replacementRaw.count
+            && zip(typed, replacementRaw).allSatisfy { $0.isLetter == $1.isLetter && ($0.isLetter || $0 == $1) }
+        let contextInTarget = contextWords.suffix(2).compactMap(SmartTokenizer.languageHint).map(LanguageCode.canonical)
+            .contains(targetCanonical)
+        // A conversion must make the word clearly more common: `km` stays,
+        // because `ль` is rarer in conversation. Context in the target
+        // language, a punctuation key read as a letter, or the user's own
+        // word decides elsewhere.
+        if sameDecoration, !contextInTarget, !model.isPersonalWord(replacement, language: targetCanonical),
+           let literalZipf = model.conversationalZipf(literal, language: currentCanonical) {
+            let replacementZipf = model.conversationalZipf(replacement, language: targetCanonical) ?? 0
+            if replacementZipf - literalZipf < Self.conversationalFrequencyMargin {
+                return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.frequent])
+            }
+        }
+        return best
     }
 
     /// A word no dictionary knows converts only when it reads like the target
@@ -261,6 +288,9 @@ public enum LayoutDecoder {
     /// Natural-log margin (about 12x) a frequent target needs over the bound
     /// for an unlisted source spelling before frequency overrides membership.
     private static let rareSourceFrequencyMargin = 2.5
+
+    /// One order of magnitude, chosen on the FLORES development split.
+    private static let conversationalFrequencyMargin = 1.0
 
     private static func isUnusualInProse(_ character: Character) -> Bool {
         !character.isLetter && !character.isWhitespace && !".,!?;:()\"'«»-–—…".contains(character)
