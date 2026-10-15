@@ -6,7 +6,7 @@ English layout, English typed fully in the Russian layout, a Russian sentence
 that slips into the wrong layout midway, and Russian prose with an English
 term after which the user forgot to switch back, and Russian prose with an
 English term typed without switching to the English layout. The frozen test split is
-never read.
+read only on request, for a final report after tuning on the other two.
 """
 
 from __future__ import annotations
@@ -52,7 +52,11 @@ def main() -> int:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--split", choices=["development", "calibration"], default="development")
+    parser.add_argument("--split", choices=["development", "calibration", "test"], default="development",
+                        help="test is the frozen held-out split: read it only for a final, untuned report")
+    parser.add_argument("--scenario", choices=["mixed", "deliberate"], default="mixed",
+                        help="deliberate: one correctly typed word of the other language, any length, "
+                             "with a layout switch by hand before and after it")
     args = parser.parse_args()
     rng = random.Random(args.seed)
     rows = [["wrong_input", "expected_output", "token_pattern"]]
@@ -63,6 +67,14 @@ def main() -> int:
                 continue
             ru = record["texts"]["ru"].translate(QUOTES).split()
             en = record["texts"]["en"].translate(QUOTES).split()
+            if args.scenario == "deliberate":
+                for prose, other in ((ru, en), (en, ru)):
+                    words = [t for t in other if kind(t) != "technical"]
+                    if words:
+                        at = rng.randrange(0, len(prose) + 1)
+                        mixed = prose[:at] + [rng.choice(words)] + prose[at:]
+                        rows.append(row(mixed, [label(t, False) for t in mixed]))
+                continue
             rows.append(row(ru, [label(t, True) for t in ru]))
             rows.append(row(en, [label(t, True) for t in en]))
             cut = rng.randrange(1, max(2, len(ru)))

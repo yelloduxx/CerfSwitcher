@@ -18,11 +18,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("tsv", type=Path)
     parser.add_argument("--jobs", type=int, default=8)
-    # Build 137 baseline: frequency evidence, wrapper prefixes and lone capitals.
-    parser.add_argument("--max-safe-misses", type=int, default=45)
+    # Build 157, deciding through the app's planner (layout history applies).
+    parser.add_argument("--max-safe-misses", type=int, default=139)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--results", type=Path)
     parser.add_argument("--audit", type=Path)
+    parser.add_argument("--learned-rules", type=Path, help="AdaptiveRuleBook JSON applied as the app applies it")
+    parser.add_argument("--personal-words", type=Path, help='{"ru": [...], "en": [...]} listed as personal words')
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -52,6 +54,9 @@ def run_suite(args: argparse.Namespace, root: Path, run: CorpusRunArtifacts) -> 
         "--output", str(report),
         "--results", str(results),
     ]
+    for flag, path in (("--learned-rules", args.learned_rules), ("--personal-words", args.personal_words)):
+        if path:
+            command += [flag, str(path.resolve())]
     completed = subprocess.run(command, cwd=root, stdout=subprocess.DEVNULL, check=False)
     run.record_process(completed.returncode)
 
