@@ -12,7 +12,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY / "build_app.sh"
-EXECUTABLE = "RuSwitcherPro"
+EXECUTABLE = "CerfSwitcher"
 SPM_PRODUCT = "RuSwitcher"
 MODEL = "language-model-v1.bin"
 NOTICES = ("THIRD_PARTY_NOTICES.md", "SCOWL_COPYRIGHT.txt", "RUSSIAN_HUNSPELL_COPYRIGHT.txt")

@@ -11,7 +11,7 @@ final class InputMethodPreferencesStore {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults? = UserDefaults(suiteName: "com.ruswitcher.pro")) {
+    init(defaults: UserDefaults? = UserDefaults(suiteName: "com.cerfswitcher.app")) {
         self.defaults = defaults ?? .standard
     }
 

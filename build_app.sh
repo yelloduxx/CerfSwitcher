@@ -2,12 +2,12 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Production product identity: RuSwitcher Pro.
+# Production product identity: Cerf Switcher.
 SPM_PRODUCT_NAME="RuSwitcher"
-APP_NAME="RuSwitcherPro"
-APP_EXECUTABLE="RuSwitcherPro"
-APP_DISPLAY_NAME="RuSwitcher Pro"
-BUNDLE_ID="com.ruswitcher.pro"
+APP_NAME="CerfSwitcher"
+APP_EXECUTABLE="CerfSwitcher"
+APP_DISPLAY_NAME="Cerf Switcher"
+BUNDLE_ID="com.cerfswitcher.app"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
 BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME")
 VERSION_JSON="$PROJECT_DIR/version.json"

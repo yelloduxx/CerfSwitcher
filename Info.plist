@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>RuSwitcherPro</string>
+    <string>CerfSwitcher</string>
     <key>CFBundleIdentifier</key>
-    <string>com.ruswitcher.pro</string>
+    <string>com.cerfswitcher.app</string>
     <key>CFBundleName</key>
-    <string>RuSwitcher Pro</string>
+    <string>Cerf Switcher</string>
     <key>CFBundleDisplayName</key>
-    <string>RuSwitcher Pro</string>
+    <string>Cerf Switcher</string>
     <key>CFBundleVersion</key>
     <string>11</string>
     <key>CFBundleShortVersionString</key>
@@ -19,7 +19,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
-    <string>RuSwitcher Pro</string>
+    <string>RuSwitcher.icns</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -31,7 +31,7 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 RuSwitcher Pro. All rights reserved.</string>
+    <string>Copyright © 2026 Cerf Switcher. All rights reserved.</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleDevelopmentRegion</key>
