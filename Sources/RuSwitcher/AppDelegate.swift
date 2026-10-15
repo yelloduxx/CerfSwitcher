@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rslog("workspace_session_resumed")
             self.cancelDeferredManualLearning()
             self.lastAutoConverted = nil
+            self.manualLearningCheckpoint = nil
             self.textConverter.clearState()
             self.focusedElementResolver.invalidate()
             self.reconfigureTap()
@@ -177,6 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private var lastAutoConverted: AutoLearningEvent?
+    /// The rules before the last manual conversion taught its pair. Toggling
+    /// that word straight back to what was typed restores them exactly.
+    private var manualLearningCheckpoint: (original: String, converted: String, rules: AdaptiveRuleBook)?
     private var sessionNegativePairs: Set<String> = []
     private var deferredManualLearning = DeferredManualLearningGate()
     private(set) var postedAutomaticReplacementCount = 0
@@ -236,9 +240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         converted: String,
         frontID: String?
     ) -> Bool {
+        let rulesBefore = SettingsManager.shared.adaptiveRuleBook
         let decision = SettingsManager.shared.recordManualLearning(
             original: original, converted: converted, appBundleID: frontID, model: languageModel
         )
+        manualLearningCheckpoint = decision == .ignore ? nil : (original, converted, rulesBefore)
         switch decision {
         case .ignore:
             lastAutoConverted = nil
@@ -522,6 +528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.learnFromUndo()
         }
         keyboardMonitor.onUserContinuedAfterConversion = { [weak self] in
+            self?.manualLearningCheckpoint = nil
             guard let self, let generation = self.deferredManualLearning.pendingGeneration else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.acceptDeferredManualLearning(expectedGeneration: generation)
@@ -534,6 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.cancelDeferredManualLearning()
             self?.textConverter.clearState()
             self?.lastAutoConverted = nil
+            self?.manualLearningCheckpoint = nil
             self?.focusedElementResolver.invalidate()
         }
         keyboardMonitor.onFrontmostProcessChanged = { [weak self] processID in
@@ -914,23 +922,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             LayoutSwitcher.switchToOpposite()
         }
         updateStatusIcon()
-        if allowLearning {
-            let source = reconversion.current.trimmingCharacters(in: .whitespacesAndNewlines)
-            let target = reconversion.replacement.trimmingCharacters(in: .whitespacesAndNewlines)
-            let settings = SettingsManager.shared
-            if settings.isAdaptiveConfirmed(original: source, converted: target, appBundleID: nil)
-                || settings.isAdaptiveConfirmed(original: target, converted: source, appBundleID: nil) {
+        let source = reconversion.current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = reconversion.replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        let core = { FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: $0)) }
+        let same = { core($0) == core($1) }
+        guard let typed = textConverter.lastLearningPair?.original else {
+            lastAutoConverted = nil
+            return
+        }
+        guard same(target, typed) else {
+            // Converting the typed word again is the user's final choice.
+            if allowLearning {
                 _ = persistManualLearning(original: source, converted: target, frontID: transaction.focus.bundleID)
-            } else if let last = lastAutoConverted,
-                      last.appBundleID == transaction.focus.bundleID,
-                      FrequentWordLexicon.normalize(source) == FrequentWordLexicon.normalize(last.converted),
-                      FrequentWordLexicon.normalize(target) == FrequentWordLexicon.normalize(last.original) {
-                learnFromUndo()
             } else {
-                // Repeated forced toggles are not new evidence for an unknown
-                // opposite pair. Only a real prior correction can be rejected.
                 lastAutoConverted = nil
             }
+            return
+        }
+        // Back to what was typed: the conversion was a mistake, not a lesson.
+        if let checkpoint = manualLearningCheckpoint, same(checkpoint.original, target), same(checkpoint.converted, source) {
+            SettingsManager.shared.adaptiveRuleBook = checkpoint.rules
+            manualLearningCheckpoint = nil
+            lastAutoConverted = nil
+            rslog("learning_manual_reverted")
+        } else if allowLearning, let last = lastAutoConverted,
+                  last.appBundleID == transaction.focus.bundleID,
+                  same(source, last.converted), same(target, last.original) {
+            learnFromUndo()
         } else {
             lastAutoConverted = nil
         }
@@ -1009,6 +1027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Reaching the next completed token without Backspace/Undo is a soft
         // positive signal for the previous correction.
         reinforcePreviousCorrectionIfNeeded()
+        manualLearningCheckpoint = nil
         guard SettingsManager.shared.autoSwitchEnabled else { rslog("auto: bail master-off"); return .passThrough }
         guard SettingsManager.shared.autoConvert else { rslog("auto: bail flag-off"); return .passThrough }
         guard !AutoSwitchPolicy.secureInputActive else { rslog("auto: bail secure-input"); return .passThrough }

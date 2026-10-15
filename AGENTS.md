@@ -382,6 +382,21 @@ Adaptive learning behavior:
   train or create an application exception.
 - A permanent application exception is created only when explicitly reversing a
   globally confirmed manual pair. Weak automatic positives are not sufficient.
+  Since build 154 this holds only when the reversal converts into a non-word.
+  When a manual conversion turns typed text into a real word while the opposite
+  pair is confirmed, the new direction is confirmed globally. The old pair is
+  retired, with its confirmation cleared and its positive count zeroed. For
+  example, `сука` -> `cerf` learned while naming the app is replaced by a later
+  `cerf` -> `сука`. Before build 154 the app only recorded an app exception and
+  never learned the user's direction. Two opposite global confirmations can no
+  longer coexist.
+- Toggling a manually converted word straight back to what was typed restores
+  the rule book from a checkpoint taken just before that manual learning
+  (`learning_manual_reverted`). Converting the typed word again learns that
+  direction. Before build 154, every toggle cycle reconfirmed the old pair.
+  Undoing an automatic conversion still goes through `learnFromUndo`. The
+  checkpoint is dropped when the user continues typing, at the next boundary
+  and on any state reset.
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.

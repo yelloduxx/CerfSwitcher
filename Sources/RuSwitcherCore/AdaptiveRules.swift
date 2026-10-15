@@ -181,6 +181,13 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
                     && $0.matchesPair(original: original, converted: converted)
             }
         }
+        // Two global confirmations of opposite directions would convert each
+        // spelling into the other; the newer one wins.
+        for index in rules.indices where rules[index].appBundleID == nil
+            && rules[index].matchesPair(original: converted, converted: original) {
+            rules[index].confirmed = false
+            rules[index].positiveCount = 0
+        }
         modelVersion = 8
         prune()
     }

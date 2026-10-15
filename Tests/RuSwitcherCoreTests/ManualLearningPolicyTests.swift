@@ -75,6 +75,23 @@ final class ManualLearningPolicyTests: XCTestCase {
         XCTAssertTrue(book.isConfirmed(original: "cnhfybwf", converted: "страница", appBundleID: "editor.second"))
     }
 
+    func testConvertingIntoARealWordReplacesTheOppositeLearnedPair() {
+        for (old, new) in [(("руку", "here"), ("here", "руку")), (("привет", "ghbdtn"), ("ghbdtn", "привет"))] {
+            var book = AdaptiveRuleBook()
+            book.recordConfirmed(original: old.0, converted: old.1)
+            book.recordConfirmed(original: old.0, converted: old.1)
+            let decision = ManualLearningPolicy.decision(original: new.0, converted: new.1,
+                                                         appBundleID: "editor.first", ruleBook: book, model: model)
+            XCTAssertEqual(decision, .confirmation(original: new.0, converted: new.1, clearingExceptionFor: "editor.first"))
+            decision.apply(to: &book)
+            for app in ["editor.first", "editor.second"] {
+                XCTAssertTrue(book.isConfirmed(original: new.0, converted: new.1, appBundleID: app))
+                XCTAssertFalse(book.isConfirmed(original: old.0, converted: old.1, appBundleID: app))
+                XCTAssertEqual(book.bias(original: old.0, converted: old.1, appBundleID: app), 0)
+            }
+        }
+    }
+
     func testKnownWordReversalWithoutGlobalRuleDoesNotTeachGarbage() {
         XCTAssertEqual(ManualLearningPolicy.decision(original: "страница", converted: "cnhfybwf",
                                                      appBundleID: "editor.first", ruleBook: .init(), model: model), .ignore)

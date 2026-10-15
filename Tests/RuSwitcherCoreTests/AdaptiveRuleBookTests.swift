@@ -36,6 +36,15 @@ final class AdaptiveRuleBookTests: XCTestCase {
         XCTAssertFalse(book.isConfirmed(original: "а", converted: "f", appBundleID: nil))
     }
 
+    func testConfirmingAPairRetiresItsOppositeGlobalConfirmation() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "привет", converted: "ghbdtn")
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+        XCTAssertFalse(book.isConfirmed(original: "привет", converted: "ghbdtn", appBundleID: nil))
+        XCTAssertEqual(book.bias(original: "привет", converted: "ghbdtn", appBundleID: nil), 0)
+    }
+
     func testRejectedGlobalPairRemovalAlsoRemovesItsApplicationExceptions() {
         var book = AdaptiveRuleBook()
         book.recordConfirmed(original: "привет", converted: "ghbdtn")
@@ -44,7 +53,6 @@ final class AdaptiveRuleBookTests: XCTestCase {
             converted: "ghbdtn",
             appBundleID: "chat.one"
         )
-        book.recordConfirmed(original: "ghbdtn", converted: "привет")
 
         let removed = book.removeConfirmedPairs { original, converted in
             original == "привет" && converted == "ghbdtn"
@@ -52,6 +60,7 @@ final class AdaptiveRuleBookTests: XCTestCase {
 
         XCTAssertEqual(removed, 2)
         XCTAssertFalse(book.rules.contains { $0.original == "привет" })
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
         XCTAssertTrue(book.isConfirmed(
             original: "ghbdtn",
             converted: "привет",
