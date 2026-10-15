@@ -113,6 +113,25 @@ final class LearnedRulesStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot.rules.first?.positiveCount, 17)
     }
 
+    func testRemovedEntriesStayRemovedAfterReload() {
+        let store = LearnedRulesStore(defaults: defaults)
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        book.recordConfirmed(original: "rjvgm.nth", converted: "компьютер")
+        book.recordNegative(original: "rjvgm.nth", converted: "компьютер", appBundleID: "chat.one")
+        store.snapshot = book
+
+        XCTAssertEqual(store.remove([
+            LearnedEntry(original: "ghbdtn", converted: "привет"),
+            LearnedEntry(original: "rjvgm.nth", converted: "компьютер", exceptionAppBundleID: "chat.one"),
+        ]), 2)
+        XCTAssertEqual(store.remove([LearnedEntry(original: "ghbdtn", converted: "привет")]), 0)
+
+        let reloaded = LearnedRulesStore(defaults: defaults).snapshot
+        XCTAssertEqual(reloaded.learnedEntries, [LearnedEntry(original: "rjvgm.nth", converted: "компьютер")])
+        XCTAssertTrue(reloaded.isConfirmed(original: "rjvgm.nth", converted: "компьютер", appBundleID: "chat.one"))
+    }
+
     private func phrase(store: LearnedRulesStore, app: String, word: String) throws -> PhysicalTypingExecution {
         let en = "com.apple.keylayout.US", ru = "com.apple.keylayout.RussianWin"
         let layouts = try SystemTypingLayouts(ids: [en, ru])

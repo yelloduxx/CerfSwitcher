@@ -64,6 +64,18 @@ public final class LearnedRulesStore: @unchecked Sendable {
         }
     }
 
+    /// Deletes what the user removed in Settings. The decoder reads the store
+    /// on every decision, so the next word already sees the change.
+    @discardableResult
+    public func remove(_ entries: some Sequence<LearnedEntry>) -> Int {
+        locked {
+            var book = load()
+            let count = book.remove(entries)
+            if count > 0 { _ = save(book) }
+            return count
+        }
+    }
+
     public func clear() { locked { defaults.removeObject(forKey: Self.storageKey) } }
 
     public func exportRules() throws -> Data {

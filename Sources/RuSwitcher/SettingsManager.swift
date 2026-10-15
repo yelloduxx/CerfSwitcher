@@ -322,6 +322,11 @@ final class SettingsManager: @unchecked Sendable {
         learnedRules.removeConfirmedPairs(where: shouldRemove)
     }
 
+    @discardableResult
+    func removeLearnedEntries(_ entries: Set<LearnedEntry>) -> Int {
+        learnedRules.remove(entries)
+    }
+
     func clearAdaptiveRules() {
         learnedRules.clear()
         personalLexicon.clear()

@@ -371,4 +371,52 @@ final class AdaptiveRuleBookTests: XCTestCase {
         XCTAssertFalse(book.isConfirmed(original: "ye.", converted: "ную", appBundleID: nil))
         XCTAssertFalse(book.isConfirmed(original: "yes", converted: "нуы", appBundleID: nil))
     }
+
+    func testLearnedEntriesListConfirmedPairsAndExceptionsNewestFirst() {
+        let old = Date(timeIntervalSince1970: 1_000), new = Date(timeIntervalSince1970: 2_000)
+        let book = AdaptiveRuleBook(rules: [
+            AdaptiveRule(original: "ghbdtn", converted: "привет", positiveCount: 2, confirmed: true, lastUsed: old),
+            AdaptiveRule(original: "rjvgm.nth", converted: "компьютер", positiveCount: 1, lastUsed: new),
+            AdaptiveRule(original: "ghbdtn", converted: "привет", appBundleID: "chat.one",
+                         negativeCount: 1, applicationException: true, lastUsed: new),
+            AdaptiveRule(original: "ntcn", converted: "тест", appBundleID: "chat.one", negativeCount: 2, lastUsed: new),
+        ])
+
+        XCTAssertEqual(book.learnedEntries, [
+            LearnedEntry(original: "ghbdtn", converted: "привет", exceptionAppBundleID: "chat.one"),
+            LearnedEntry(original: "ghbdtn", converted: "привет"),
+        ])
+    }
+
+    func testRemovingGlobalPairDropsItsExceptionsEverywhereAndKeepsOtherRules() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ye", converted: "ну")
+        book.recordNegative(original: "ye?", converted: "ну,", appBundleID: "chat.one")
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        XCTAssertEqual(book.rules.count, 3)
+
+        XCTAssertEqual(book.remove([LearnedEntry(original: "ye", converted: "ну")]), 2)
+
+        XCTAssertFalse(book.isConfirmed(original: "ye", converted: "ну", appBundleID: nil))
+        XCTAssertFalse(book.hasApplicationException(original: "ye", converted: "ну", appBundleID: "chat.one"))
+        XCTAssertEqual(book.learnedEntries, [LearnedEntry(original: "ghbdtn", converted: "привет")])
+    }
+
+    func testRemovingAnExceptionReenablesTheGlobalPairInThatApplicationOnly() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        book.recordNegative(original: "ghbdtn", converted: "привет", appBundleID: "chat.one")
+        book.recordNegative(original: "ghbdtn", converted: "привет", appBundleID: "chat.two")
+        XCTAssertFalse(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.one"))
+
+        let removed = book.remove([
+            LearnedEntry(original: "ghbdtn", converted: "привет", exceptionAppBundleID: "chat.one"),
+        ])
+
+        XCTAssertEqual(removed, 1)
+        XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.one"))
+        XCTAssertFalse(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.two"))
+        XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+        XCTAssertEqual(book.remove([LearnedEntry(original: "ntcn", converted: "тест")]), 0)
+    }
 }

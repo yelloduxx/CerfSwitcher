@@ -68,6 +68,21 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
     }
 }
 
+/// A learned rule as Settings lists it: a confirmed global pair, or one
+/// application where the user turned such a pair off.
+public struct LearnedEntry: Hashable, Sendable {
+    public let original: String
+    public let converted: String
+    /// nil for a global pair; the application of an exception otherwise.
+    public let exceptionAppBundleID: String?
+
+    public init(original: String, converted: String, exceptionAppBundleID: String? = nil) {
+        self.original = FrequentWordLexicon.normalize(original)
+        self.converted = FrequentWordLexicon.normalize(converted)
+        self.exceptionAppBundleID = exceptionAppBundleID
+    }
+}
+
 public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     public private(set) var rules: [AdaptiveRule] {
         didSet { indexRules() }
@@ -250,6 +265,42 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         let previousCount = rules.count
         rules.removeAll { rule in
             rejected.contains(rule.original + separator + rule.converted)
+        }
+        return previousCount - rules.count
+    }
+
+    /// Confirmed global pairs and application exceptions, most recent first.
+    /// Unconfirmed counters are soft evidence and stay out of the list.
+    public var learnedEntries: [LearnedEntry] {
+        rules
+            .filter { $0.appBundleID == nil ? $0.confirmed : $0.applicationException }
+            .sorted { $0.lastUsed > $1.lastUsed }
+            .map { LearnedEntry(original: $0.original, converted: $0.converted, exceptionAppBundleID: $0.appBundleID) }
+    }
+
+    /// Removes entries the user deleted. A global pair goes in every scope,
+    /// matched by lexical core like the exceptions it may have collected, so
+    /// none is left behind for a pair that no longer exists. An exception goes
+    /// alone, and its global pair applies in that application again.
+    @discardableResult
+    public mutating func remove(_ entries: some Sequence<LearnedEntry>) -> Int {
+        func key(_ original: String, _ converted: String) -> String {
+            AdaptiveRule.core(original) + "\u{1f}" + AdaptiveRule.core(converted)
+        }
+        var pairs = Set<String>()
+        var exceptions = Set<String>()
+        for entry in entries {
+            let pair = key(entry.original, entry.converted)
+            if let app = entry.exceptionAppBundleID {
+                exceptions.insert(pair + "\u{1f}" + app)
+            } else {
+                pairs.insert(pair)
+            }
+        }
+        let previousCount = rules.count
+        rules.removeAll { rule in
+            let pair = key(rule.original, rule.converted)
+            return pairs.contains(pair) || rule.appBundleID.map { exceptions.contains(pair + "\u{1f}" + $0) } == true
         }
         return previousCount - rules.count
     }
