@@ -168,6 +168,8 @@ public final class LanguageModelStore: @unchecked Sendable {
         case enFollowers = 15
         case ruAttested = 16
         case enAttested = 17
+        case ruZipf = 18
+        case enZipf = 19
     }
 
     public static var bundledResourceURL: URL? {
@@ -196,6 +198,7 @@ public final class LanguageModelStore: @unchecked Sendable {
     private let trigrams: [String: ModelScoreTable]
     private let followers: [String: ModelScoreTable]
     private let attestedWords: [String: ModelScoreTable]
+    private let conversationalZipf: [String: ModelScoreTable]
     /// Words the user types often that no table lists; see `PersonalLexicon`.
     private let personalWords: [String: Set<String>]
 
@@ -270,6 +273,7 @@ public final class LanguageModelStore: @unchecked Sendable {
         extendedEnglishTiers = try table(.extendedEnglish)
         followers = ["ru": try optionalTable(.ruFollowers), "en": try optionalTable(.enFollowers)]
         attestedWords = ["ru": try optionalTable(.ruAttested), "en": try optionalTable(.enAttested)]
+        conversationalZipf = ["ru": try optionalTable(.ruZipf), "en": try optionalTable(.enZipf)]
         guard let russianBloomRange = sectionRanges[.extendedRussian] else {
             throw LanguageModelError.missingSection(Int(Section.extendedRussian.rawValue))
         }
@@ -291,6 +295,7 @@ public final class LanguageModelStore: @unchecked Sendable {
         trigrams = other.trigrams
         followers = other.followers
         attestedWords = other.attestedWords
+        conversationalZipf = other.conversationalZipf
         self.personalWords = personalWords
     }
 
@@ -342,6 +347,11 @@ public final class LanguageModelStore: @unchecked Sendable {
         rarestWordLogProbability[Self.canonical(language)] ?? 0
     }
 
+    /// A word the user listed or kept typing; see `PersonalLexicon`.
+    public func isPersonalWord(_ word: String, language: String) -> Bool {
+        personalWords[Self.canonical(language)]?.contains(Self.normalize(word)) == true
+    }
+
     public func wordLogProbability(_ word: String, language: String) -> Double? {
         let canonical = Self.canonical(language)
         let normalized = Self.normalize(word)
@@ -376,6 +386,13 @@ public final class LanguageModelStore: @unchecked Sendable {
             }
         }
         return count == 0 ? -16 : total / Double(count)
+    }
+
+    /// Zipf frequency (log10 per billion words) in conversational web text, the
+    /// one scale on which an English and a Russian reading can be compared.
+    /// Spellings typed in the wrong layout were removed when the model was built.
+    public func conversationalZipf(_ word: String, language: String) -> Double? {
+        conversationalZipf[Self.canonical(language)]?.value(for: Self.normalize(word))
     }
 
     /// The listed frequency, or else a Tatoeba-attested one placed below every
