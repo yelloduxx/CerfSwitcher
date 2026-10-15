@@ -87,7 +87,7 @@ class NativePreflightTests(unittest.TestCase):
         self.assertEqual(len(summary["preflights"]), 2)
         self.assertEqual(sum("--preflight" in command for command in commands), 2)
         app_sign = next(command for command in commands if command[0] == "codesign" and "--sign" in command
-                        and command[-1].endswith("/RuSwitcherPro.app"))
+                        and command[-1].endswith("/CerfSwitcher.app"))
         self.assertIn("runtime", app_sign)
         self.assertIn("--entitlements", app_sign)
 

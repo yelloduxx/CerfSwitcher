@@ -34,7 +34,7 @@ register_installed_input_method() {
 }
 
 if ! register_installed_input_method; then
-    echo "ERROR: macOS did not enable both RuSwitcher input sources" >&2
+    echo "ERROR: macOS did not enable both Cerf Switcher input sources" >&2
     echo "macOS requires an Apple Development or Developer ID identity for InputMethodKit." >&2
     echo "A self-signed identity is rejected by AMFI even when added to System trust." >&2
     pkill -x RuSwitcherInputMethod 2>/dev/null || true
@@ -51,4 +51,4 @@ echo "Installed and registered: $TARGET"
 if [ -d "$BACKUP" ]; then
     echo "Previous bundle: $BACKUP"
 fi
-echo "Select RuSwitcher EN or RuSwitcher RU in System Settings > Keyboard > Input Sources."
+echo "Select Cerf Switcher Input Method EN or RU in System Settings > Keyboard > Input Sources."

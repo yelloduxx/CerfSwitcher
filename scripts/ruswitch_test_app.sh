@@ -7,7 +7,7 @@ ruswitch_validate_test_app() {
     local plist expected_version expected_build reference reference_plist
     local reference_id reference_version reference_build actual_hash reference_hash
 
-    RUSWITCH_APP="${RUSWITCH_APP:-/Applications/RuSwitcherPro.app}"
+    RUSWITCH_APP="${RUSWITCH_APP:-/Applications/CerfSwitcher.app}"
     plist="$RUSWITCH_APP/Contents/Info.plist"
     if [ ! -f "$plist" ]; then
         echo "FAIL: test application is missing: $RUSWITCH_APP" >&2
@@ -21,7 +21,7 @@ ruswitch_validate_test_app() {
     RUSWITCH_APP_EXEC="$RUSWITCH_APP/Contents/MacOS/$RUSWITCH_APP_EXECUTABLE"
     test -x "$RUSWITCH_APP_EXEC"
 
-    local expected_id="${RUSWITCH_EXPECTED_BUNDLE_ID:-com.ruswitcher.pro}"
+    local expected_id="${RUSWITCH_EXPECTED_BUNDLE_ID:-com.cerfswitcher.app}"
     if [ "$RUSWITCH_APP_BUNDLE_ID" != "$expected_id" ]; then
         echo "FAIL: expected bundle ID $expected_id, got $RUSWITCH_APP_BUNDLE_ID" >&2
         return 1
@@ -38,7 +38,7 @@ ruswitch_validate_test_app() {
     fi
 
     actual_hash="$(shasum -a 256 "$RUSWITCH_APP_EXEC" | awk '{print $1}')"
-    reference="${RUSWITCH_REFERENCE_APP:-$root/RuSwitcherPro.app}"
+    reference="${RUSWITCH_REFERENCE_APP:-$root/CerfSwitcher.app}"
     reference_plist="$reference/Contents/Info.plist"
     if [ "${RUSWITCH_ALLOW_HASH_MISMATCH:-0}" != "1" ]; then
         if [ ! -f "$reference_plist" ]; then
