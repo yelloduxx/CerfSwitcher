@@ -434,6 +434,22 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
             expectedReplacement: "руку"
         ),
         Fixture(id: "keep-ambiguous-here", typed: "here", currentLanguage: "en", targetLanguage: "ru", context: ["это"], expected: .keep, expectedReplacement: nil),
+        // Two known readings on the same keys follow two words of context in
+        // the other language (build 138), including a final ю/б key read as
+        // `.`/`,`.
+        Fixture(id: "both-known-here-ru-context", typed: "here", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .switchLayout, expectedReplacement: "руку"),
+        Fixture(id: "both-known-uk-ru-context", typed: "uk", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .switchLayout, expectedReplacement: "гл"),
+        Fixture(id: "both-known-ye-ru-context", typed: "ye", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .switchLayout, expectedReplacement: "ну"),
+        Fixture(id: "both-known-hand-en-context", typed: "руку", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .switchLayout, expectedReplacement: "here"),
+        Fixture(id: "both-known-rf-en-context", typed: "рф", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .switchLayout, expectedReplacement: "ha"),
+        Fixture(id: "both-known-hands-en-context", typed: "рук", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .switchLayout, expectedReplacement: "her"),
+        Fixture(id: "both-known-rub-en-context", typed: "руб", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .switchLayout, expectedReplacement: "he,"),
+        Fixture(id: "both-known-neck-en-context", typed: "шею", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .switchLayout, expectedReplacement: "it."),
+        Fixture(id: "both-known-in-ru-context", typed: "in", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
+        Fixture(id: "both-known-her-ru-context", typed: "her", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
+        Fixture(id: "both-known-well-en-context", typed: "ну", currentLanguage: "ru", targetLanguage: "en", context: ["this", "text"], expected: .keep, expectedReplacement: nil),
+        Fixture(id: "both-known-here-en-context", typed: "here", currentLanguage: "en", targetLanguage: "ru", context: ["this", "text"], expected: .keep, expectedReplacement: nil),
+        Fixture(id: "both-known-hand-ru-context", typed: "руку", currentLanguage: "ru", targetLanguage: "en", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
         Fixture(id: "extended-en-cyst", typed: "cyst", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
         Fixture(id: "extended-en-juju", typed: "juju", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
         Fixture(id: "extended-en-codex", typed: "codex", currentLanguage: "en", targetLanguage: "ru", context: ["это", "текст"], expected: .keep, expectedReplacement: nil),
@@ -467,14 +483,21 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
         }
         if generatedUnknownEnglish == 250 { break }
     }
-    for (current, target, context) in [("en", "ru", ["это", "текст"]), ("ru", "en", ["this", "text"])] {
+    let contexts = ["en": ["this", "text"], "ru": ["это", "текст"]]
+    for (current, target) in [("en", "ru"), ("ru", "en")] {
+        let context = contexts[target]!
         for word in model.trainingWords(language: current, limit: limit) {
+            // A word whose keys also spell a known target word follows the
+            // language of the context, so other-language context does not
+            // make it a plain keep. The regressions above pin that rule.
+            let otherReading = SmartTokenizer.lexicalCore(of: KeyMapping.convert(word))
+            let bothKnown = model.wordLogProbability(otherReading, language: target) != nil
             generated.append(Fixture(
                 id: "literal-\(current)-\(generated.count)",
                 typed: word,
                 currentLanguage: current,
                 targetLanguage: target,
-                context: context,
+                context: bothKnown ? contexts[current]! : context,
                 expected: .keep,
                 expectedReplacement: nil
             ))
@@ -489,9 +512,8 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
                 model: model
             ) else { continue }
             let sourceCore = SmartTokenizer.lexicalCore(of: mistyped)
-            // Two real words on the same physical keys are intrinsically ambiguous.
-            // Production deliberately keeps the literal form unless the user has
-            // explicitly taught that pair.
+            // Two real words on the same physical keys depend on context rather
+            // than on spelling, so they are not generated as plain switches.
             guard model.wordLogProbability(
                 sourceCore,
                 language: current
