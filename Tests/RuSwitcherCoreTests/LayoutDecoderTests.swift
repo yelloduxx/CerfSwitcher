@@ -13,7 +13,8 @@ final class LayoutDecoderTests: XCTestCase {
         belief: LanguageBelief = .neutral,
         integrity: EditorIntegrity = .clean,
         confirmed: Bool = false,
-        adaptiveBias: Double = 0
+        adaptiveBias: Double = 0,
+        switchedLayoutByHand: Bool = false
     ) -> LayoutDecoderEvaluation {
         LayoutDecoder.evaluate(
             typed: typed,
@@ -24,11 +25,25 @@ final class LayoutDecoderTests: XCTestCase {
             contextWords: context,
             languageBelief: belief,
             integrity: integrity,
+            switchedLayoutByHand: switchedLayoutByHand,
             policy: .empty,
             adaptiveBias: { _, _ in adaptiveBias },
             isConfirmed: { _, _ in confirmed },
             model: model
         )
+    }
+
+    func testWordTypedAfterSwitchingLayoutByHandStaysAsTyped() {
+        XCTAssertEqual(evaluate("vs", context: ["наши", "родители"]).decision.candidate.replacement, "мы")
+        for typed in ["vs", "here", "he", "{vs}", "(jy)"] {
+            let result = evaluate(typed, context: ["наши", "родители"], switchedLayoutByHand: true)
+            XCTAssertNotEqual(result.decision.verdict, .switchToConverted, "\(typed) -> \(result.decision.candidate.replacement)")
+        }
+        let wrong = evaluate("ghbdtn", context: ["наши", "родители"], switchedLayoutByHand: true)
+        XCTAssertEqual(wrong.decision.verdict, .switchToConverted)
+        XCTAssertEqual(wrong.decision.candidate.replacement, "привет")
+        let learned = evaluate("vs", context: ["наши", "родители"], confirmed: true, switchedLayoutByHand: true)
+        XCTAssertEqual(learned.decision.verdict, .switchToConverted)
     }
 
     func testUnknownCompoundConvertsAtBoundary() {

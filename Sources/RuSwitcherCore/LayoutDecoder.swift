@@ -64,6 +64,7 @@ public enum LayoutDecoder {
         contextWords: [String],
         languageBelief: LanguageBelief,
         integrity: EditorIntegrity = .clean,
+        switchedLayoutByHand: Bool = false,
         policy: AutoConvertPolicy,
         adaptiveBias: (String, String) -> Double = { _, _ in 0 },
         isConfirmed: (String, String) -> Bool = { _, _ in false },
@@ -164,7 +165,7 @@ public enum LayoutDecoder {
                 model: model
             )
         }
-        return evaluations.max { lhs, rhs in
+        let best = evaluations.max { lhs, rhs in
             if lhs.decision.verdict == .switchToConverted, rhs.decision.verdict != .switchToConverted { return false }
             if lhs.decision.verdict != .switchToConverted, rhs.decision.verdict == .switchToConverted { return true }
             // `[etvjt` must become `хуемое`, not `[уемое`. Preserving a leading
@@ -236,6 +237,19 @@ public enum LayoutDecoder {
             return preservedDecorationCount(lhs.decision.candidate)
                 < preservedDecorationCount(rhs.decision.candidate)
         } ?? fallback(typed: typed, converted: converted)
+        // The previous word was typed as-is in the other layout, so the user
+        // switched layouts by hand: a short word, or a word in both layouts,
+        // is what they meant (`родители vs`). Only their own rules override it.
+        let currentCanonical = LanguageCode.canonical(currentLanguage)
+        let literal = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: typed))
+        let literalIsWord = model.wordLogProbability(literal, language: currentCanonical) != nil
+            || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
+        if switchedLayoutByHand, best.decision.verdict == .switchToConverted,
+           literal.count <= 3 || literalIsWord,
+           best.decision.reason != .confirmedByUser, best.decision.reason != .alwaysConvert {
+            return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
+        }
+        return best
     }
 
     /// A word no dictionary knows converts only when it reads like the target
