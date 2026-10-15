@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case overview, keyboard, exceptions, advanced, about
+    case overview, keyboard, exceptions, dictionary, advanced, about
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: L10n.settingsSectionOverview
         case .keyboard: L10n.settingsSectionKeyboard
         case .exceptions: L10n.settingsSectionExceptions
+        case .dictionary: L10n.settingsSectionDictionary
         case .advanced: L10n.settingsTabAdvanced
         case .about: L10n.settingsTabAbout
         }
@@ -21,6 +22,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: "sparkles"
         case .keyboard: "keyboard"
         case .exceptions: "hand.raised.fill"
+        case .dictionary: "character.book.closed.fill"
         case .advanced: "gearshape.2.fill"
         case .about: "info.circle.fill"
         }
@@ -31,6 +33,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: .blue
         case .keyboard: .indigo
         case .exceptions: .orange
+        case .dictionary: .green
         case .advanced: .gray
         case .about: .teal
         }
@@ -65,12 +68,15 @@ enum SettingsChange {
     case layout1(String)
     case layout2(String)
     case interfaceLanguage(String)
+    case addDictionaryWords(String)
+    case removeDictionaryWords(Set<String>)
 }
 
 enum SettingsAction {
     case checkPermissions, checkUpdates
     case showLog, sendLog
     case exportLearning, importLearning, clearLearning
+    case importDictionary, exportDictionary, clearDictionary
     case openGitHub
 }
 
@@ -163,6 +169,10 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var layout2ID = ""
     @Published private(set) var interfaceLanguage = ""
     @Published var permissions = PermissionStatus(accessibility: false, inputMonitoring: false)
+    /// User dictionary spellings, sorted for display.
+    @Published var dictionaryWords: [String] = []
+    /// Counts from the last add, import or export; never the words themselves.
+    @Published var dictionaryReport: String?
 
     let layoutOptions: [PickerOption]
     let languageOptions: [PickerOption]
@@ -192,6 +202,7 @@ final class SettingsModel: ObservableObject {
         layout2ID = settings.layout2ID
         interfaceLanguage = settings.interfaceLanguage
         permissions = .current()
+        dictionaryWords = settings.userDictionary.words.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     var heroState: HeroState {

@@ -30,6 +30,7 @@ struct SettingsRootView: View {
         case .overview: OverviewPage(model: model)
         case .keyboard: KeyboardPage(model: model)
         case .exceptions: ExceptionsPage()
+        case .dictionary: DictionaryPage(model: model)
         case .advanced: AdvancedPage(model: model)
         case .about: AboutPage(model: model)
         }
@@ -383,6 +384,110 @@ private struct ExceptionListHost: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+// MARK: - Dictionary
+
+private struct DictionaryPage: View {
+    @ObservedObject var model: SettingsModel
+    @State private var draft = ""
+    @State private var query = ""
+    @State private var selection = Set<String>()
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        SettingsCard(title: L10n.settingsDictionaryAddTitle, footer: L10n.settingsDictionaryHint) {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $draft)
+                        .font(.system(size: 12))
+                        .scrollContentBackground(.hidden)
+                        .padding(4)
+                    if draft.isEmpty {
+                        Text(L10n.settingsDictionaryPlaceholder)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(height: 72)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(scheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12))
+                )
+                HStack(spacing: 8) {
+                    Button(L10n.commonAdd) {
+                        model.onChange(.addDictionaryWords(draft))
+                        draft = ""
+                    }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(L10n.settingsDictionaryImport) { model.onAction(.importDictionary) }
+                    Button(L10n.settingsDictionaryExport) { model.onAction(.exportDictionary) }
+                        .disabled(model.dictionaryWords.isEmpty)
+                    Spacer(minLength: 0)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                if let report = model.dictionaryReport {
+                    Label(report, systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(14)
+        }
+
+        SettingsCard(title: String(format: L10n.settingsDictionaryCount, model.dictionaryWords.count)) {
+            if model.dictionaryWords.isEmpty {
+                Text(L10n.settingsDictionaryEmpty)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+            } else {
+                HStack(spacing: 8) {
+                    TextField(L10n.settingsDictionarySearch, text: $query)
+                        .textFieldStyle(.roundedBorder)
+                    Button(L10n.settingsDictionaryRemove, action: removeSelection)
+                        .disabled(selection.isEmpty)
+                        .fixedSize()
+                    Button { model.onAction(.clearDictionary) } label: {
+                        Text(L10n.settingsDictionaryClear).foregroundColor(.red)
+                    }
+                    .fixedSize()
+                }
+                .padding(10)
+                Divider()
+                List(shownWords, id: \.self, selection: $selection) { word in
+                    Text(word).font(.system(size: 12))
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .onDeleteCommand(perform: removeSelection)
+                .frame(height: 180)
+            }
+        }
+    }
+
+    private var shownWords: [String] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return model.dictionaryWords }
+        return model.dictionaryWords.filter { $0.localizedCaseInsensitiveContains(needle) }
+    }
+
+    private func removeSelection() {
+        guard !selection.isEmpty else { return }
+        model.onChange(.removeDictionaryWords(selection))
+        selection = []
+    }
 }
 
 // MARK: - Advanced

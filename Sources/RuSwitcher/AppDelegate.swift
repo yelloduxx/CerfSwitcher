@@ -162,6 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.rebuildMenu()          // синхронизировать галочку в меню
             self?.syncCaretIndicator()   // создать/снести индикатор + обновить гейт onUserInput
         }
+        settingsController.onUserDictionaryChanged = { [weak self] in
+            self?.personalLexicon.dictionaryChanged()
+        }
     }
 
     // MARK: - Learn-from-undo (предложить добавить слово в never-convert)
