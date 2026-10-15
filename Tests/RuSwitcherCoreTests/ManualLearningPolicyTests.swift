@@ -76,7 +76,9 @@ final class ManualLearningPolicyTests: XCTestCase {
     }
 
     func testConvertingIntoARealWordReplacesTheOppositeLearnedPair() {
-        for (old, new) in [(("руку", "here"), ("here", "руку")), (("привет", "ghbdtn"), ("ghbdtn", "привет"))] {
+        XCTAssertTrue(model.contains("сука", language: "ru") || model.isExtendedRussianWord("сука"))
+        for (old, new) in [(("руку", "here"), ("here", "руку")), (("привет", "ghbdtn"), ("ghbdtn", "привет")),
+                           (("сука", "cerf"), ("cerf", "сука"))] {
             var book = AdaptiveRuleBook()
             book.recordConfirmed(original: old.0, converted: old.1)
             book.recordConfirmed(original: old.0, converted: old.1)

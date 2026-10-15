@@ -388,15 +388,19 @@ Adaptive learning behavior:
   retired, with its confirmation cleared and its positive count zeroed. For
   example, `сука` -> `cerf` learned while naming the app is replaced by a later
   `cerf` -> `сука`. Before build 154 the app only recorded an app exception and
-  never learned the user's direction. Two opposite global confirmations can no
-  longer coexist.
+  never learned the user's direction. `recordConfirmed` never leaves two opposite
+  global confirmations, but imported archives are merged without that check.
 - Toggling a manually converted word straight back to what was typed restores
   the rule book from a checkpoint taken just before that manual learning
   (`learning_manual_reverted`). Converting the typed word again learns that
   direction. Before build 154, every toggle cycle reconfirmed the old pair.
   Undoing an automatic conversion still goes through `learnFromUndo`. The
   checkpoint is dropped when the user continues typing, at the next boundary
-  and on any state reset.
+  and on any state reset. A later toggle back to the typed text, with no
+  checkpoint, goes through the manual policy only when either direction is
+  already confirmed. Unverified reconversions never change rules.
+  `AdaptiveRuleBook.recordManualCorrection` keeps the older exception-only
+  behaviour and is used only by tests.
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.

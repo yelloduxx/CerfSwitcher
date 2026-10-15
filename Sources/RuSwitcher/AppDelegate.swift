@@ -939,16 +939,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        guard allowLearning else {
+            lastAutoConverted = nil
+            return
+        }
+        let settings = SettingsManager.shared
         // Back to what was typed: the conversion was a mistake, not a lesson.
         if let checkpoint = manualLearningCheckpoint, same(checkpoint.original, target), same(checkpoint.converted, source) {
-            SettingsManager.shared.adaptiveRuleBook = checkpoint.rules
+            settings.adaptiveRuleBook = checkpoint.rules
             manualLearningCheckpoint = nil
             lastAutoConverted = nil
             rslog("learning_manual_reverted")
-        } else if allowLearning, let last = lastAutoConverted,
+        } else if let last = lastAutoConverted,
                   last.appBundleID == transaction.focus.bundleID,
                   same(source, last.converted), same(target, last.original) {
             learnFromUndo()
+        } else if settings.isAdaptiveConfirmed(original: source, converted: target, appBundleID: nil)
+                    || settings.isAdaptiveConfirmed(original: target, converted: source, appBundleID: nil) {
+            // Reverting a learned word later, after the user moved on, is a
+            // decision about that learned pair; an unknown pair learns nothing.
+            _ = persistManualLearning(original: source, converted: target, frontID: transaction.focus.bundleID)
         } else {
             lastAutoConverted = nil
         }
