@@ -342,7 +342,10 @@ public enum LayoutDecoder {
         if integrity != .clean {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedEditing, evidence: [.blockedEditing])
         }
-        if policy.neverConvert.contains(typed) || policy.neverConvert.contains(converted) {
+        // A listed word stays listed with punctuation around it (`ghbdtn,`),
+        // the way learned pairs match by lexical core.
+        if policy.neverConvert.contains(typed) || policy.neverConvert.contains(literal)
+            || policy.neverConvert.contains(converted) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedNever, evidence: [.blockedNever])
         }
         if literal.isEmpty {
