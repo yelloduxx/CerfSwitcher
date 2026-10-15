@@ -581,10 +581,12 @@ downloads and no network inference.
   `dictionary-learned` and `dictionary-remembered` states with made-up data.
   The renderer then fills its isolated suite to the store limits (20,000
   words, 2,000 pairs, 1,999 personal words), prints `timing` lines for row
-  loading, one search pass and the first layout, and renders
-  `dictionary-full-light`. A SwiftUI `List` of 2,000 or more rows logs an
-  AppKit "reentrant operation in its NSTableView delegate" warning; the
-  pre-tab page did the same.
+  loading, one search pass, the first layout and one search update, and renders
+  `dictionary-full-light`. `firstLayout` and `keystroke` are synchronous
+  layout and display calls on the offscreen window, not time to a visible
+  frame. A SwiftUI `List` of 2,000 rows logs an AppKit "reentrant operation
+  in its NSTableView delegate" warning (200 rows do not); the pre-tab page
+  did the same.
 - `SettingsModel` mirrors SettingsManager. Every write goes through
   `SettingsChange` to `SettingsWindowController.apply`, which sets the same
   SettingsManager property and fires the same callback as before. Booleans are

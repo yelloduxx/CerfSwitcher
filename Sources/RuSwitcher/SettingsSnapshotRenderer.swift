@@ -100,9 +100,22 @@ enum SettingsSnapshotRenderer {
                 view.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
             }
+            // What one keystroke costs the List: a filtered array replaces
+            // the full one, then the full one comes back.
+            let all = (model.wordRows, model.learnedRows, model.personalRows)
+            let keystroke = [("a", true), ("", false)].map { query, narrow in
+                clock.measure {
+                    model.wordRows = narrow ? DictionarySearch.filter(all.0, query: query) : all.0
+                    model.learnedRows = narrow ? DictionarySearch.filter(all.1, query: query) : all.1
+                    model.personalRows = narrow ? DictionarySearch.filter(all.2, query: query) : all.2
+                    view.layoutSubtreeIfNeeded()
+                    window.displayIfNeeded()
+                }
+            }.max() ?? .zero
             window.contentView = nil
             print("timing \(tab.rawValue): rows=\(count) load=\(milliseconds(load))ms "
-                + "filter=\(milliseconds(filter))ms firstLayout=\(milliseconds(firstLayout))ms")
+                + "filter=\(milliseconds(filter))ms firstLayout=\(milliseconds(firstLayout))ms "
+                + "keystroke=\(milliseconds(keystroke))ms")
             if tab == .mine {
                 let url = directory.appendingPathComponent("\(prefix)-dictionary-full-light.png")
                 try render(NSHostingView(rootView: SettingsRootView(model: model)), appearance: NSAppearance(named: .aqua), to: url)
