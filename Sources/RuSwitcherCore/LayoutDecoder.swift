@@ -240,16 +240,14 @@ public enum LayoutDecoder {
         // The previous word was typed as-is in the other layout, so the user
         // switched layouts by hand: a short word, or a word in both layouts,
         // is what they meant (`родители vs`). Only their own rules override it.
+        guard switchedLayoutByHand, best.decision.verdict == .switchToConverted,
+              best.decision.reason != .confirmedByUser, best.decision.reason != .alwaysConvert else { return best }
         let currentCanonical = LanguageCode.canonical(currentLanguage)
         let literal = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: typed))
         let literalIsWord = model.wordLogProbability(literal, language: currentCanonical) != nil
             || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
-        if switchedLayoutByHand, best.decision.verdict == .switchToConverted,
-           literal.count <= 3 || literalIsWord,
-           best.decision.reason != .confirmedByUser, best.decision.reason != .alwaysConvert {
-            return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
-        }
-        return best
+        guard literal.count <= 3 || literalIsWord else { return best }
+        return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
     }
 
     /// A word no dictionary knows converts only when it reads like the target
@@ -342,7 +340,10 @@ public enum LayoutDecoder {
         if integrity != .clean {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedEditing, evidence: [.blockedEditing])
         }
-        if policy.neverConvert.contains(typed) || policy.neverConvert.contains(converted) {
+        // A listed word stays listed with punctuation around it (`ghbdtn,`),
+        // the way learned pairs match by lexical core.
+        if policy.neverConvert.contains(typed) || policy.neverConvert.contains(literal)
+            || policy.neverConvert.contains(converted) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedNever, evidence: [.blockedNever])
         }
         if literal.isEmpty {

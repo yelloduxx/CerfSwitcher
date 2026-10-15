@@ -382,6 +382,35 @@ Adaptive learning behavior:
   train or create an application exception.
 - A permanent application exception is created only when explicitly reversing a
   globally confirmed manual pair. Weak automatic positives are not sufficient.
+  Since build 154 this holds only when the reversal converts into a non-word.
+  When a manual conversion turns typed text into a real word while the opposite
+  pair is confirmed, the new direction is confirmed globally. The old pair is
+  retired, with its confirmation cleared and its positive count zeroed. For
+  example, `сука` -> `cerf` learned while naming the app is replaced by a later
+  `cerf` -> `сука`. Before build 154 the app only recorded an app exception and
+  never learned the user's direction. `recordConfirmed` never leaves two opposite
+  global confirmations, but imported archives are merged without that check.
+- Toggling a manually converted word straight back to what was typed restores
+  the rule book from a checkpoint taken just before that manual learning
+  (`learning_manual_reverted`). Converting the typed word again learns that
+  direction. Before build 154, every toggle cycle reconfirmed the old pair.
+  Undoing an automatic conversion still goes through `learnFromUndo`. The
+  checkpoint is dropped when the user continues typing, at the next boundary
+  and on any state reset. A later toggle back to the typed text, with no
+  checkpoint, goes through the manual policy only when either direction is
+  already confirmed. Unverified reconversions never change rules.
+  `AdaptiveRuleBook.recordManualCorrection` keeps the older exception-only
+  behaviour and is used only by tests.
+- Learned-rule lookups are indexed (build 155). The decoder asks for the bias
+  and confirmation of every candidate at each boundary. Before build 155, each
+  question re-read the stored JSON from defaults, decoded every rule and scanned
+  them, computing lexical cores for each rule. On the owner's 439 rules, release
+  timing for one `LayoutDecoder.evaluate` was 7.7 ms, against 0.07 ms with no
+  rules. `LearnedRulesStore` now decodes again only when the stored bytes change,
+  so writes from another store are still seen. `AdaptiveRuleBook` keeps rule
+  positions keyed by lexical-core pair. The same evaluate now takes 0.11 ms,
+  with about 11 us per lookup, and the first decode with indexing takes about
+  6 ms.
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.
@@ -410,6 +439,44 @@ Adaptive learning behavior:
   `com.ruswitcher.personalLexicon` (true) turns it off. Not in the export
   archive. The log carries no words, only `auto_posted_*`/`auto_blocked_*`
   outcome names added in the same build.
+- User dictionary (Settings → Dictionary): words the user lists on purpose
+  (brands, names, tech terms, slang) feed the same
+  `LanguageModelStore.personalized` call as promoted personal words;
+  `PersonalLexiconObserver` unions both sets. The alphabet sets the language,
+  so `Nuxt` stays in Russian prose (it was `Тгче` without the entry) and
+  `rhby;` becomes `кринж` (it was `крин;`). `UserDictionary` (Core) parses
+  text split on lines, commas, semicolons and whitespace, strips quotes and
+  trailing punctuation, dedupes case-insensitively and keeps entries of only
+  Latin or only Cyrillic letters with inner `-`/`'`, 2 to 64 characters, at
+  most 20,000; numbers, links, emails and mixed scripts are counted as
+  skipped. `UserDictionaryStore` saves the spellings as a string array under
+  `com.ruswitcher.userDictionary.v1`. Import reads `.txt`/`.csv` up to 5 MB
+  (UTF-16 with BOM, UTF-8, else Windows-1251); export writes one word per
+  line. A listed word is never a personal-lexicon sighting, so removing it
+  from the page really removes it. The dictionary is not part of "reset
+  learned corrections", the learned-rule archive or the Input Method. Hard
+  blockers still win: a camelCase entry (`GitHub`) is stored, but `ПшеРги`
+  stays blocked as code-like. An entry counts as attested, so the build-141
+  all-caps rule converts `ТГЧЕ` to `NUXT` once `Nuxt` is listed.
+- Settings → Dictionary has three tabs, each with a count, search and
+  multi-select removal. "My Words" is the user dictionary. "Learned Pairs"
+  lists confirmed global pairs and application exceptions ("not in <app>")
+  from `AdaptiveRuleBook.learnedEntries`. Removing a global pair deletes it
+  in every scope by lexical core, together with its exceptions; removing an
+  exception re-enables the global pair in that app. The decoder reads the
+  store on every decision, and the removal also clears the manual-learning
+  checkpoint and `lastAutoConverted`, so neither restores the pair.
+  "Remembered" lists promoted personal words. Removing one deletes its
+  entry (it can be promoted again after three more occasions), and "Move to
+  My Words" adds it to the user dictionary first. Both rebuild the
+  personalized model through `onVocabularyChanged`. Rows exist only for the
+  visible tab and are rebuilt per change, not per keystroke. A row that an
+  Exceptions-page rule overrides is marked "in exceptions".
+- Precedence: denied app > never-convert > always-convert > learned pairs and
+  app exceptions > user dictionary and personal words > decoder statistics.
+  AppDelegate returns before planning in a denied app; `ExceptionPrecedenceTests`
+  pins the rest of the order in `LayoutDecoder`. Never-convert also matches the typed
+  word's lexical core, so a listed `ghbdtn` stays as `ghbdtn,`.
 - Advanced settings can reset learned corrections.
 - Advanced settings can export and import learned word rules as a versioned,
   human-readable JSON archive. Import merges by normalized source, target and
@@ -509,7 +576,17 @@ downloads and no network inference.
 
 - SwiftUI hosted in an AppKit `NSWindow` (macOS 13 APIs only, no `@Observable`).
   Sections: Overview (status hero, permission chips, feature tiles, trigger
-  keycaps, interface language), Keyboard, Exceptions, Advanced, About.
+  keycaps, interface language), Keyboard, Exceptions, Dictionary, Advanced,
+  About. Snapshots add `overview-ready`, `dictionary-filled`,
+  `dictionary-learned` and `dictionary-remembered` states with made-up data.
+  The renderer then fills its isolated suite to the store limits (20,000
+  words, 2,000 pairs, 1,999 personal words), prints `timing` lines for row
+  loading, one search pass, the first layout and one search update, and renders
+  `dictionary-full-light`. `firstLayout` and `keystroke` are synchronous
+  layout and display calls on the offscreen window, not time to a visible
+  frame. A SwiftUI `List` of 2,000 rows logs an AppKit "reentrant operation
+  in its NSTableView delegate" warning (200 rows do not); the pre-tab page
+  did the same.
 - `SettingsModel` mirrors SettingsManager. Every write goes through
   `SettingsChange` to `SettingsWindowController.apply`, which sets the same
   SettingsManager property and fires the same callback as before. Booleans are
@@ -531,8 +608,9 @@ downloads and no network inference.
 - Decoder, models and personal learning are local.
 - Debug logs contain only lengths, language/evidence categories, revision,
   latency buckets and transaction outcomes; never words or neighboring text.
-  The personal lexicon stores the user's own often-typed words locally in the
-  app's defaults, like learned pairs, and never logs them.
+  The personal lexicon and the user dictionary store the user's words locally
+  in the app's defaults, like learned pairs, and never log them; dictionary
+  reports in the UI show counts only.
 - The anonymous-statistics UI, reporter, persistence and localization keys were
   removed. There is no statistics endpoint.
 - The obsolete repository stats workflow, Telegram reporter and committed

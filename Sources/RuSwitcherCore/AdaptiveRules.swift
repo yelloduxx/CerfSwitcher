@@ -54,7 +54,7 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
             && Self.core(self.converted) == Self.core(converted)
     }
 
-    private static func core(_ text: String) -> String {
+    static func core(_ text: String) -> String {
         FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: text))
     }
 
@@ -68,9 +68,29 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
     }
 }
 
+/// A learned rule as Settings lists it: a confirmed global pair, or one
+/// application where the user turned such a pair off.
+public struct LearnedEntry: Hashable, Sendable {
+    public let original: String
+    public let converted: String
+    /// nil for a global pair; the application of an exception otherwise.
+    public let exceptionAppBundleID: String?
+
+    public init(original: String, converted: String, exceptionAppBundleID: String? = nil) {
+        self.original = FrequentWordLexicon.normalize(original)
+        self.converted = FrequentWordLexicon.normalize(converted)
+        self.exceptionAppBundleID = exceptionAppBundleID
+    }
+}
+
 public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
-    public private(set) var rules: [AdaptiveRule]
+    public private(set) var rules: [AdaptiveRule] {
+        didSet { indexRules() }
+    }
     public private(set) var modelVersion: Int
+    /// Rule positions by lexical-core pair. The decoder asks about several
+    /// candidates at every word boundary, so lookups must not scan every rule.
+    private var rulesByPair: [String: [Int]] = [:]
 
     public init(rules: [AdaptiveRule] = [], modelVersion: Int = 8) {
         self.rules = rules
@@ -78,6 +98,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         migrateLegacyScopesIfNeeded()
         migrateLegacyBackspaceFeedbackIfNeeded()
         enforcePersistablePairs()
+        indexRules()
     }
 
     private enum CodingKeys: String, CodingKey { case rules, modelVersion }
@@ -89,16 +110,28 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         migrateLegacyScopesIfNeeded()
         migrateLegacyBackspaceFeedbackIfNeeded()
         enforcePersistablePairs()
+        indexRules()
+    }
+
+    private static func pairKey(_ original: String, _ converted: String) -> String {
+        AdaptiveRule.core(original) + "\u{1f}" + AdaptiveRule.core(converted)
+    }
+
+    private mutating func indexRules() {
+        rulesByPair = Dictionary(grouping: rules.indices) { Self.pairKey(rules[$0].original, rules[$0].converted) }
+    }
+
+    private func rules(matchingPair original: String, _ converted: String) -> [AdaptiveRule] {
+        rulesByPair[Self.pairKey(original, converted)]?.map { rules[$0] } ?? []
     }
 
     public func bias(original: String, converted: String, appBundleID: String?) -> Double {
         if hasApplicationException(original: original, converted: converted, appBundleID: appBundleID) {
             return -12
         }
-        return rules
+        return rules(matchingPair: original, converted)
             .filter {
-                !$0.applicationException
-                    && $0.matches(original: original, converted: converted, appBundleID: appBundleID)
+                !$0.applicationException && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
             }
             .map(\.bias)
             .reduce(0, +)
@@ -110,8 +143,8 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
             converted: converted,
             appBundleID: appBundleID
         ) else { return false }
-        return rules.contains {
-            $0.confirmed && $0.matches(original: original, converted: converted, appBundleID: appBundleID)
+        return rules(matchingPair: original, converted).contains {
+            $0.confirmed && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
         }
     }
 
@@ -121,10 +154,8 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         appBundleID: String?
     ) -> Bool {
         guard let appBundleID else { return false }
-        return rules.contains {
-            $0.applicationException
-                && $0.appBundleID == appBundleID
-                && $0.matchesPair(original: original, converted: converted)
+        return rules(matchingPair: original, converted).contains {
+            $0.applicationException && $0.appBundleID == appBundleID
         }
     }
 
@@ -181,6 +212,13 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
                     && $0.matchesPair(original: original, converted: converted)
             }
         }
+        // Two global confirmations of opposite directions would convert each
+        // spelling into the other; the newer one wins.
+        for index in rules.indices where rules[index].appBundleID == nil
+            && rules[index].matchesPair(original: converted, converted: original) {
+            rules[index].confirmed = false
+            rules[index].positiveCount = 0
+        }
         modelVersion = 8
         prune()
     }
@@ -231,6 +269,40 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         return previousCount - rules.count
     }
 
+    /// Confirmed global pairs and application exceptions, most recent first.
+    /// Unconfirmed counters are soft evidence and stay out of the list.
+    public var learnedEntries: [LearnedEntry] {
+        rules
+            .filter { $0.appBundleID == nil ? $0.confirmed : $0.applicationException }
+            .sorted { $0.lastUsed > $1.lastUsed }
+            .map { LearnedEntry(original: $0.original, converted: $0.converted, exceptionAppBundleID: $0.appBundleID) }
+    }
+
+    /// Removes entries the user deleted. A global pair goes in every scope,
+    /// matched by lexical core like the exceptions it may have collected, so
+    /// none is left behind for a pair that no longer exists. An exception goes
+    /// alone, and its global pair applies in that application again.
+    @discardableResult
+    public mutating func remove(_ entries: some Sequence<LearnedEntry>) -> Int {
+        var pairs = Set<String>()
+        var exceptions = Set<String>()
+        for entry in entries {
+            let pair = Self.pairKey(entry.original, entry.converted)
+            if let app = entry.exceptionAppBundleID {
+                exceptions.insert(pair + "\u{1f}" + app)
+            } else {
+                pairs.insert(pair)
+            }
+        }
+        let previousCount = rules.count
+        // Mutating `rules` rebuilds the pair index.
+        rules.removeAll { rule in
+            let pair = Self.pairKey(rule.original, rule.converted)
+            return pairs.contains(pair) || rule.appBundleID.map { exceptions.contains(pair + "\u{1f}" + $0) } == true
+        }
+        return previousCount - rules.count
+    }
+
     /// Merges a portable backup without multiplying counters when the same file is
     /// imported more than once.
     public mutating func merge(_ imported: AdaptiveRuleBook) {
@@ -258,11 +330,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     }
 
     private func hasGlobalConfirmation(original: String, converted: String) -> Bool {
-        rules.contains {
-            $0.appBundleID == nil
-                && $0.matchesPair(original: original, converted: converted)
-                && $0.confirmed
-        }
+        rules(matchingPair: original, converted).contains { $0.appBundleID == nil && $0.confirmed }
     }
 
     private mutating func setApplicationException(

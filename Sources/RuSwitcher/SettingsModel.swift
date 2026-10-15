@@ -1,8 +1,9 @@
 import AppKit
+import RuSwitcherCore
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case overview, keyboard, exceptions, advanced, about
+    case overview, keyboard, exceptions, dictionary, advanced, about
 
     var id: String { rawValue }
 
@@ -11,6 +12,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: L10n.settingsSectionOverview
         case .keyboard: L10n.settingsSectionKeyboard
         case .exceptions: L10n.settingsSectionExceptions
+        case .dictionary: L10n.settingsSectionDictionary
         case .advanced: L10n.settingsTabAdvanced
         case .about: L10n.settingsTabAbout
         }
@@ -21,6 +23,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: "sparkles"
         case .keyboard: "keyboard"
         case .exceptions: "hand.raised.fill"
+        case .dictionary: "character.book.closed.fill"
         case .advanced: "gearshape.2.fill"
         case .about: "info.circle.fill"
         }
@@ -31,6 +34,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .overview: .blue
         case .keyboard: .indigo
         case .exceptions: .orange
+        case .dictionary: .green
         case .advanced: .gray
         case .about: .teal
         }
@@ -65,13 +69,68 @@ enum SettingsChange {
     case layout1(String)
     case layout2(String)
     case interfaceLanguage(String)
+    case addDictionaryWords(String)
+    case removeDictionaryWords(Set<String>)
+    case removeLearnedEntries(Set<LearnedEntry>)
+    case removePersonalWords(Set<PersonalWord>)
+    case movePersonalWordsToDictionary(Set<PersonalWord>)
 }
 
 enum SettingsAction {
     case checkPermissions, checkUpdates
     case showLog, sendLog
     case exportLearning, importLearning, clearLearning
+    case importDictionary, exportDictionary, clearDictionary
     case openGitHub
+}
+
+enum DictionaryTab: String, CaseIterable, Identifiable {
+    case mine, learned, remembered
+
+    var id: String { rawValue }
+}
+
+/// A promoted personal-lexicon word, keyed by the language it was learned in.
+struct PersonalWord: Hashable {
+    let word: String
+    let language: String
+}
+
+/// A row of any Dictionary list. `searchKey` is lowercased once when the
+/// rows are built, so typing in the search field only scans strings.
+protocol DictionaryListRow: Identifiable {
+    var searchKey: String { get }
+    /// An Exceptions-page rule decides this word instead.
+    var overridden: Bool { get }
+}
+
+struct WordRow: DictionaryListRow {
+    let id: String
+    let word: String
+    let searchKey: String
+    let overridden: Bool
+}
+
+struct PersonalRow: DictionaryListRow {
+    let id: PersonalWord
+    let searchKey: String
+    let overridden: Bool
+}
+
+struct LearnedRow: DictionaryListRow {
+    let id: LearnedEntry
+    /// The display name of an exception's application.
+    let appName: String?
+    let searchKey: String
+    let overridden: Bool
+}
+
+enum DictionarySearch {
+    static func filter<Row: DictionaryListRow>(_ rows: [Row], query: String) -> [Row] {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return rows }
+        return rows.filter { $0.searchKey.contains(needle) }
+    }
 }
 
 struct PickerOption: Hashable, Identifiable {
@@ -156,13 +215,25 @@ enum HeroState {
 /// directly: they go out through `onChange`, which the window controller applies.
 @MainActor
 final class SettingsModel: ObservableObject {
-    @Published var section: SettingsSection = .overview
+    @Published var section: SettingsSection = .overview {
+        didSet { if section != oldValue { loadDictionaryRows() } }
+    }
     @Published private(set) var toggles: [SettingsToggle: Bool] = [:]
     @Published private(set) var triggerKey = ""
     @Published private(set) var layout1ID = ""
     @Published private(set) var layout2ID = ""
     @Published private(set) var interfaceLanguage = ""
     @Published var permissions = PermissionStatus(accessibility: false, inputMonitoring: false)
+    @Published var dictionaryTab: DictionaryTab = .mine {
+        didSet { if dictionaryTab != oldValue { loadDictionaryRows() } }
+    }
+    @Published var dictionaryCounts: [DictionaryTab: Int] = [:]
+    /// Rows exist only for the Dictionary tab on screen; the others stay empty.
+    @Published var wordRows: [WordRow] = []
+    @Published var learnedRows: [LearnedRow] = []
+    @Published var personalRows: [PersonalRow] = []
+    /// Counts from the last add, import or export; never the words themselves.
+    @Published var dictionaryReport: String?
 
     let layoutOptions: [PickerOption]
     let languageOptions: [PickerOption]
@@ -192,6 +263,70 @@ final class SettingsModel: ObservableObject {
         layout2ID = settings.layout2ID
         interfaceLanguage = settings.interfaceLanguage
         permissions = .current()
+        dictionaryCounts = [
+            .mine: settings.userDictionary.words.count,
+            .learned: settings.adaptiveRuleBook.learnedEntries.count,
+            .remembered: settings.personalLexicon.promotedWordsByLanguage.values.reduce(0) { $0 + $1.count },
+        ]
+        loadDictionaryRows()
+    }
+
+    /// Reads the store behind the visible Dictionary tab once per change,
+    /// not per keystroke.
+    private func loadDictionaryRows() {
+        let settings = SettingsManager.shared
+        let tab = section == .dictionary ? dictionaryTab : nil
+        let never = settings.deniedWordsSet
+        // Lowercased code-point order: Latin, then Cyrillic. A localized
+        // comparison took 70 ms for 20,000 words.
+        wordRows = tab != .mine ? [] : settings.userDictionary.words
+            .map { word in
+                let key = word.lowercased()
+                return WordRow(id: key, word: word, searchKey: key, overridden: never.contains(key))
+            }
+            .sorted { $0.searchKey < $1.searchKey }
+        personalRows = tab != .remembered ? [] : settings.personalLexicon.promotedWordsByLanguage
+            .flatMap { language, words in words.map { PersonalWord(word: $0, language: language) } }
+            .map { PersonalRow(id: $0, searchKey: $0.word, overridden: never.contains($0.word)) }
+            .sorted { $0.searchKey < $1.searchKey }
+        learnedRows = tab != .learned ? [] : Self.learnedRows(
+            settings.adaptiveRuleBook.learnedEntries, never: never, always: settings.alwaysConvertWordsSet,
+            appName: appName(for:), isDeniedApp: AutoSwitchPolicy.isDeniedApp
+        )
+    }
+
+    /// A pair is overridden when either spelling is never converted; an
+    /// application exception also when always-convert or a denied
+    /// application decides for it.
+    static func learnedRows(
+        _ entries: [LearnedEntry], never: Set<String>, always: Set<String>,
+        appName: (String) -> String, isDeniedApp: (String) -> Bool
+    ) -> [LearnedRow] {
+        entries.map { entry in
+            let original = SmartTokenizer.lexicalCore(of: entry.original)
+            let converted = SmartTokenizer.lexicalCore(of: entry.converted)
+            let name = entry.exceptionAppBundleID.map(appName)
+            var overridden = never.contains(original) || never.contains(converted)
+            if let app = entry.exceptionAppBundleID {
+                overridden = overridden || always.contains(converted) || isDeniedApp(app)
+            }
+            return LearnedRow(
+                id: entry, appName: name,
+                searchKey: [entry.original, entry.converted, name?.lowercased() ?? ""].joined(separator: " "),
+                overridden: overridden
+            )
+        }
+    }
+
+    private var appNames: [String: String] = [:]
+
+    private func appName(for bundleID: String) -> String {
+        if let name = appNames[bundleID] { return name }
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            .map { FileManager.default.displayName(atPath: $0.path) }
+            .map { $0.hasSuffix(".app") ? String($0.dropLast(4)) : $0 } ?? bundleID
+        appNames[bundleID] = name
+        return name
     }
 
     var heroState: HeroState {

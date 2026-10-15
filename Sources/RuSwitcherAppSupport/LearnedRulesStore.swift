@@ -14,6 +14,10 @@ public final class LearnedRulesStore: @unchecked Sendable {
 
     private let defaults: UserDefaults
     private let lock = NSLock()
+    /// The decoder reads the rules several times per word; decode the stored
+    /// bytes again only when they changed, whoever wrote them.
+    private var cachedData: Data?
+    private var cachedBook = AdaptiveRuleBook()
 
     public init(defaults: UserDefaults) { self.defaults = defaults }
 
@@ -60,6 +64,18 @@ public final class LearnedRulesStore: @unchecked Sendable {
         }
     }
 
+    /// Deletes what the user removed in Settings. The decoder reads the store
+    /// on every decision, so the next word already sees the change.
+    @discardableResult
+    public func remove(_ entries: some Sequence<LearnedEntry>) -> Int {
+        locked {
+            var book = load()
+            let count = book.remove(entries)
+            if count > 0 { _ = save(book) }
+            return count
+        }
+    }
+
     public func clear() { locked { defaults.removeObject(forKey: Self.storageKey) } }
 
     public func exportRules() throws -> Data {
@@ -83,14 +99,19 @@ public final class LearnedRulesStore: @unchecked Sendable {
     }
 
     private func load() -> AdaptiveRuleBook {
-        guard let data = defaults.data(forKey: Self.storageKey),
-              let book = try? JSONDecoder().decode(AdaptiveRuleBook.self, from: data) else { return .init() }
+        let data = defaults.data(forKey: Self.storageKey)
+        if data == cachedData { return cachedBook }
+        let book = data.flatMap { try? JSONDecoder().decode(AdaptiveRuleBook.self, from: $0) } ?? .init()
+        cachedData = data
+        cachedBook = book
         return book
     }
 
     private func save(_ book: AdaptiveRuleBook) -> Bool {
         guard let data = try? JSONEncoder().encode(book) else { return false }
         defaults.set(data, forKey: Self.storageKey)
+        cachedData = data
+        cachedBook = book
         return true
     }
 

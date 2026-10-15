@@ -88,6 +88,18 @@ final class LearnedRulesStoreTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: LearnedRulesStore.storageKey), before)
     }
 
+    func testRulesWrittenByAnotherStoreAreSeenWithoutReloading() throws {
+        let reader = LearnedRulesStore(defaults: defaults)
+        XCTAssertFalse(reader.snapshot.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+        let writer = LearnedRulesStore(defaults: try XCTUnwrap(UserDefaults(suiteName: domain)))
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        writer.snapshot = book
+        XCTAssertTrue(reader.snapshot.isConfirmed(original: "ghbdtn,", converted: "привет,", appBundleID: "editor.first"))
+        reader.clear()
+        XCTAssertFalse(writer.snapshot.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+    }
+
     func testReadsExistingStorageFormatAndSerializesConcurrentUpdates() throws {
         let book = AdaptiveRuleBook(rules: [.init(original: "cnhfybwf", converted: "страница", positiveCount: 1, confirmed: true)])
         let data = try JSONEncoder().encode(book)
@@ -99,6 +111,25 @@ final class LearnedRulesStoreTests: XCTestCase {
             store.recordPositive(original: "cnhfybwf", converted: "страница")
         }
         XCTAssertEqual(store.snapshot.rules.first?.positiveCount, 17)
+    }
+
+    func testRemovedEntriesStayRemovedAfterReload() {
+        let store = LearnedRulesStore(defaults: defaults)
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        book.recordConfirmed(original: "rjvgm.nth", converted: "компьютер")
+        book.recordNegative(original: "rjvgm.nth", converted: "компьютер", appBundleID: "chat.one")
+        store.snapshot = book
+
+        XCTAssertEqual(store.remove([
+            LearnedEntry(original: "ghbdtn", converted: "привет"),
+            LearnedEntry(original: "rjvgm.nth", converted: "компьютер", exceptionAppBundleID: "chat.one"),
+        ]), 2)
+        XCTAssertEqual(store.remove([LearnedEntry(original: "ghbdtn", converted: "привет")]), 0)
+
+        let reloaded = LearnedRulesStore(defaults: defaults).snapshot
+        XCTAssertEqual(reloaded.learnedEntries, [LearnedEntry(original: "rjvgm.nth", converted: "компьютер")])
+        XCTAssertTrue(reloaded.isConfirmed(original: "rjvgm.nth", converted: "компьютер", appBundleID: "chat.one"))
     }
 
     private func phrase(store: LearnedRulesStore, app: String, word: String) throws -> PhysicalTypingExecution {

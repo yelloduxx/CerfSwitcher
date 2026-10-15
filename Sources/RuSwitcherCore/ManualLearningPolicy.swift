@@ -30,6 +30,12 @@ public enum ManualLearningPolicy {
         let target = FrequentWordLexicon.normalize(targetText)
         guard source != target else { return .ignore }
         if ruleBook.isConfirmed(original: target, converted: source, appBundleID: nil) {
+            // Converting into a real word teaches the new direction and replaces
+            // the old pair (`сука` -> `cerf`, then `cerf` -> `сука`). Converting
+            // back into a non-word only opts this application out.
+            if isWord(target, model: model), shouldPersist(original: source, converted: target, model: model) {
+                return .confirmation(original: source, converted: target, clearingExceptionFor: appBundleID)
+            }
             guard let appBundleID, !appBundleID.isEmpty else { return .ignore }
             return .applicationException(original: target, converted: source, appBundleID: appBundleID)
         }
@@ -77,6 +83,13 @@ public enum ManualLearningPolicy {
               sourceLanguage != targetLanguage else { return false }
         return isKnown(source, language: sourceLanguage, model: model)
             && !isKnown(target, language: targetLanguage, model: model)
+    }
+
+    private static func isWord(_ text: String, model: LanguageModelStore?) -> Bool {
+        guard let model else { return false }
+        let core = SmartTokenizer.lexicalCore(of: text)
+        guard let language = SmartTokenizer.languageHint(for: core) else { return false }
+        return isKnown(core, language: language, model: model)
     }
 
     private static func isKnown(

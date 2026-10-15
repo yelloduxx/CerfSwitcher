@@ -18,6 +18,10 @@ final class SettingsWindowController {
     var onRemoteDesktopChanged: ((Bool) -> Void)?
     var onCaretFlagChanged: ((Bool) -> Void)?
     var onCheckPermissions: (() -> Void)?
+    /// The user dictionary or the personal lexicon changed; the decoder's
+    /// personalized model needs rebuilding.
+    var onVocabularyChanged: (() -> Void)?
+    var onLearnedRulesRemoved: (() -> Void)?
 
     func showWindow(section: SettingsSection = .overview) {
         if let window {
@@ -68,7 +72,48 @@ final class SettingsWindowController {
         ready.set(.autoConvert, true)
         ready.set(.caretFlag, true)
         pages.append(("overview-ready", NSHostingView(rootView: SettingsRootView(model: ready))))
+        let samples = Self.sampleDictionary()
+        for tab in DictionaryTab.allCases {
+            let model = makeModel(section: .dictionary)
+            model.onChange = { _ in }
+            model.dictionaryTab = tab
+            model.dictionaryCounts = [.mine: samples.words.count, .learned: samples.learned.count,
+                                      .remembered: samples.remembered.count]
+            model.dictionaryReport = Self.describe(UserDictionary.Report(added: 8, duplicates: 1, invalid: 2))
+            model.wordRows = tab == .mine ? samples.words : []
+            model.learnedRows = tab == .learned ? samples.learned : []
+            model.personalRows = tab == .remembered ? samples.remembered : []
+            let name = tab == .mine ? "dictionary-filled" : "dictionary-\(tab.rawValue)"
+            pages.append((name, NSHostingView(rootView: SettingsRootView(model: model))))
+        }
         return pages
+    }
+
+    /// Made-up Dictionary contents for snapshots; never the user's own words.
+    private static func sampleDictionary() -> (words: [WordRow], learned: [LearnedRow], remembered: [PersonalRow]) {
+        let never: Set<String> = ["tesla", "ntcn", "деплой"]
+        let words = ["Figma", "Kubernetes", "Nuxt", "pstack", "Tesla", "вайб", "кринж", "Яндекс"].map {
+            WordRow(id: $0.lowercased(), word: $0, searchKey: $0.lowercased(), overridden: never.contains($0.lowercased()))
+        }
+        let entries = [
+            LearnedEntry(original: "ghbdtn", converted: "привет"),
+            LearnedEntry(original: "rjvgm.nth", converted: "компьютер"),
+            LearnedEntry(original: "ghbdtn", converted: "привет", exceptionAppBundleID: "sample.chat"),
+            LearnedEntry(original: "ntcn", converted: "тест"),
+            LearnedEntry(original: "ctujlyz", converted: "сегодня"),
+            LearnedEntry(original: "руддщ", converted: "hello"),
+            LearnedEntry(original: "dfqa", converted: "вайф", exceptionAppBundleID: "sample.notes"),
+            LearnedEntry(original: "pfdnhf", converted: "завтра"),
+            LearnedEntry(original: "кщфвьфз", converted: "roadmap"),
+            LearnedEntry(original: "yfcnhjqrb", converted: "настройки"),
+        ]
+        let learned = SettingsModel.learnedRows(
+            entries, never: never, always: ["вайф"],
+            appName: { ["sample.chat": "Telegram", "sample.notes": "Notes"][$0] ?? $0 }, isDeniedApp: { _ in false }
+        )
+        let remembered = [("деплой", "ru"), ("линтер", "ru"), ("ок", "ru"), ("pnpm", "en"), ("вайбкод", "ru"), ("zod", "en")]
+            .map { PersonalRow(id: PersonalWord(word: $0.0, language: $0.1), searchKey: $0.0, overridden: never.contains($0.0)) }
+        return (words, learned, remembered)
     }
 
     /// Обновить состояние переключателя автопереключения извне
@@ -124,7 +169,52 @@ final class SettingsWindowController {
                 self?.closeWindow()
                 self?.showWindow(section: section)
             }
+        case let .addDictionaryWords(text):
+            dictionaryChanged(report: Self.describe(settings.userDictionary.add(text: text)))
+        case let .removeDictionaryWords(words):
+            settings.userDictionary.remove(words)
+            dictionaryChanged(report: nil)
+        case let .removeLearnedEntries(entries):
+            settings.removeLearnedEntries(entries)
+            onLearnedRulesRemoved?()
+            model?.refresh()
+            rslog("learned_rules_removed")
+        case let .removePersonalWords(words):
+            removePersonalWords(words)
+            dictionaryChanged(report: nil)
+            rslog("personal_words_removed")
+        case let .movePersonalWordsToDictionary(words):
+            let report = settings.userDictionary.add(text: words.map(\.word).joined(separator: "\n"))
+            // A word the dictionary rejects stays where it was.
+            removePersonalWords(words.filter { settings.userDictionary.contains($0.word) })
+            dictionaryChanged(report: Self.describe(report))
+            rslog("personal_words_moved")
         }
+    }
+
+    private func removePersonalWords(_ words: some Sequence<PersonalWord>) {
+        let lexicon = SettingsManager.shared.personalLexicon
+        for word in words {
+            lexicon.remove(word: word.word, language: word.language)
+        }
+        lexicon.flush()
+    }
+
+    private func dictionaryChanged(report: String?) {
+        onVocabularyChanged?()
+        model?.refresh()
+        model?.dictionaryReport = report
+    }
+
+    static func describe(_ report: UserDictionary.Report) -> String {
+        let added = String(format: L10n.settingsDictionaryAdded, report.added)
+        guard report.skipped > 0 else { return added }
+        let reasons = [
+            (report.duplicates, L10n.settingsDictionarySkippedDuplicates),
+            (report.invalid, L10n.settingsDictionarySkippedInvalid),
+            (report.overLimit, L10n.settingsDictionarySkippedLimit),
+        ].filter { $0.0 > 0 }.map { String(format: $0.1, $0.0) }
+        return added + " " + String(format: L10n.settingsDictionarySkipped, report.skipped, reasons.joined(separator: ", "))
     }
 
     private func closeWindow() {
@@ -146,6 +236,9 @@ final class SettingsWindowController {
         case .exportLearning: exportAdaptiveLearning()
         case .importLearning: importAdaptiveLearning()
         case .clearLearning: clearAdaptiveLearning()
+        case .importDictionary: importDictionary()
+        case .exportDictionary: exportDictionary()
+        case .clearDictionary: clearDictionary()
         case .openGitHub: openGitHub()
         }
     }
@@ -203,6 +296,60 @@ final class SettingsWindowController {
         } catch {
             showLearningAlert(title: L10n.settingsLearningFileError, detail: error.localizedDescription)
         }
+    }
+
+    private static let dictionaryFileLimit = 5 * 1024 * 1024
+
+    private func importDictionary() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText, .commaSeparatedText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= Self.dictionaryFileLimit else {
+                showLearningAlert(title: L10n.settingsDictionaryFileError, detail: L10n.settingsDictionaryFileTooLarge)
+                return
+            }
+            guard let text = UserDictionary.decodeFile(try Data(contentsOf: url)) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            dictionaryChanged(report: Self.describe(SettingsManager.shared.userDictionary.add(text: text)))
+            rslog("user_dictionary_imported")
+        } catch {
+            showLearningAlert(title: L10n.settingsDictionaryFileError, detail: error.localizedDescription)
+        }
+    }
+
+    private func exportDictionary() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "\(ProductIdentity.shortName)-Dictionary-\(Self.exportDateString()).txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let dictionary = SettingsManager.shared.userDictionary
+        do {
+            try Data(dictionary.exportedText.utf8).write(to: url, options: .atomic)
+            model?.dictionaryReport = String(format: L10n.settingsDictionaryExported, dictionary.words.count)
+        } catch {
+            showLearningAlert(title: L10n.settingsDictionaryFileError, detail: error.localizedDescription)
+        }
+    }
+
+    private func clearDictionary() {
+        let count = SettingsManager.shared.userDictionary.words.count
+        guard count > 0 else { return }
+        let alert = NSAlert()
+        alert.messageText = String(format: L10n.settingsDictionaryClearConfirm, count)
+        alert.informativeText = L10n.settingsDictionaryClearDetail
+        alert.addButton(withTitle: L10n.settingsDictionaryClearButton)
+        alert.addButton(withTitle: L10n.commonCancel)
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        SettingsManager.shared.userDictionary.clear()
+        dictionaryChanged(report: nil)
+        rslog("user_dictionary_cleared")
     }
 
     private func showLearningAlert(title: String, detail: String) {

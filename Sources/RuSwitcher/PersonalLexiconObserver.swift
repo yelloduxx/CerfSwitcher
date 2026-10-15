@@ -4,12 +4,14 @@ import RuSwitcherAppSupport
 import RuSwitcherCore
 
 /// Feeds kept tokens into the personal lexicon off the event-tap thread and
-/// keeps one personalized model for the automatic decoder. Secure input and
+/// keeps one personalized model for the automatic decoder, listing both the
+/// promoted personal words and the user dictionary. Secure input and
 /// denied applications never reach here; this adds the focused field's own
 /// role: a password field is skipped, a field AX cannot read is allowed
 /// because secure input is the operating system's guard for that case.
 final class PersonalLexiconObserver: @unchecked Sendable {
     private let store: PersonalLexiconStore
+    private let dictionary: UserDictionaryStore
     private let base: LanguageModelStore?
     private let resolver: NativeFocusedEditableResolver
     private let queue = DispatchQueue(label: "com.ruswitcher.personal-lexicon", qos: .utility)
@@ -21,11 +23,13 @@ final class PersonalLexiconObserver: @unchecked Sendable {
     private static let fieldVerdictLifetime: TimeInterval = 60
     private static let flushDelay: TimeInterval = 3
 
-    init(store: PersonalLexiconStore, base: LanguageModelStore?, resolver: NativeFocusedEditableResolver) {
+    init(store: PersonalLexiconStore, dictionary: UserDictionaryStore, base: LanguageModelStore?,
+         resolver: NativeFocusedEditableResolver) {
         self.store = store
+        self.dictionary = dictionary
         self.base = base
         self.resolver = resolver
-        cachedModel = base?.personalized(with: store.promotedWordsByLanguage)
+        cachedModel = makeModel()
     }
 
     var model: LanguageModelStore? {
@@ -39,7 +43,9 @@ final class PersonalLexiconObserver: @unchecked Sendable {
             return
         }
         queue.async { [self] in
-            guard fieldAllowsLearning(focus) else { return }
+            // A listed word is already known; as a personal word it would
+            // outlive its removal from the dictionary.
+            guard !dictionary.contains(word), fieldAllowsLearning(focus) else { return }
             if store.observe(word: word, language: language) { refreshModel() }
             scheduleFlush()
         }
@@ -59,8 +65,17 @@ final class PersonalLexiconObserver: @unchecked Sendable {
         queue.sync { store.flush() }
     }
 
+    /// The user dictionary or the promoted words changed outside the observer.
+    func vocabularyChanged() {
+        queue.async { [self] in refreshModel() }
+    }
+
+    private func makeModel() -> LanguageModelStore? {
+        base?.personalized(with: store.promotedWordsByLanguage.merging(dictionary.wordsByLanguage) { $0.union($1) })
+    }
+
     private func refreshModel() {
-        let model = base?.personalized(with: store.promotedWordsByLanguage)
+        let model = makeModel()
         lock.lock()
         cachedModel = model
         lock.unlock()

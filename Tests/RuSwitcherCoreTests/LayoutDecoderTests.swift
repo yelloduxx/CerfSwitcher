@@ -489,6 +489,25 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertNotEqual(kept.verdict, .switchToConverted)
     }
 
+    func testUserDictionaryWordsStayAndConvertByTheirAlphabet() {
+        let withDictionary = model.personalized(with: UserDictionary(words: ["Nuxt", "кринж"]).wordsByLanguage)
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        russianBelief.observe(language: "ru")
+        func output(_ typed: String, current: String, target: String, store: LanguageModelStore) -> String {
+            let decision = LayoutDecoder.evaluate(
+                typed: typed, converted: KeyMapping.convert(typed), currentLanguage: current, targetLanguage: target,
+                capsLock: false, contextWords: ["это", "текст"], languageBelief: russianBelief, policy: .empty, model: store
+            ).decision
+            return decision.verdict == .switchToConverted ? decision.candidate.replacement : typed
+        }
+        XCTAssertEqual(output("Nuxt", current: "en", target: "ru", store: model), "Тгче")
+        XCTAssertEqual(output("Nuxt", current: "en", target: "ru", store: withDictionary), "Nuxt")
+        XCTAssertEqual(output("rhby;", current: "en", target: "ru", store: model), "крин;")
+        XCTAssertEqual(output("rhby;", current: "en", target: "ru", store: withDictionary), "кринж")
+        XCTAssertEqual(output("кринж", current: "ru", target: "en", store: withDictionary), "кринж")
+    }
+
     func testUnlistedNameDoesNotBecomeUnreadableCyrillic() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
