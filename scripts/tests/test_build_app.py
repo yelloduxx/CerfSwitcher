@@ -38,7 +38,7 @@ if [ "${STUB_CODESIGN_RECORD_ONLY:-}" = "1" ]; then
 fi
 exec /usr/bin/codesign "$@"
 """
-DEVELOPER_ID = "Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
+DEVELOPER_ID = "Developer ID Application: Example Developer (ABCDE12345)"
 LOCAL_IDENTITY = "RuSwitcher Local Code Signing"
 UNSIGNED_MARKER = "UNSIGNED: bundle is for CI checks only and is not installable"
 

@@ -44,12 +44,12 @@ if [[ "$ARCHS" != *"arm64"* || "$ARCHS" != *"x86_64"* ]]; then
     exit 1
 fi
 
-DEV_SIGN_ID="Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
 LOCAL_SIGN_ID="RuSwitcher Local Code Signing"
 SIGN_ID="${SIGN_ID:-}"
 IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+DEV_SIGN_ID=$(echo "$IDENTITIES" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
 if [ -z "$SIGN_ID" ]; then
-    if echo "$IDENTITIES" | grep -Fq "\"$DEV_SIGN_ID\""; then
+    if [ -n "$DEV_SIGN_ID" ]; then
         SIGN_ID="$DEV_SIGN_ID"
     elif echo "$IDENTITIES" | grep -Fq "\"$LOCAL_SIGN_ID\""; then
         SIGN_ID="$LOCAL_SIGN_ID"

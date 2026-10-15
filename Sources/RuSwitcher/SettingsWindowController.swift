@@ -147,8 +147,6 @@ final class SettingsWindowController {
         case .importLearning: importAdaptiveLearning()
         case .clearLearning: clearAdaptiveLearning()
         case .openGitHub: openGitHub()
-        case .openDonate: openDonate()
-        case .openContact: openContact()
         }
     }
 
@@ -223,20 +221,6 @@ final class SettingsWindowController {
 
     private func openGitHub() {
         if let url = URL(string: SettingsManager.githubURL) {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func openDonate() {
-        if let url = URL(string: SettingsManager.shared.donateURL) {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func openContact() {
-        let email = SettingsManager.shared.contactEmail
-        let subject = "\(ProductIdentity.displayName) Feedback"
-        if let url = URL(string: "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)") {
             NSWorkspace.shared.open(url)
         }
     }

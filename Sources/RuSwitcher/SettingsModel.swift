@@ -71,7 +71,7 @@ enum SettingsAction {
     case checkPermissions, checkUpdates
     case showLog, sendLog
     case exportLearning, importLearning, clearLearning
-    case openGitHub, openDonate, openContact
+    case openGitHub
 }
 
 struct PickerOption: Hashable, Identifiable {

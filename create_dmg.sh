@@ -152,7 +152,7 @@ rm -f "$DMG_TEMP"
 # 9a. Подписываем САМ .dmg Developer ID. Без этого образ нотаризуется и стейплится, но
 #     `spctl -t install` даёт "no usable signature" — у скачанного образа нет подписи
 #     контейнера, и на части Mac это приводит к недоверию к вынутому из него .app.
-SIGN_ID="Developer ID Application: Rashid Nasibulin (9GEWCZ59HK)"
+SIGN_ID="${SIGN_ID:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}"
 if [ "${SKIP_NOTARIZE:-0}" != "1" ]; then
     echo "→ Code signing the DMG (Developer ID + secure timestamp)..."
     codesign --force --timestamp --sign "$SIGN_ID" "$DMG_NAME"

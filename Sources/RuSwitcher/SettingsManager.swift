@@ -337,13 +337,10 @@ final class SettingsManager: @unchecked Sendable {
         try learnedRules.importRules(data)
     }
 
-    var donateURL: String { "https://boosty.to/ruswitcher" }
-    var contactEmail: String { "xrashid@gmail.com" }
-
     // MARK: - GitHub coordinates (единственный источник — чтобы при переименовании
     // репозитория правка была в одном месте)
     static let githubOwner = "yelloduxx"
-    static let githubRepo = "RuSwitcher"
+    static let githubRepo = "CerfSwitcher"
     static var githubURL: String { "https://github.com/\(githubOwner)/\(githubRepo)" }
     /// Team ID (Apple Developer), которым подписаны релизы. Используется для
     /// пиннинга подписи при авто-обновлении.

@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/yelloduxx/RuSwitcher/tags"><img src="https://img.shields.io/github/v/tag/yelloduxx/RuSwitcher?style=flat-square&label=beta" alt="Beta tag"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/RuSwitcher?style=flat-square" alt="License"></a>
+  <a href="https://github.com/yelloduxx/CerfSwitcher/tags"><img src="https://img.shields.io/github/v/tag/yelloduxx/CerfSwitcher?style=flat-square&label=beta" alt="Beta tag"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/CerfSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
   <img src="https://img.shields.io/badge/current-4.0.0%20(130)-brightgreen?style=flat-square" alt="Current build 130">
@@ -123,7 +123,7 @@ learned corrections and personal lexicon of a previous RuSwitcher Pro install
 from source:
 
 ```bash
-git clone https://github.com/yelloduxx/RuSwitcher.git
+git clone https://github.com/yelloduxx/CerfSwitcher.git
 cd RuSwitcher
 SIGN_ID="<your code-signing identity>" bash build_app.sh
 ditto "CerfSwitcher.app" "/Applications/CerfSwitcher.app"
@@ -234,7 +234,7 @@ Access via the menu bar icon → **Settings** (⌘,).
 
 - **General** — conversion trigger (single key or combo), per-app layout memory, launch at login, interface language, layout pair.
 - **Auto-conversion** — automatic conversion, optional AX-blind-host mode, **Remote Desktop mode (beta)**, and the three exception lists (apps, never-convert, always-convert).
-- **About** — version, donate, contact, check updates.
+- **About** — version, GitHub link, check updates.
 - **Advanced** — Smart Engine/model version, learned-word export/import/reset, debug logging and log management.
 
 The menu-bar menu also has quick toggles for Automatic conversion, Layout sound, Flag at cursor and Remote Desktop mode.
@@ -243,7 +243,6 @@ The menu-bar menu also has quick toggles for Automatic conversion, Layout sound,
 
 If you find Cerf Switcher useful:
 
-- [**Boosty**](https://boosty.to/ruswitcher) — donate
 - **Star** this repo on GitHub
 
 ### License
@@ -352,7 +351,7 @@ RuSwitcher Pro (`com.ruswitcher.pro`); старые настройки не из
 приложение из исходников:
 
 ```bash
-git clone https://github.com/yelloduxx/RuSwitcher.git
+git clone https://github.com/yelloduxx/CerfSwitcher.git
 cd RuSwitcher
 SIGN_ID="<ваша identity для подписи кода>" bash build_app.sh
 ditto "CerfSwitcher.app" "/Applications/CerfSwitcher.app"
@@ -460,7 +459,7 @@ swift run -c release RuSwitcherTypingSimulator \
 
 - **Общие** — триггер конвертации (одна клавиша или комбо), память раскладки по приложению, автозапуск, язык интерфейса, пара раскладок.
 - **Автоконверсия** — автоматическая конверсия, отдельный режим для AX-слепых приложений, **Режим удалённого стола (бета)** и три списка исключений (приложения, never-convert, always-convert).
-- **О программе** — версия, донат, контакт, проверка обновлений.
+- **О программе** — версия, ссылка на GitHub, проверка обновлений.
 - **Дополнительно** — версия Smart Engine/модели, экспорт/импорт/сброс выученных слов, режим отладки и управление логами.
 
 В меню в строке меню также есть быстрые тумблеры: «Автоматическая конверсия», «Звук раскладки», «Флаг у курсора» и «Режим удалённого стола».
@@ -469,7 +468,6 @@ swift run -c release RuSwitcherTypingSimulator \
 
 Если Cerf Switcher вам полезен:
 
-- [**Boosty**](https://boosty.to/ruswitcher) — донат
 - **Star** на GitHub
 
 ### Лицензия

@@ -473,10 +473,6 @@ private struct AboutPage: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .padding(.top, 10)
-            HStack(spacing: 8) {
-                Button(L10n.settingsDonate) { model.onAction(.openDonate) }
-                Button(L10n.settingsContact) { model.onAction(.openContact) }
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)

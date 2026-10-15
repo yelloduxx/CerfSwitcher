@@ -12,10 +12,9 @@ installed build changes.
 - Supported platform: macOS 13+; the release bundle is universal (`arm64` and
   `x86_64`).
 - Automatic conversion is off by default until the user enables it.
-- Primary repository: `yelloduxx/RuSwitcher`; the production branch is `main`.
-  `rashn/RuSwitcher` is the author's upstream repository, not a release source
-  for this fork.
-- The product is **Cerf Switcher** `4.0.0` build **150**. The name is what
+- Primary repository: `yelloduxx/CerfSwitcher` (renamed from
+  `yelloduxx/RuSwitcher`); the production branch is `main`.
+- The product is **Cerf Switcher** `4.0.0` build **151**. The name is what
   the Russian word «сука» becomes when typed in the English layout.
   - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
   - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
