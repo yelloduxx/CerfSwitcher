@@ -458,6 +458,25 @@ Adaptive learning behavior:
   blockers still win: a camelCase entry (`GitHub`) is stored, but `ПшеРги`
   stays blocked as code-like. An entry counts as attested, so the build-141
   all-caps rule converts `ТГЧЕ` to `NUXT` once `Nuxt` is listed.
+- Settings → Dictionary has three tabs, each with a count, search and
+  multi-select removal. "My Words" is the user dictionary. "Learned Pairs"
+  lists confirmed global pairs and application exceptions ("not in <app>")
+  from `AdaptiveRuleBook.learnedEntries`. Removing a global pair deletes it
+  in every scope by lexical core, together with its exceptions; removing an
+  exception re-enables the global pair in that app. The decoder reads the
+  store on every decision, and the removal also clears the manual-learning
+  checkpoint and `lastAutoConverted`, so neither restores the pair.
+  "Remembered" lists promoted personal words. Removing one deletes its
+  entry (it can be promoted again after three more occasions), and "Move to
+  My Words" adds it to the user dictionary first. Both rebuild the
+  personalized model through `onVocabularyChanged`. Rows exist only for the
+  visible tab and are rebuilt per change, not per keystroke. A row that an
+  Exceptions-page rule overrides is marked "in exceptions".
+- Precedence: denied app > never-convert > always-convert > learned pairs and
+  app exceptions > user dictionary and personal words > decoder statistics.
+  AppDelegate returns before planning in a denied app; `ExceptionPrecedenceTests`
+  pins the rest of the order in `LayoutDecoder`. Never-convert also matches the typed
+  word's lexical core, so a listed `ghbdtn` stays as `ghbdtn,`.
 - Advanced settings can reset learned corrections.
 - Advanced settings can export and import learned word rules as a versioned,
   human-readable JSON archive. Import merges by normalized source, target and
@@ -558,7 +577,14 @@ downloads and no network inference.
 - SwiftUI hosted in an AppKit `NSWindow` (macOS 13 APIs only, no `@Observable`).
   Sections: Overview (status hero, permission chips, feature tiles, trigger
   keycaps, interface language), Keyboard, Exceptions, Dictionary, Advanced,
-  About. Snapshots add `overview-ready` and `dictionary-filled` states.
+  About. Snapshots add `overview-ready`, `dictionary-filled`,
+  `dictionary-learned` and `dictionary-remembered` states with made-up data.
+  The renderer then fills its isolated suite to the store limits (20,000
+  words, 2,000 pairs, 1,999 personal words), prints `timing` lines for row
+  loading, one search pass and the first layout, and renders
+  `dictionary-full-light`. A SwiftUI `List` of 2,000 or more rows logs an
+  AppKit "reentrant operation in its NSTableView delegate" warning; the
+  pre-tab page did the same.
 - `SettingsModel` mirrors SettingsManager. Every write goes through
   `SettingsChange` to `SettingsWindowController.apply`, which sets the same
   SettingsManager property and fires the same callback as before. Booleans are

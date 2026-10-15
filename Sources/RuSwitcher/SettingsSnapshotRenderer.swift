@@ -1,5 +1,7 @@
 import AppKit
 import RuSwitcherAppSupport
+import RuSwitcherCore
+import SwiftUI
 
 /// Renders every settings page offscreen to PNG, in light and dark appearance.
 /// The window is never ordered front and the process never activates, so the
@@ -38,11 +40,86 @@ enum SettingsSnapshotRenderer {
                     print(url.path)
                 }
             }
+            try measureFullDictionary(directory: directory, prefix: prefix)
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error)\n".utf8))
             exit(1)
         }
         exit(0)
+    }
+
+    /// Fills the isolated stores to their limits with made-up words and times
+    /// what the Dictionary page does with them: reading a store into rows,
+    /// one search pass and the first layout of the list. Prints the numbers
+    /// and renders the full My Words tab.
+    private static func measureFullDictionary(directory: URL, prefix: String) throws {
+        let settings = SettingsManager.shared
+        // A stride by a number coprime to the count shuffles the order, so
+        // sorting does real work.
+        let count = UserDictionary.maximumWordCount
+        let words = (0..<count).map { syntheticWord($0 * 7_919 % count) }
+        settings.userDictionary.add(text: words.joined(separator: "\n"))
+        let ruleLimit = 2_000
+        settings.adaptiveRuleBook = AdaptiveRuleBook(rules: words.prefix(ruleLimit).map {
+            AdaptiveRule(original: $0, converted: KeyMapping.convert($0), positiveCount: 1, confirmed: true)
+        })
+        let start = Date()
+        for word in words.prefix(PersonalLexicon.promotedLimit - 1) {
+            for occasion in 0..<PersonalLexicon.promotionCount {
+                settings.personalLexicon.observe(word: KeyMapping.convert(word), language: "ru",
+                                                 at: start.addingTimeInterval(Double(occasion) * 3_600))
+            }
+        }
+        defer {
+            settings.userDictionary.clear()
+            settings.adaptiveRuleBook = AdaptiveRuleBook()
+            settings.personalLexicon.clear()
+        }
+
+        let clock = ContinuousClock()
+        func milliseconds(_ duration: Duration) -> String {
+            String(format: "%.1f", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1e3)
+        }
+        for tab in DictionaryTab.allCases {
+            let model = SettingsModel()
+            model.dictionaryTab = tab
+            let load = clock.measure { model.section = .dictionary }
+            let count = model.wordRows.count + model.learnedRows.count + model.personalRows.count
+            var filtered = 0
+            let queries = ["a", "ab", "zzzz", "щ"]
+            let filter = clock.measure {
+                for query in queries {
+                    filtered += DictionarySearch.filter(model.wordRows, query: query).count
+                        + DictionarySearch.filter(model.learnedRows, query: query).count
+                        + DictionarySearch.filter(model.personalRows, query: query).count
+                }
+            } / queries.count
+            let view = NSHostingView(rootView: SettingsRootView(model: model))
+            let window = SettingsWindowController.makeWindow(content: view)
+            let firstLayout = clock.measure {
+                view.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+            }
+            window.contentView = nil
+            print("timing \(tab.rawValue): rows=\(count) load=\(milliseconds(load))ms "
+                + "filter=\(milliseconds(filter))ms firstLayout=\(milliseconds(firstLayout))ms")
+            if tab == .mine {
+                let url = directory.appendingPathComponent("\(prefix)-dictionary-full-light.png")
+                try render(NSHostingView(rootView: SettingsRootView(model: model)), appearance: NSAppearance(named: .aqua), to: url)
+                print(url.path)
+            }
+        }
+    }
+
+    /// Distinct Latin letter strings of four or more letters: `aaab`, `aaac`…
+    private static func syntheticWord(_ index: Int) -> String {
+        var value = index
+        var letters: [Character] = []
+        for _ in 0..<4 {
+            letters.append(Character(UnicodeScalar(UInt8(97 + value % 26))))
+            value /= 26
+        }
+        return String(letters.reversed())
     }
 
     private static func render(_ view: NSView, appearance: NSAppearance?, to url: URL) throws {
