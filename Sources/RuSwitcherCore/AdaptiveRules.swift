@@ -54,7 +54,7 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
             && Self.core(self.converted) == Self.core(converted)
     }
 
-    private static func core(_ text: String) -> String {
+    static func core(_ text: String) -> String {
         FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: text))
     }
 
@@ -69,8 +69,13 @@ public struct AdaptiveRule: Codable, Equatable, Sendable {
 }
 
 public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
-    public private(set) var rules: [AdaptiveRule]
+    public private(set) var rules: [AdaptiveRule] {
+        didSet { indexRules() }
+    }
     public private(set) var modelVersion: Int
+    /// Rule positions by lexical-core pair. The decoder asks about several
+    /// candidates at every word boundary, so lookups must not scan every rule.
+    private var rulesByPair: [String: [Int]] = [:]
 
     public init(rules: [AdaptiveRule] = [], modelVersion: Int = 8) {
         self.rules = rules
@@ -78,6 +83,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         migrateLegacyScopesIfNeeded()
         migrateLegacyBackspaceFeedbackIfNeeded()
         enforcePersistablePairs()
+        indexRules()
     }
 
     private enum CodingKeys: String, CodingKey { case rules, modelVersion }
@@ -89,16 +95,28 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         migrateLegacyScopesIfNeeded()
         migrateLegacyBackspaceFeedbackIfNeeded()
         enforcePersistablePairs()
+        indexRules()
+    }
+
+    private static func pairKey(_ original: String, _ converted: String) -> String {
+        AdaptiveRule.core(original) + "\u{1f}" + AdaptiveRule.core(converted)
+    }
+
+    private mutating func indexRules() {
+        rulesByPair = Dictionary(grouping: rules.indices) { Self.pairKey(rules[$0].original, rules[$0].converted) }
+    }
+
+    private func rules(matchingPair original: String, _ converted: String) -> [AdaptiveRule] {
+        rulesByPair[Self.pairKey(original, converted)]?.map { rules[$0] } ?? []
     }
 
     public func bias(original: String, converted: String, appBundleID: String?) -> Double {
         if hasApplicationException(original: original, converted: converted, appBundleID: appBundleID) {
             return -12
         }
-        return rules
+        return rules(matchingPair: original, converted)
             .filter {
-                !$0.applicationException
-                    && $0.matches(original: original, converted: converted, appBundleID: appBundleID)
+                !$0.applicationException && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
             }
             .map(\.bias)
             .reduce(0, +)
@@ -110,8 +128,8 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
             converted: converted,
             appBundleID: appBundleID
         ) else { return false }
-        return rules.contains {
-            $0.confirmed && $0.matches(original: original, converted: converted, appBundleID: appBundleID)
+        return rules(matchingPair: original, converted).contains {
+            $0.confirmed && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
         }
     }
 
@@ -121,10 +139,8 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         appBundleID: String?
     ) -> Bool {
         guard let appBundleID else { return false }
-        return rules.contains {
-            $0.applicationException
-                && $0.appBundleID == appBundleID
-                && $0.matchesPair(original: original, converted: converted)
+        return rules(matchingPair: original, converted).contains {
+            $0.applicationException && $0.appBundleID == appBundleID
         }
     }
 
@@ -265,11 +281,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     }
 
     private func hasGlobalConfirmation(original: String, converted: String) -> Bool {
-        rules.contains {
-            $0.appBundleID == nil
-                && $0.matchesPair(original: original, converted: converted)
-                && $0.confirmed
-        }
+        rules(matchingPair: original, converted).contains { $0.appBundleID == nil && $0.confirmed }
     }
 
     private mutating func setApplicationException(

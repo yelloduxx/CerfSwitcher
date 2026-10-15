@@ -88,6 +88,18 @@ final class LearnedRulesStoreTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: LearnedRulesStore.storageKey), before)
     }
 
+    func testRulesWrittenByAnotherStoreAreSeenWithoutReloading() throws {
+        let reader = LearnedRulesStore(defaults: defaults)
+        XCTAssertFalse(reader.snapshot.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+        let writer = LearnedRulesStore(defaults: try XCTUnwrap(UserDefaults(suiteName: domain)))
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "ghbdtn", converted: "привет")
+        writer.snapshot = book
+        XCTAssertTrue(reader.snapshot.isConfirmed(original: "ghbdtn,", converted: "привет,", appBundleID: "editor.first"))
+        reader.clear()
+        XCTAssertFalse(writer.snapshot.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
+    }
+
     func testReadsExistingStorageFormatAndSerializesConcurrentUpdates() throws {
         let book = AdaptiveRuleBook(rules: [.init(original: "cnhfybwf", converted: "страница", positiveCount: 1, confirmed: true)])
         let data = try JSONEncoder().encode(book)

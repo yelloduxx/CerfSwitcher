@@ -401,6 +401,16 @@ Adaptive learning behavior:
   already confirmed. Unverified reconversions never change rules.
   `AdaptiveRuleBook.recordManualCorrection` keeps the older exception-only
   behaviour and is used only by tests.
+- Learned-rule lookups are indexed (build 155). The decoder asks for the bias
+  and confirmation of every candidate at each boundary. Before build 155, each
+  question re-read the stored JSON from defaults, decoded every rule and scanned
+  them, computing lexical cores for each rule. On the owner's 439 rules, release
+  timing for one `LayoutDecoder.evaluate` was 7.7 ms, against 0.07 ms with no
+  rules. `LearnedRulesStore` now decodes again only when the stored bytes change,
+  so writes from another store are still seen. `AdaptiveRuleBook` keeps rule
+  positions keyed by lexical-core pair. The same evaluate now takes 0.11 ms,
+  with about 11 us per lookup, and the first decode with indexing takes about
+  6 ms.
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.
