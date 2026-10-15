@@ -410,6 +410,23 @@ Adaptive learning behavior:
   `com.ruswitcher.personalLexicon` (true) turns it off. Not in the export
   archive. The log carries no words, only `auto_posted_*`/`auto_blocked_*`
   outcome names added in the same build.
+- User dictionary (Settings → Dictionary): words the user lists on purpose
+  (brands, names, tech terms, slang) feed the same
+  `LanguageModelStore.personalized` call as promoted personal words;
+  `PersonalLexiconObserver` unions both sets. The alphabet sets the language,
+  so `Nuxt` stays in Russian prose (it was `Тгче` without the entry) and
+  `rhby;` becomes `кринж` (it was `крин;`). `UserDictionary` (Core) parses
+  text split on lines, commas, semicolons and whitespace, strips quotes and
+  trailing punctuation, dedupes case-insensitively and keeps entries of only
+  Latin or only Cyrillic letters with inner `-`/`'`, 2 to 64 characters, at
+  most 20,000; numbers, links, emails and mixed scripts are counted as
+  skipped. `UserDictionaryStore` saves the spellings as a string array under
+  `com.ruswitcher.userDictionary.v1`. Import reads `.txt`/`.csv` up to 5 MB;
+  export writes one word per line. The dictionary is not part of "reset
+  learned corrections", the learned-rule archive or the Input Method. Hard
+  blockers still win: a camelCase entry (`GitHub`) is stored, but `ПшеРги`
+  stays blocked as code-like. An entry counts as attested, so the build-141
+  all-caps rule converts `ТГЧЕ` to `NUXT` once `Nuxt` is listed.
 - Advanced settings can reset learned corrections.
 - Advanced settings can export and import learned word rules as a versioned,
   human-readable JSON archive. Import merges by normalized source, target and
@@ -509,7 +526,8 @@ downloads and no network inference.
 
 - SwiftUI hosted in an AppKit `NSWindow` (macOS 13 APIs only, no `@Observable`).
   Sections: Overview (status hero, permission chips, feature tiles, trigger
-  keycaps, interface language), Keyboard, Exceptions, Advanced, About.
+  keycaps, interface language), Keyboard, Exceptions, Dictionary, Advanced,
+  About. Snapshots add `overview-ready` and `dictionary-filled` states.
 - `SettingsModel` mirrors SettingsManager. Every write goes through
   `SettingsChange` to `SettingsWindowController.apply`, which sets the same
   SettingsManager property and fires the same callback as before. Booleans are
@@ -531,8 +549,9 @@ downloads and no network inference.
 - Decoder, models and personal learning are local.
 - Debug logs contain only lengths, language/evidence categories, revision,
   latency buckets and transaction outcomes; never words or neighboring text.
-  The personal lexicon stores the user's own often-typed words locally in the
-  app's defaults, like learned pairs, and never logs them.
+  The personal lexicon and the user dictionary store the user's words locally
+  in the app's defaults, like learned pairs, and never log them; dictionary
+  reports in the UI show counts only.
 - The anonymous-statistics UI, reporter, persistence and localization keys were
   removed. There is no statistics endpoint.
 - The obsolete repository stats workflow, Telegram reporter and committed
