@@ -119,6 +119,19 @@ enum L10n {
     static var settingsDictionaryExported: String { s("settings.dictionary.exported") }
     static var settingsDictionaryFileError: String { s("settings.dictionary.fileError") }
     static var settingsDictionaryFileTooLarge: String { s("settings.dictionary.fileTooLarge") }
+    static var settingsDictionaryTabMine: String { s("settings.dictionary.tab.mine") }
+    static var settingsDictionaryTabLearned: String { s("settings.dictionary.tab.learned") }
+    static var settingsDictionaryTabRemembered: String { s("settings.dictionary.tab.remembered") }
+    static var settingsDictionaryOverridden: String { s("settings.dictionary.overridden") }
+    static var settingsDictionaryOverriddenHelp: String { s("settings.dictionary.overriddenHelp") }
+    static var settingsLearnedCount: String { s("settings.learned.count") }
+    static var settingsLearnedHint: String { s("settings.learned.hint") }
+    static var settingsLearnedEmpty: String { s("settings.learned.empty") }
+    static var settingsLearnedNotIn: String { s("settings.learned.notIn") }
+    static var settingsRememberedCount: String { s("settings.remembered.count") }
+    static var settingsRememberedHint: String { s("settings.remembered.hint") }
+    static var settingsRememberedEmpty: String { s("settings.remembered.empty") }
+    static var settingsRememberedMove: String { s("settings.remembered.move") }
     static var statusActive: String { s("status.active") }
     static var statusDisabled: String { s("status.disabled") }
     static var statusSecureInput: String { s("status.secureInput") }
@@ -313,6 +326,19 @@ enum L10n {
             "settings.dictionary.exported": "Exported: %d.",
             "settings.dictionary.fileError": "Dictionary file error",
             "settings.dictionary.fileTooLarge": "The file is larger than 5 MB.",
+            "settings.dictionary.tab.mine": "My Words",
+            "settings.dictionary.tab.learned": "Learned Pairs",
+            "settings.dictionary.tab.remembered": "Remembered",
+            "settings.dictionary.overridden": "in exceptions",
+            "settings.dictionary.overriddenHelp": "A rule on the Exceptions page decides this word, so this entry is not applied.",
+            "settings.learned.count": "Learned pairs: %d",
+            "settings.learned.hint": "A pair is learned when you convert a word by hand with the trigger key; the next time it converts on its own. \u{201C}Not in\u{201D} rows turn a pair off in one app. Removing a pair stops automatic conversion until you teach it again.",
+            "settings.learned.empty": "No learned pairs yet. Convert a word by hand with the trigger key and the pair appears here.",
+            "settings.learned.notIn": "not in %@",
+            "settings.remembered.count": "Remembered words: %d",
+            "settings.remembered.hint": "Words that no dictionary knows but you typed and kept on three separate occasions. They are not converted. A removed word comes back after three more occasions; move it to My Words to keep it for good.",
+            "settings.remembered.empty": "No remembered words yet. A word you type and keep on three separate occasions appears here.",
+            "settings.remembered.move": "Move to My Words",
             "status.active": "Smart conversion is active",
             "status.disabled": "Automatic conversion is disabled",
             "status.secureInput": "Paused: secure input is active",
@@ -467,6 +493,19 @@ enum L10n {
             "settings.dictionary.exported": "Экспортировано: %d.",
             "settings.dictionary.fileError": "Ошибка файла словаря",
             "settings.dictionary.fileTooLarge": "Файл больше 5 МБ.",
+            "settings.dictionary.tab.mine": "Мои слова",
+            "settings.dictionary.tab.learned": "Выученные замены",
+            "settings.dictionary.tab.remembered": "Запомненные",
+            "settings.dictionary.overridden": "в исключениях",
+            "settings.dictionary.overriddenHelp": "Это слово решает правило на странице «Исключения», поэтому запись не применяется.",
+            "settings.learned.count": "Выученных замен: %d",
+            "settings.learned.hint": "Замена запоминается, когда вы конвертируете слово вручную клавишей-триггером; в следующий раз оно конвертируется само. Строки «не в …» отключают замену в одном приложении. После удаления замена не срабатывает автоматически, пока вы не научите её снова.",
+            "settings.learned.empty": "Выученных замен пока нет. Конвертируйте слово вручную клавишей-триггером, и замена появится здесь.",
+            "settings.learned.notIn": "не в %@",
+            "settings.remembered.count": "Запомненных слов: %d",
+            "settings.remembered.hint": "Слова, которых нет в словарях, но которые вы набрали и оставили как есть в трёх разных случаях. Они не конвертируются. Удалённое слово вернётся ещё через три случая; чтобы оставить его насовсем, перенесите его в «Мои слова».",
+            "settings.remembered.empty": "Запомненных слов пока нет. Слово, которое вы наберёте и оставите как есть в трёх разных случаях, появится здесь.",
+            "settings.remembered.move": "В мой словарь",
             "status.active": "Умная конверсия работает",
             "status.disabled": "Автоматическая конверсия выключена",
             "status.secureInput": "Приостановлено: защищённый ввод",

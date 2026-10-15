@@ -163,8 +163,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.rebuildMenu()          // синхронизировать галочку в меню
             self?.syncCaretIndicator()   // создать/снести индикатор + обновить гейт onUserInput
         }
-        settingsController.onUserDictionaryChanged = { [weak self] in
-            self?.personalLexicon.dictionaryChanged()
+        settingsController.onVocabularyChanged = { [weak self] in
+            self?.personalLexicon.vocabularyChanged()
+        }
+        settingsController.onLearnedRulesRemoved = { [weak self] in
+            // Neither may bring a removed pair back: a toggle-back restores
+            // the checkpoint, a following word reinforces the last conversion.
+            self?.manualLearningCheckpoint = nil
+            self?.lastAutoConverted = nil
         }
     }
 

@@ -65,7 +65,8 @@ final class PersonalLexiconObserver: @unchecked Sendable {
         queue.sync { store.flush() }
     }
 
-    func dictionaryChanged() {
+    /// The user dictionary or the promoted words changed outside the observer.
+    func vocabularyChanged() {
         queue.async { [self] in refreshModel() }
     }
 
