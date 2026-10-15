@@ -13,6 +13,8 @@ final class SettingsManager: @unchecked Sendable {
     private let defaults: UserDefaults
     private let learnedRules: LearnedRulesStore
     let personalLexicon: PersonalLexiconStore
+    /// Explicit words; "reset learned corrections" leaves them alone.
+    let userDictionary: UserDictionaryStore
 
     private static func makeDefaults() -> UserDefaults {
         guard let suiteName = RuntimePreferencesDomain.isolatedSuiteName(
@@ -60,6 +62,7 @@ final class SettingsManager: @unchecked Sendable {
         self.defaults = defaults
         self.learnedRules = LearnedRulesStore(defaults: defaults)
         self.personalLexicon = PersonalLexiconStore(defaults: defaults)
+        self.userDictionary = UserDictionaryStore(defaults: defaults)
         defaults.removeObject(forKey: "com.ruswitcher.shareAnonymousStatistics")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV2")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV3")

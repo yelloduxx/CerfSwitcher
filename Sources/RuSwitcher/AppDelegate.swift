@@ -21,7 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var automaticReplacementDriver = AutomaticReplacementDriver(coordinator: replacementCoordinator)
     private let languageModel = LanguageModelStore.bundled
     private lazy var personalLexicon = PersonalLexiconObserver(
-        store: SettingsManager.shared.personalLexicon, base: languageModel, resolver: focusedElementResolver
+        store: SettingsManager.shared.personalLexicon, dictionary: SettingsManager.shared.userDictionary,
+        base: languageModel, resolver: focusedElementResolver
     )
     private lazy var textContextReader = FocusedTextContextReader(
         focusedElementResolver: focusedElementResolver
