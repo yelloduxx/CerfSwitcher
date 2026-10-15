@@ -398,7 +398,10 @@ final class AdaptiveRuleBookTests: XCTestCase {
         XCTAssertEqual(book.remove([LearnedEntry(original: "ye", converted: "ну")]), 2)
 
         XCTAssertFalse(book.isConfirmed(original: "ye", converted: "ну", appBundleID: nil))
+        XCTAssertFalse(book.isConfirmed(original: "ye?", converted: "ну,", appBundleID: "chat.two"))
         XCTAssertFalse(book.hasApplicationException(original: "ye", converted: "ну", appBundleID: "chat.one"))
+        XCTAssertEqual(book.bias(original: "ye", converted: "ну", appBundleID: "chat.one"), 0)
+        XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.one"))
         XCTAssertEqual(book.learnedEntries, [LearnedEntry(original: "ghbdtn", converted: "привет")])
     }
 
@@ -414,6 +417,8 @@ final class AdaptiveRuleBookTests: XCTestCase {
         ])
 
         XCTAssertEqual(removed, 1)
+        XCTAssertFalse(book.hasApplicationException(original: "ghbdtn", converted: "привет", appBundleID: "chat.one"))
+        XCTAssertTrue(book.hasApplicationException(original: "ghbdtn", converted: "привет", appBundleID: "chat.two"))
         XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.one"))
         XCTAssertFalse(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: "chat.two"))
         XCTAssertTrue(book.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))

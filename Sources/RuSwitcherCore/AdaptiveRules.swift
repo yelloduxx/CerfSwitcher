@@ -284,13 +284,10 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     /// alone, and its global pair applies in that application again.
     @discardableResult
     public mutating func remove(_ entries: some Sequence<LearnedEntry>) -> Int {
-        func key(_ original: String, _ converted: String) -> String {
-            AdaptiveRule.core(original) + "\u{1f}" + AdaptiveRule.core(converted)
-        }
         var pairs = Set<String>()
         var exceptions = Set<String>()
         for entry in entries {
-            let pair = key(entry.original, entry.converted)
+            let pair = Self.pairKey(entry.original, entry.converted)
             if let app = entry.exceptionAppBundleID {
                 exceptions.insert(pair + "\u{1f}" + app)
             } else {
@@ -298,8 +295,9 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
             }
         }
         let previousCount = rules.count
+        // Mutating `rules` rebuilds the pair index.
         rules.removeAll { rule in
-            let pair = key(rule.original, rule.converted)
+            let pair = Self.pairKey(rule.original, rule.converted)
             return pairs.contains(pair) || rule.appBundleID.map { exceptions.contains(pair + "\u{1f}" + $0) } == true
         }
         return previousCount - rules.count
