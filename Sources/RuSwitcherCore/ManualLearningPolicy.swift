@@ -25,7 +25,11 @@ public enum ManualLearningPolicy {
     ) -> ManualLearningDecision {
         let sourceText = original.trimmingCharacters(in: .whitespacesAndNewlines)
         let targetText = converted.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isLearnableTokenShape(sourceText), isLearnableTokenShape(targetText) else { return .ignore }
+        let learnableShapes = (isLearnableTokenShape(sourceText) && isLearnableTokenShape(targetText))
+            || SmartTokenizer.isLatinNameTypedInCyrillic(typed: sourceText, name: targetText)
+        // Only undoing a taught name (`x.com` back to `чюсщь`) may start from one.
+        let undoesLatinName = SmartTokenizer.isLatinNameTypedInCyrillic(typed: targetText, name: sourceText)
+        guard learnableShapes || undoesLatinName else { return .ignore }
         let source = FrequentWordLexicon.normalize(sourceText)
         let target = FrequentWordLexicon.normalize(targetText)
         guard source != target else { return .ignore }
@@ -39,7 +43,7 @@ public enum ManualLearningPolicy {
             guard let appBundleID, !appBundleID.isEmpty else { return .ignore }
             return .applicationException(original: target, converted: source, appBundleID: appBundleID)
         }
-        guard shouldPersist(original: source, converted: target, model: model) else { return .ignore }
+        guard learnableShapes, shouldPersist(original: source, converted: target, model: model) else { return .ignore }
         return .confirmation(original: source, converted: target, clearingExceptionFor: appBundleID)
     }
 
@@ -52,8 +56,9 @@ public enum ManualLearningPolicy {
         model: LanguageModelStore?
     ) -> Bool {
         guard model != nil,
-              isLearnableTokenShape(original),
-              isLearnableTokenShape(converted) else { return false }
+              (isLearnableTokenShape(original) && isLearnableTokenShape(converted))
+                || SmartTokenizer.isLatinNameTypedInCyrillic(typed: original, name: converted)
+        else { return false }
         return !isLikelyReverseConversion(
             original: original,
             converted: converted,

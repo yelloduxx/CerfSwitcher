@@ -56,6 +56,37 @@ final class ManualLearningPolicyTests: XCTestCase {
         }
     }
 
+    func testDomainOrDigitNameTypedInTheRussianLayoutCanBeLearned() {
+        XCTAssertEqual(KeyMapping.convert("x.com"), "чюсщь")
+        XCTAssertEqual(KeyMapping.convert("4pda"), "4звф")
+        let book = AdaptiveRuleBook()
+        for (typed, intended) in [("чюсщь", "x.com"), ("4звф", "4pda")] {
+            XCTAssertEqual(
+                ManualLearningPolicy.decision(
+                    original: typed, converted: intended, appBundleID: nil, ruleBook: book, model: model),
+                .confirmation(original: typed.lowercased(), converted: intended.lowercased(), clearingExceptionFor: nil),
+                typed
+            )
+        }
+        // The Latin side is a real name; turning it into Cyrillic teaches nothing.
+        XCTAssertEqual(
+            ManualLearningPolicy.decision(
+                original: "x.com", converted: "чюсщь", appBundleID: nil, ruleBook: book, model: model),
+            .ignore
+        )
+    }
+
+    func testUndoingALearnedDomainOptsOnlyThisApplicationOut() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "чюсщь", converted: "x.com")
+        XCTAssertEqual(
+            ManualLearningPolicy.decision(
+                original: "x.com", converted: "чюсщь", appBundleID: "com.example.editor",
+                ruleBook: book, model: model),
+            .applicationException(original: "чюсщь", converted: "x.com", appBundleID: "com.example.editor")
+        )
+    }
+
     func testReversingAnExistingGlobalRuleCreatesOnlyAnApplicationException() {
         var book = AdaptiveRuleBook()
         book.recordConfirmed(original: "cnhfybwf", converted: "страница")

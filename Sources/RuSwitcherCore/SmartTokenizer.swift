@@ -93,6 +93,19 @@ public enum SmartTokenizer {
         return nil
     }
 
+    /// A Latin domain or name with digits typed in the Russian layout
+    /// (`чюсщь` → `x.com`, `4звф` → `4pda`). The Cyrillic side is never a real
+    /// identifier, so a pair the user taught may produce one; the Latin side,
+    /// and names with `_`, `/` or `@`, stay protected.
+    public static func isLatinNameTypedInCyrillic(typed: String, name: String) -> Bool {
+        let typedLetters = typed.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        let nameLetters = name.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        return typedLetters.count >= 2 && nameLetters.count >= 2
+            && typedLetters.allSatisfy { (0x0400...0x04FF).contains($0.value) }
+            && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".-".unicodeScalars.contains($0)) }
+            && kind(of: name) == .identifier
+    }
+
     public static func isSingleUppercaseLetter(_ text: String) -> Bool {
         let letters = text.filter(\.isLetter)
         guard letters.count == 1, let letter = letters.first else { return false }
