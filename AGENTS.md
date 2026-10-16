@@ -14,7 +14,7 @@ installed build changes.
 - Automatic conversion is off by default until the user enables it.
 - Primary repository: `yelloduxx/CerfSwitcher` (renamed from
   `yelloduxx/RuSwitcher`); the production branch is `main`.
-- The product is **Cerf Switcher** `4.0.0` build **151**. The name is what
+- The product is **Cerf Switcher** `4.0.0` build **159**. The name is what
   the Russian word «сука» becomes when typed in the English layout.
   - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
   - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
