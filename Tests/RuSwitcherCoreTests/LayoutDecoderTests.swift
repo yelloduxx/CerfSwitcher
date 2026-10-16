@@ -1123,7 +1123,10 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
-    func testDecoderPerformanceBudget() {
+    func testDecoderPerformanceBudget() throws {
+        // Sanitizer instrumentation makes wall time meaningless; the plain run
+        // still enforces the budget.
+        try XCTSkipIf(ProcessInfo.processInfo.environment["RUSWITCH_SANITIZER"] != nil)
         var durations: [Double] = []
         durations.reserveCapacity(2_000)
         for _ in 0..<2_000 {

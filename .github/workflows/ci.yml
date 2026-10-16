@@ -47,6 +47,8 @@ jobs:
         run: swift build -Xswiftc -warnings-as-errors
 
       - name: Address sanitizer
+        env:
+          RUSWITCH_SANITIZER: address
         run: swift test --sanitize=address
 
       - name: Deterministic simulators
