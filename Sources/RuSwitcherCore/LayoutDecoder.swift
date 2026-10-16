@@ -492,7 +492,9 @@ public enum LayoutDecoder {
             && abbreviationZipf >= Self.conversationalEvidenceFloor
             && abbreviationZipf - typedAbbreviationZipf >= Self.conversationalOnlyFrequencyMargin
             && !literalIsExtended
-        let softShapeOverride = confirmedAcronymPair || attestedAcronymPair || hyphenatedTargetWord
+        let confirmedLatinName = confirmed
+            && SmartTokenizer.isLatinNameTypedInCyrillic(typed: candidate.typedRaw, name: candidate.replacement)
+        let softShapeOverride = confirmedAcronymPair || confirmedLatinName || attestedAcronymPair || hyphenatedTargetWord
             || conversationalAcronymPair || conversationalBrand || conversationalAbbreviation
         if (SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw) && !capitalIsOtherLayoutWord)
             || (sourceShapeIsProtected && !softShapeOverride)

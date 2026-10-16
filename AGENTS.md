@@ -14,7 +14,7 @@ installed build changes.
 - Automatic conversion is off by default until the user enables it.
 - Primary repository: `yelloduxx/CerfSwitcher` (renamed from
   `yelloduxx/RuSwitcher`); the production branch is `main`.
-- The product is **Cerf Switcher** `4.0.0` build **159**. The name is what
+- The product is **Cerf Switcher** `4.0.0` build **160**. The name is what
   the Russian word «сука» becomes when typed in the English layout.
   - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
   - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
@@ -183,7 +183,12 @@ Hard blockers remain authoritative:
 
 - secure input and password fields;
 - denied applications (terminals, IDEs, password managers, etc.);
-- URL, email and code/identifier shapes;
+- URL, email and code/identifier shapes, except a Latin domain or name with
+  digits that the user taught from Russian-layout input (build 160,
+  `чюсщь` -> `x.com`, `4звф` -> `4pda`): the Cyrillic side is never a real
+  identifier, so a confirmed pair may produce one. The Latin side never turns
+  into Cyrillic, and names with `_`, `/` or `@` stay protected. Undoing such a
+  pair only opts the application out;
 - mixed-script identifiers and camelCase;
 - ALL-CAPS acronyms, unless a confirmed pair, an attested other reading whose
   typed letters spell no word (`CIF/` -> `США.`), or a conversational acronym

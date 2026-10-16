@@ -214,6 +214,27 @@ final class AutomaticConversionPlannerTests: XCTestCase {
         XCTAssertEqual(assertKept(negativeBias, text: "ghbdtn", language: "en")?.decision.reason, .blockedLearned)
     }
 
+    func testTaughtDomainAndDigitNameConvertOnTheNextInput() throws {
+        let model = try XCTUnwrap(LanguageModelStore.bundled)
+        var book = AdaptiveRuleBook()
+        for (typed, name) in [("чюсщь", "x.com"), ("4звф", "4pda")] {
+            func plan() -> AutomaticConversionPlan {
+                AutomaticConversionPlanner.prepare(
+                    snapshot: snapshot(typed, context: ["зайди", "на"], source: "test.source.ru"),
+                    original: typed, converted: KeyMapping.convert(typed),
+                    currentLanguage: "ru", targetLanguage: "en", targetLayoutID: "test.target.en",
+                    isConfirmed: { book.isConfirmed(original: $0, converted: $1, appBundleID: "editor") },
+                    model: model
+                )
+            }
+            XCTAssertEqual(assertKept(plan(), text: typed, language: "ru")?.decision.verdict, .keep, typed)
+            ManualLearningPolicy.decision(
+                original: typed, converted: name, appBundleID: "editor", ruleBook: book, model: model
+            ).apply(to: &book)
+            XCTAssertEqual(try replacement(in: plan()).transaction.replacement, name)
+        }
+    }
+
     func testMissingModelOrLanguagesAndUnsupportedPairDoNotQueryCallbacks() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
         var targetLookups = 0

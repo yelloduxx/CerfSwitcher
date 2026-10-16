@@ -1113,6 +1113,19 @@ final class LayoutDecoderTests: XCTestCase {
         XCTAssertEqual(confirmed.decision.reason, .confirmedByUser)
     }
 
+    func testConfirmedDomainOrDigitNameConvertsFromTheRussianLayout() {
+        for (typed, intended) in [("чюсщь", "x.com"), ("4звф", "4pda")] {
+            let unconfirmed = evaluate(typed, current: "ru", target: "en")
+            XCTAssertEqual(unconfirmed.decision.verdict, .keep, typed)
+            let confirmed = evaluate(typed, current: "ru", target: "en", confirmed: true)
+            XCTAssertEqual(confirmed.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(confirmed.decision.candidate.replacement, intended)
+            XCTAssertEqual(confirmed.decision.reason, .confirmedByUser)
+        }
+        // A real domain typed in Latin is never turned into Cyrillic.
+        XCTAssertEqual(evaluate("x.com", confirmed: true).decision.verdict, .keep)
+    }
+
     func testConfirmationCannotOverrideStructuredIdentifierProtection() {
         for token in ["SEO.com", "SEO_", "HTTPServer"] {
             XCTAssertEqual(
