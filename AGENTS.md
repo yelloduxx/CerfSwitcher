@@ -80,6 +80,9 @@ installed build changes.
   `scripts/install_input_method.sh`: companion metadata, universal build/signing
   and atomic per-user registration.
 - `Sources/RuSwitcherSimulator`: parallel V3 corpus/phrase simulator.
+  Literal keep fixtures whose keys also spell a frequent word of the other
+  language carry `switchedLayoutByHand`, as the planner reports for context
+  typed as-is; the decoder otherwise follows the context for such pairs.
 - `Sources/RuSwitcherTypingSimulator`: legacy literal-text/ideal-delivery checks
   and an explicit `--physical-input` scheduled key-event mode. The physical mode
   shares local classification and replacement lifecycle with production, but

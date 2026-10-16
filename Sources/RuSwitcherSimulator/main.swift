@@ -14,6 +14,9 @@ private struct Fixture: Codable, Sendable {
     let context: [String]
     let expected: ExpectedVerdict
     let expectedReplacement: String?
+    /// The previous word was typed as-is in the other layout, as the app's
+    /// planner reports it. Absent in older JSONL fixtures, which means false.
+    var switchedLayoutByHand: Bool? = nil
 }
 
 private struct Result: Codable, Sendable {
@@ -221,6 +224,25 @@ private func hasKnownTypedPunctuationAlternative(
             || FrequentWordLexicon.contains(word, language: targetLanguage)
             || (targetLanguage == "en" && model.isExtendedEnglishWord(word))
             || (targetLanguage == "ru" && model.isExtendedRussianWord(word))
+    }
+}
+
+/// True when some reading of the typed keys in the other layout is a frequent
+/// word of that language, so both spellings are real words (`here`/`руку`).
+private func hasFrequentTargetReading(
+    typed: String,
+    targetLanguage: String,
+    model: LanguageModelStore
+) -> Bool {
+    AutoConvertCandidateGenerator.candidates(
+        typed: typed,
+        converted: KeyMapping.convert(typed)
+    ).contains { candidate in
+        let word = FrequentWordLexicon.normalize(
+            SmartTokenizer.lexicalCore(of: candidate.convertedWord)
+        )
+        return model.wordLogProbability(word, language: targetLanguage) != nil
+            || FrequentWordLexicon.contains(word, language: targetLanguage)
     }
 }
 
@@ -469,6 +491,15 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
     }
     for (current, target, context) in [("en", "ru", ["это", "текст"]), ("ru", "en", ["this", "text"])] {
         for word in model.trainingWords(language: current, limit: limit) {
+            // A correct word whose keys also spell a frequent word of the other
+            // language follows that language's context after an automatic
+            // conversion. Kept as typed, it is only reached by switching the
+            // layout by hand after context typed as-is, which the planner flags.
+            let bothReadingsAreWords = hasFrequentTargetReading(
+                typed: word,
+                targetLanguage: target,
+                model: model
+            )
             generated.append(Fixture(
                 id: "literal-\(current)-\(generated.count)",
                 typed: word,
@@ -476,7 +507,8 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
                 targetLanguage: target,
                 context: context,
                 expected: .keep,
-                expectedReplacement: nil
+                expectedReplacement: nil,
+                switchedLayoutByHand: bothReadingsAreWords
             ))
         }
         for intended in model.trainingWords(language: target, limit: limit) where intended.count >= 2 {
@@ -526,6 +558,7 @@ private func evaluateEngine(
     targetLanguage: String,
     context: [String],
     belief: LanguageBelief,
+    switchedLayoutByHand: Bool = false,
     model: LanguageModelStore
 ) -> EngineDecision {
     let converted = KeyMapping.convert(typed)
@@ -537,6 +570,7 @@ private func evaluateEngine(
         capsLock: typed == typed.uppercased() && typed != typed.lowercased(),
         contextWords: context,
         languageBelief: belief,
+        switchedLayoutByHand: switchedLayoutByHand,
         policy: .empty,
         model: model
     )
@@ -559,6 +593,7 @@ private func evaluate(
         targetLanguage: fixture.targetLanguage,
         context: fixture.context,
         belief: belief,
+        switchedLayoutByHand: fixture.switchedLayoutByHand ?? false,
         model: model
     )
     let switched = evaluation.decision.verdict == .switchToConverted
