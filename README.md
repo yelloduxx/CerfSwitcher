@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/CerfSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
-  <img src="https://img.shields.io/badge/build-4.0.0%20(151)-brightgreen?style=flat-square" alt="Build 4.0.0 (151)">
+  <img src="https://img.shields.io/badge/build-4.0.0%20(157)-brightgreen?style=flat-square" alt="Build 4.0.0 (157)">
 </p>
 
 <p align="center">
@@ -125,7 +125,7 @@ swift test
 python3 scripts/run_mixed_layout_event_stream_suite.py <corpus.tsv> --jobs 8
 ```
 
-`AGENTS.md` has the engineering notes: architecture, event delivery, safety gates, test harnesses and the release procedure. `THIRD_PARTY_NOTICES.md` lists the data sources: Google Books n-grams, SCOWL, LibreOffice Hunspell and Tatoeba. The optional InputMethodKit companion (`build_input_method.sh`) needs an Apple-issued signing identity to run.
+`AGENTS.md` has the engineering notes: architecture, event delivery, safety gates, test harnesses and the release procedure. `THIRD_PARTY_NOTICES.md` lists the data sources: Google Books n-grams, SCOWL, LibreOffice Hunspell, Tatoeba and wordfreq. The optional InputMethodKit companion (`build_input_method.sh`) needs an Apple-issued signing identity to run.
 
 ### License
 
@@ -235,7 +235,7 @@ swift test
 python3 scripts/run_mixed_layout_event_stream_suite.py <corpus.tsv> --jobs 8
 ```
 
-В `AGENTS.md` собраны инженерные заметки: архитектура, доставка событий, защитные правила, тестовые стенды и порядок выпуска. `THIRD_PARTY_NOTICES.md` перечисляет источники данных: Google Books n-grams, SCOWL, LibreOffice Hunspell и Tatoeba. Для дополнительного Input Method (`build_input_method.sh`) нужен сертификат подписи от Apple.
+В `AGENTS.md` собраны инженерные заметки: архитектура, доставка событий, защитные правила, тестовые стенды и порядок выпуска. `THIRD_PARTY_NOTICES.md` перечисляет источники данных: Google Books n-grams, SCOWL, LibreOffice Hunspell, Tatoeba и wordfreq. Для дополнительного Input Method (`build_input_method.sh`) нужен сертификат подписи от Apple.
 
 ### Лицензия
 

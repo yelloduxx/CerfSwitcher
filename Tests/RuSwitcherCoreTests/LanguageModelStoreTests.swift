@@ -5,7 +5,7 @@ final class LanguageModelStoreTests: XCTestCase {
     func testBundledModelLoadsAndHasPinnedMetadata() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
         XCTAssertEqual(model.metadata.formatVersion, 3)
-        XCTAssertEqual(model.metadata.modelVersion, "2026.10-v3.6-calibrated")
+        XCTAssertEqual(model.metadata.modelVersion, "2026.10-v3.7-conversational")
         XCTAssertEqual(model.metadata.sourceRevision, "e20471c15a758be3362b16d07870b34df4f7ccc3")
         XCTAssertGreaterThan(model.metadata.wordCounts["ru"] ?? 0, 9_000)
         XCTAssertGreaterThan(model.metadata.wordCounts["en"] ?? 0, 9_000)

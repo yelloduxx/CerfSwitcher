@@ -67,6 +67,22 @@ records the export SHA-256 hashes and is rebuilt by
 - License: https://creativecommons.org/licenses/by/2.0/fr/
 - Attribution: Tatoeba contributors
 
+## wordfreq conversational frequencies
+
+Since model `2026.10-v3.7-conversational`, `language-model-v1.bin` contains
+Zipf word frequencies derived from wordfreq 3.1.1 by Robyn Speer, for English
+and Russian words with a frequency of at least one per million. Words whose
+other-layout reading is far more common were removed. The extracts are
+`scripts/data/wordfreq-3.1.1-en.tsv.gz` and `scripts/data/wordfreq-3.1.1-ru.tsv.gz`,
+rebuilt by `scripts/build_wordfreq_extract.py` from the pinned wheel. The
+derived data, and therefore the model file, is distributed under CC BY-SA 4.0,
+separately from the application code.
+
+- Source: https://github.com/rspeer/wordfreq (version 3.1.1 on PyPI)
+- License: https://creativecommons.org/licenses/by-sa/4.0/
+- Attribution: Robyn Speer, wordfreq; wordfreq's README lists the corpora it
+  aggregates and their attributions.
+
 ## FLORES-200 Evaluation Corpus (Tests Only)
 
 `Tests/Fixtures/Independent/flores200-clean-v1` contains an evaluation-only

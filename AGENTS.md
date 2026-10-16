@@ -196,14 +196,34 @@ Hard blockers remain authoritative:
 
 The app switches layouts only after a conversion. When the previous context
 token was kept as typed in the other language, the user switched layouts by
-hand, so a short word or a word valid in the current layout stays as typed
-(`родители vs` keeps `vs`). Only confirmed pairs and `alwaysConvert` override
-this. The rule is token-level: applying it per candidate let a worse
-punctuation reading win (`{jy}` became `{онЪ`). The legacy event-stream gate
-calls the decoder without layout history and does not exercise this rule;
-planner and decoder unit tests cover it. A broader "short Russian word after
-two English words stays" rule was rejected: it cost 343 corpus misses and
-broke Russian text with English terms (`pull request yt`).
+hand, so a single letter or a word of the current language (frequency list,
+Tatoeba or wordfreq attestation, Hunspell) stays as typed (`родители vs` keeps
+`vs`, `c` stays). Keys that spell nothing there mean the layout changed by
+accident and still convert (`что yt` -> `что не`, `(jy)` -> `(он)`); build 156
+also kept every word of up to three letters, which cost 435 misses on the legacy
+corpus and 486 on FLORES dev once the gate went through the planner (build 157).
+Only confirmed pairs and `alwaysConvert` override this. The rule is token-level:
+applying it per candidate let a worse punctuation reading win (`{jy}` became
+`{онЪ`). A broader "short Russian word after two English words stays" rule was
+rejected: it cost 343 corpus misses and broke Russian text with English terms
+(`pull request yt`).
+
+Build 157 adds three token-level checks after the best candidate is chosen:
+
+- A conversion must make the word clearly more common in conversation: when
+  both readings have a wordfreq Zipf frequency, the target must exceed the
+  typed word by 1.0 (ten times), so `km` stays while `vs` -> `мы` and `c` -> `с`
+  still convert. It applies only when the punctuation is unchanged, neither of
+  the last two context words is in the target language, and the target is not
+  the user's own word. The margin was chosen on FLORES dev (0.5 to 1.5 gave
+  the same harm; 2.0 doubled the misses).
+- A key that is a letter in the other layout wraps a word only as an opening
+  bracket or quote, `( [ { " ' «`: `<ktqre?` is `Блейку,` or nothing, never
+  `<лейку,`. In reverse a typed first letter never becomes a leading `<` or `,`
+  (`Будды,` is not `<ells?`).
+- A run of trailing keys that are punctuation in both layouts is read in one
+  layout: `u/?` is `г.,` or stays, never `г.?`. Letter keys (`[`, `;`) in the
+  run are unaffected (`gkfn`;]` -> `платёж]`).
 
 Unknown valid Russian words must not convert to English from script score alone.
 Both-known pairs such as `here`/`руку` follow the language of the last two
@@ -410,7 +430,13 @@ Adaptive learning behavior:
   so writes from another store are still seen. `AdaptiveRuleBook` keeps rule
   positions keyed by lexical-core pair. The same evaluate now takes 0.11 ms,
   with about 11 us per lookup, and the first decode with indexing takes about
-  6 ms.
+  6 ms. Build 157 keys rules by the typed word's core and normalizes the
+  converted side only on a hit; an empty book answers without normalizing.
+  The app asks for the rule first and runs the costlier reverse-conversion
+  check only for a matching rule. FLORES dev single-thread, release: the old
+  simulator without learning lookups took 74 us per token; the planner harness
+  with the app's learning closures took 113 us before this reorder, and 75 us
+  with no rules and 85 us with the owner's 439 rules after it.
 - Rule-book model 8 removes legacy app-local negative rules and unsafe learned
   pairs. Persistent manual pairs require at least two letters on both sides, so
   accidental `а`/`f` or `b`/`и` confirmations cannot become global overrides.
@@ -525,9 +551,18 @@ RuSwitcher Pro remains running as build 130.
 
 Bundled resources:
 
-- `language-model-v1.bin`: versioned V3 model `2026.10-v3.6-calibrated` (format 3,
-  `RSHT` table version 2), current SHA-256
-  `5ea6832c649fe643679c2c62cc6b176e94eff717fb82cc71449e4ac95da257cf` (12.6 MB).
+- `language-model-v1.bin`: versioned V3 model `2026.10-v3.7-conversational`
+  (format 3, `RSHT` table version 2), current SHA-256
+  `c6953c1a76d3333ecee032dc3d6106caf90c17aaea9c51a7e9f18389bdcc83bd` (16.5 MB).
+  Model 3.7 (build 157) adds wordfreq 3.1.1 conversational frequencies:
+  sections 18/19 hold Zipf values of 28k EN and 60k RU words with Zipf >= 3,
+  and those missing from the book list join the attested sections. Web text
+  contains words typed in the wrong layout (`yt` 3.2 in English is `не` 7.2,
+  `ща` in Russian is `of`), so a word is dropped when its other-layout reading
+  is 2.0 Zipf more common. `scripts/build_wordfreq_extract.py` writes the
+  pinned extracts `scripts/data/wordfreq-3.1.1-{en,ru}.tsv.gz` from the wheel
+  (SHA-256 `4b1c6ecf...97473`). Adding wordfreq to the main frequency list
+  instead was rejected: rare web words (`хон`, `чтож`) took 121 legacy tokens.
   Its thresholds carry `undecidedCalibration` from
   `scripts/data/undecided-calibration.json` (build 148).
   Build 147 fills hash tables to at most 70% (was at most 50%) and stores
@@ -560,6 +595,8 @@ Bundled resources:
 hashes are pinned in `scripts/v4_training_sources.json`:
 
 - Google Books frequency data, CC BY 3.0.
+- wordfreq 3.1.1 data, CC BY-SA 4.0 (model 3.7); the model file is therefore
+  CC BY-SA 4.0 data, separately from the MIT code.
 - English Speller Database/SCOWL levels 35, 50 and 60, generated from one
   pinned revision with commands and hashes recorded in the manifest. Runtime
   uses these as common/standard/rare evidence, never as per-word overrides.
@@ -1368,6 +1405,38 @@ bash scripts/run_native_release_smoke.sh
   stays synchronous: deferring it reopens the queued-key layout race.
 - Driver `scheduleTooLate` (>10 ms) invalidates some runs; that is an
   environment/harness result, not an app failure.
+
+### Production-path evaluation (build 157)
+
+- The headless event-stream suite (`run_mixed_layout_event_stream_suite.py`)
+  now decides through `AutomaticConversionPlanner`, the app's own path, so
+  layout history (`switchedLayoutByHand`) and learned rules apply. Before, it
+  called the decoder directly and the hand-switch rule was never exercised.
+  Through the planner, build 156 had 479 legacy safe misses (not 44) and
+  1,407 FLORES dev misses (not 921). The legacy gate default is now 139.
+  `--learned-rules` (AdaptiveRuleBook JSON) and `--personal-words`
+  (`{"ru": [...], "en": [...]}`) load learning as the app applies it.
+- `make_flores_mixed_tsv.py --scenario deliberate` inserts one correctly typed
+  word of the other language, any length, with a layout switch by hand before
+  and after it; every conversion there is a false positive. `--split test`
+  reads the frozen split, for a final untuned report only.
+- Build 156 -> 157, harmful = wrong replacements + false positives:
+  legacy 0 -> 0 harmful, 479 -> 139 misses; FLORES dev 21 -> 3, 1,407 -> 1,093;
+  calibration 11 -> 8, 411 -> 314; dev deliberate 11 -> 2; calibration
+  deliberate 6 -> 1. Frozen test, run once after tuning: 13 -> 12 harmful,
+  411 -> 326 misses; deliberate 3 -> 2. The dev gains came mostly from `<`
+  prefixes and split punctuation runs, rare in the test split. Remaining
+  harmful errors are names after `{`/`"` (`{fhrt` -> `{арке`, want `Харке`),
+  `-ость.` vs `-остью` before a period (needs morphology), and `km` after a
+  number inside Russian prose. Still open: a chat word after English typed in
+  the same layout (`my father vs` -> `мы`); `pls`/`idk` stay undecided and
+  `lol`/`btw`/`ok` stay. Closing it needs a switch cost that depends on the
+  context language, tuned on dev and reported on a fresh test run.
+- Learning storage, owner's 193 single-word confirmed pairs: no learning
+  converts 96; pairs 193; target words alone 179; words plus the 14 pairs words
+  cannot carry 193. FLORES harm is equal for pairs, words and the hybrid
+  (dev 5, deliberate 4, against 3 and 2 with no learning); the extra errors
+  come from two-letter learned words such as `ок` (`Jr.` -> `Ок.`).
 
 ## Build, Signing and Installation
 

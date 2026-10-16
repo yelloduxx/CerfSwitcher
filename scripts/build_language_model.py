@@ -2,8 +2,8 @@
 """Build the deterministic, local RuSwitcher language model.
 
 The checked-in artifact is generated from pinned Google Books frequencies,
-SCOWL spellings, and LibreOffice Russian Hunspell rules. Runtime code never
-downloads data.
+SCOWL spellings, LibreOffice Russian Hunspell rules, Tatoeba statistics and
+wordfreq conversational frequencies. Runtime code never downloads data.
 """
 
 from __future__ import annotations
@@ -51,6 +51,8 @@ SECTION = {
     "en_followers": 15,
     "ru_attested": 16,
     "en_attested": 17,
+    "ru_zipf": 18,
+    "en_zipf": 19,
 }
 
 SCOWL_COMMON_ARCHIVE = Path("scripts/data/scowl35-en.txt.gz")
@@ -66,13 +68,22 @@ TATOEBA_FOLLOWERS = Path("scripts/data/tatoeba-followers.json.gz")
 UNDECIDED_CALIBRATION = Path("scripts/data/undecided-calibration.json")
 TATOEBA_FOLLOWERS_SHA256 = "c4bea788a3101a14f2fcc7ae78cfad4b4f90a25eb68e0fc4040f35645d4f8f85"
 RU_HUNSPELL_AFFIXES_SHA256 = "a0c3528bc7d0be1fb3a21c8f959d5b862d1a9fa6be3ec95364198819f10b555a"
+WORDFREQ_MIN_ZIPF = 3.0
+# Filled by scripts/build_wordfreq_extract.py; the hashes pin the extracts.
+WORDFREQ_EXTRACTS = {
+    "en": (Path("scripts/data/wordfreq-3.1.1-en.tsv.gz"), "0a43f53a529095b7743676f895dee88b605133a9b365b9b1e8006087b97f860f"),
+    "ru": (Path("scripts/data/wordfreq-3.1.1-ru.tsv.gz"), "3e8d9e86664d5379ae3d8169971c3560f505e410d351d4eba7898ae6550a5c7d"),
+}
+# A web-text word whose other-layout reading is this many Zipf units more
+# common is mostly that word typed in the wrong layout (`yt` for `не`).
+WORDFREQ_LAYOUT_MARGIN = 2.0
 MODEL_FORMAT_VERSION = 3
-MODEL_VERSION = "2026.10-v3.6-calibrated"
+MODEL_VERSION = "2026.10-v3.7-conversational"
 # Sections read in place at runtime: string keys to float64 values.
 TABLE_SECTIONS = {
     "ru_words", "en_words", "ru_chars", "en_chars", "ru_bigrams", "en_bigrams",
     "ru_trigrams", "en_trigrams", "en_extended", "ru_followers", "en_followers",
-    "ru_attested", "en_attested",
+    "ru_attested", "en_attested", "ru_zipf", "en_zipf",
 }
 RUSSIAN_BLOOM_BITS = 1 << 25
 RUSSIAN_BLOOM_HASHES = 9
@@ -278,6 +289,33 @@ def attested_section(counts: dict[str, int], listed: dict[str, float]) -> dict[s
     return {word: round(floor + math.log(count / peak), 2) for word, count in counts.items() if word not in listed}
 
 
+EN_KEYS = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
+RU_KEYS = "йцукенгшщзхъфывапролджэячсмитьбю.ё"
+TO_EN = str.maketrans(RU_KEYS, EN_KEYS)
+TO_RU = str.maketrans(EN_KEYS, RU_KEYS)
+
+
+def read_zipf(language: str) -> dict[str, float]:
+    path, expected = WORDFREQ_EXTRACTS[language]
+    if sha256(path) != expected:
+        raise RuntimeError(f"SHA-256 mismatch for {path}")
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return {word: float(zipf) for word, zipf in (line.rstrip("\n").split("\t") for line in handle)}
+
+
+def layout_clean(own: dict[str, float], other: dict[str, float], to_other: dict[int, str], margin: float) -> dict[str, float]:
+    """Web text contains words typed in the wrong layout (`yt` for `не`). Drop a
+    word whose other-layout reading is far more frequent in the other language."""
+    return {word: zipf for word, zipf in own.items() if other.get(word.translate(to_other), -1.0) < zipf + margin}
+
+
+def zipf_attested(zipf: dict[str, float], listed: dict[str, float]) -> dict[str, float]:
+    """Conversational words the book list lacks, on its log scale but below every listed word."""
+    floor = min(listed.values()) - 0.01
+    peak = max(zipf.values())
+    return {word: round(min(floor, (value - peak) * math.log(10)), 4) for word, value in zipf.items() if word not in listed}
+
+
 def json_bytes(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -414,6 +452,7 @@ def main() -> None:
             "enAttested": len(tatoeba["attested"]["en"]),
         },
         "followerSource": "Tatoeba sentence exports, CC BY 2.0 FR",
+        "conversationalSource": "wordfreq 3.1.1, CC BY-SA 4.0",
     }
     thresholds = {
         "short": 3.0,
@@ -457,6 +496,14 @@ def main() -> None:
         "ru_attested": attested_section(tatoeba["attested"]["ru"], ru_words),
         "en_attested": attested_section(tatoeba["attested"]["en"], en_words),
     }
+    zipf = {language: read_zipf(language) for language in WORDFREQ_EXTRACTS}
+    clean = {"en": layout_clean(zipf["en"], zipf["ru"], TO_RU, WORDFREQ_LAYOUT_MARGIN),
+             "ru": layout_clean(zipf["ru"], zipf["en"], TO_EN, WORDFREQ_LAYOUT_MARGIN)}
+    for language in ("en", "ru"):
+        values[f"{language}_attested"] = {**zipf_attested(clean[language], values[f"{language}_words"]),
+                                          **values[f"{language}_attested"]}
+        values[f"{language}_zipf"] = clean[language]
+        metadata["wordCounts"][f"{language}Conversational"] = len(clean[language])
     write_model(args.output, model_sections(values))
     print(f"wrote {args.output} ({args.output.stat().st_size} bytes, sha256={sha256(args.output)})")
 

@@ -1085,21 +1085,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             policy: policy,
             allowUnavailablePost: SettingsManager.shared.axlessConversion,
             adaptiveBias: { original, converted in
-                let persisted = ManualLearningPolicy.isLikelyReverseConversion(
-                    original: original, converted: converted, model: self.languageModel
-                ) ? 0 : SettingsManager.shared.adaptiveBias(
+                // The reverse-conversion check costs more than the rule lookup,
+                // and nearly every candidate has no rule.
+                let learned = SettingsManager.shared.adaptiveBias(
                     original: original, converted: converted, appBundleID: frontID
                 )
+                let persisted = learned == 0 || ManualLearningPolicy.isLikelyReverseConversion(
+                    original: original, converted: converted, model: self.languageModel
+                ) ? 0 : learned
                 let sessionPenalty = self.sessionNegativePairs.contains(self.learningKey(
                     original: original, converted: converted, appBundleID: frontID
                 )) ? -12.0 : 0.0
                 return persisted + sessionPenalty
             },
             isConfirmed: { original, converted in
-                !ManualLearningPolicy.isLikelyReverseConversion(
-                    original: original, converted: converted, model: self.languageModel
-                ) && SettingsManager.shared.isAdaptiveConfirmed(
+                SettingsManager.shared.isAdaptiveConfirmed(
                     original: original, converted: converted, appBundleID: frontID
+                ) && !ManualLearningPolicy.isLikelyReverseConversion(
+                    original: original, converted: converted, model: self.languageModel
                 )
             },
             model: personalLexicon.model

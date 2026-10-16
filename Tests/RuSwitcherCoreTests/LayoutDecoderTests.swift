@@ -35,15 +35,54 @@ final class LayoutDecoderTests: XCTestCase {
 
     func testWordTypedAfterSwitchingLayoutByHandStaysAsTyped() {
         XCTAssertEqual(evaluate("vs", context: ["наши", "родители"]).decision.candidate.replacement, "мы")
-        for typed in ["vs", "here", "he", "{vs}", "(jy)"] {
+        for typed in ["vs", "here", "he", "{vs}", "c", "km"] {
             let result = evaluate(typed, context: ["наши", "родители"], switchedLayoutByHand: true)
             XCTAssertNotEqual(result.decision.verdict, .switchToConverted, "\(typed) -> \(result.decision.candidate.replacement)")
         }
-        let wrong = evaluate("ghbdtn", context: ["наши", "родители"], switchedLayoutByHand: true)
-        XCTAssertEqual(wrong.decision.verdict, .switchToConverted)
-        XCTAssertEqual(wrong.decision.candidate.replacement, "привет")
+        // Keys that spell nothing in the new layout mean the layout changed by
+        // accident: `что yt` is `что не`.
+        for (typed, intended) in [("ghbdtn", "привет"), ("yt", "не"), ("(jy)", "(он)")] {
+            let wrong = evaluate(typed, context: ["наши", "родители"], switchedLayoutByHand: true)
+            XCTAssertEqual(wrong.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(wrong.decision.candidate.replacement, intended)
+        }
         let learned = evaluate("vs", context: ["наши", "родители"], confirmed: true, switchedLayoutByHand: true)
         XCTAssertEqual(learned.decision.verdict, .switchToConverted)
+    }
+
+    func testConversionMustMakeTheWordClearlyMoreCommon() {
+        XCTAssertNotEqual(evaluate("km", context: ["800"]).decision.verdict, .switchToConverted)
+        // `мы` is far more common than `vs`, and `с` than `c`.
+        for (typed, intended) in [("vs", "мы"), ("c", "с")] {
+            let result = evaluate(typed)
+            XCTAssertEqual(result.decision.verdict, .switchToConverted, typed)
+            XCTAssertEqual(result.decision.candidate.replacement, intended)
+        }
+    }
+
+    func testConversationalFrequenciesLeaveOutWordsTypedInTheWrongLayout() {
+        XCTAssertNotNil(model.conversationalZipf("vs", language: "en"))
+        XCTAssertNotNil(model.conversationalZipf("km", language: "en"))
+        XCTAssertNil(model.conversationalZipf("yt", language: "en"))
+        XCTAssertNil(model.conversationalZipf("ghbdtn", language: "en"))
+        XCTAssertNotNil(model.conversationalZipf("мы", language: "ru"))
+    }
+
+    func testOnlyOpeningBracketsAndQuotesWrapAWordOnALetterKey() {
+        for (typed, current, target) in [("<ktqre?", "en", "ru"), ("Будды,", "ru", "en")] {
+            let result = evaluate(typed, current: current, target: target, context: ["сказал"])
+            XCTAssertFalse(
+                result.decision.verdict == .switchToConverted && result.decision.candidate.replacement.first == "<",
+                "\(typed) -> \(result.decision.candidate.replacement)"
+            )
+        }
+        XCTAssertEqual(evaluate("[yt", context: ["это"]).decision.candidate.replacement, "[не")
+    }
+
+    func testARunOfPunctuationKeysIsReadInOneLayout() {
+        let result = evaluate("u/?", context: ["в", "2007"])
+        XCTAssertNotEqual(result.decision.candidate.replacement, "г.?")
+        XCTAssertEqual(evaluate("ghbdtn?!", context: ["это"]).decision.candidate.replacement, "привет?!")
     }
 
     func testUnknownCompoundConvertsAtBoundary() {

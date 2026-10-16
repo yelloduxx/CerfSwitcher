@@ -90,7 +90,9 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     public private(set) var modelVersion: Int
     /// Rule positions by lexical-core pair. The decoder asks about several
     /// candidates at every word boundary, so lookups must not scan every rule.
-    private var rulesByPair: [String: [Int]] = [:]
+    /// Rule indices by the typed word: most typed words have no rule, so a
+    /// lookup normalizes the converted side only after the typed side matches.
+    private var rulesByOriginal: [String: [Int]] = [:]
 
     public init(rules: [AdaptiveRule] = [], modelVersion: Int = 8) {
         self.rules = rules
@@ -118,18 +120,25 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     }
 
     private mutating func indexRules() {
-        rulesByPair = Dictionary(grouping: rules.indices) { Self.pairKey(rules[$0].original, rules[$0].converted) }
+        rulesByOriginal = Dictionary(grouping: rules.indices) { AdaptiveRule.core(rules[$0].original) }
     }
 
+    /// The decoder asks about every candidate of every word, so an empty book
+    /// answers without normalizing the pair.
     private func rules(matchingPair original: String, _ converted: String) -> [AdaptiveRule] {
-        rulesByPair[Self.pairKey(original, converted)]?.map { rules[$0] } ?? []
+        guard !rulesByOriginal.isEmpty, let indices = rulesByOriginal[AdaptiveRule.core(original)] else { return [] }
+        let convertedCore = AdaptiveRule.core(converted)
+        return indices.map { rules[$0] }.filter { AdaptiveRule.core($0.converted) == convertedCore }
+    }
+
+    private static func isException(_ rule: AdaptiveRule, in appBundleID: String?) -> Bool {
+        appBundleID != nil && rule.applicationException && rule.appBundleID == appBundleID
     }
 
     public func bias(original: String, converted: String, appBundleID: String?) -> Double {
-        if hasApplicationException(original: original, converted: converted, appBundleID: appBundleID) {
-            return -12
-        }
-        return rules(matchingPair: original, converted)
+        let matching = rules(matchingPair: original, converted)
+        if matching.contains(where: { Self.isException($0, in: appBundleID) }) { return -12 }
+        return matching
             .filter {
                 !$0.applicationException && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
             }
@@ -138,12 +147,9 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
     }
 
     public func isConfirmed(original: String, converted: String, appBundleID: String?) -> Bool {
-        guard !hasApplicationException(
-            original: original,
-            converted: converted,
-            appBundleID: appBundleID
-        ) else { return false }
-        return rules(matchingPair: original, converted).contains {
+        let matching = rules(matchingPair: original, converted)
+        guard !matching.contains(where: { Self.isException($0, in: appBundleID) }) else { return false }
+        return matching.contains {
             $0.confirmed && ($0.appBundleID == nil || $0.appBundleID == appBundleID)
         }
     }

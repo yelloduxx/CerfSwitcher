@@ -23,6 +23,11 @@ public enum AutoConvertCandidateGenerator {
         let prefixCounts = shape.lexicalCore.isEmpty ? 0..<0 : 1..<(shape.prefix.count + 1)
         for prefixCount in prefixCounts {
             let prefix = String(typedCharacters.prefix(prefixCount))
+            // A key that is a letter in the other layout wraps a word only as an
+            // opening bracket or quote: `<ktqre` is `Блейку`, never `<лейку`.
+            guard prefix.allSatisfy({ KeyMapping.convert(String($0)).allSatisfy { !$0.isLetter } || isOpeningWrapper($0) }) else {
+                break
+            }
             let remainder = Array(typedCharacters.dropFirst(prefixCount))
             let maximumPreservedSuffix = min(3, remainder.count)
             for suffixLength in 0...maximumPreservedSuffix {
@@ -69,6 +74,10 @@ public enum AutoConvertCandidateGenerator {
             guard !suffixChars.contains(where: isOpeningBracket) else { continue }
             let convertedWordChars = convertedChars.dropLast(suffixLength)
             guard !convertedWordChars.isEmpty else { continue }
+            // A run of punctuation keys is read in one layout: `u/?` is `г.,`
+            // or `u/?`, never `г.?`.
+            if let last = typedChars.dropLast(suffixLength).last, let convertedLast = convertedWordChars.last,
+               isTrailingPunctuation(last), isTrailingPunctuation(convertedLast) { continue }
             let suffix = String(suffixChars)
             result.append(
                 AutoConvertCandidate(
@@ -106,6 +115,10 @@ public enum AutoConvertCandidateGenerator {
     /// the last word of a bracketed span (`ghfdbkmysq]` -> `правильный]`).
     private static func isOpeningBracket(_ character: Character) -> Bool {
         character == "[" || character == "{"
+    }
+
+    private static func isOpeningWrapper(_ character: Character) -> Bool {
+        "([{\"'«".contains(character)
     }
 
     private static func isTrailingPunctuation(_ character: Character) -> Bool {

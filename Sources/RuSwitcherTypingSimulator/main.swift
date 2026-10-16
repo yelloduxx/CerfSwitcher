@@ -1,4 +1,5 @@
 import Foundation
+import RuSwitcherAppSupport
 import RuSwitcherCore
 
 private struct Phase: Codable, Sendable {
@@ -183,17 +184,30 @@ private struct HeadlessTypingSession {
         }
         let typed = snapshot.producedText ?? snapshot.keys.compactMap(\.producedText).joined()
         let targetLanguage = sourceLanguage == "ru" ? "en" : "ru"
-        let evaluation = LayoutDecoder.evaluate(
-            typed: typed,
+        let plan = AutomaticConversionPlanner.prepare(
+            snapshot: snapshot,
+            original: typed,
             converted: KeyMapping.convert(typed),
             currentLanguage: sourceLanguage,
             targetLanguage: targetLanguage,
-            capsLock: snapshot.keys.contains(where: \.caps),
-            contextWords: snapshot.context.map(\.text),
-            languageBelief: snapshot.languageBelief,
-            policy: .empty,
+            targetLayoutID: "simulated.\(targetLanguage)",
+            adaptiveBias: { original, converted in
+                let bias = learnedRules.bias(original: original, converted: converted, appBundleID: nil)
+                return bias == 0 || ManualLearningPolicy.isLikelyReverseConversion(
+                    original: original, converted: converted, model: model
+                ) ? 0 : bias
+            },
+            isConfirmed: { original, converted in
+                learnedRules.isConfirmed(original: original, converted: converted, appBundleID: nil)
+                    && !ManualLearningPolicy.isLikelyReverseConversion(original: original, converted: converted, model: model)
+            },
             model: model
         )
+        guard let evaluation = plan.evaluation else {
+            editor.type(boundary.text)
+            input.complete(resolvedText: typed, language: sourceLanguage, wasConverted: false)
+            return
+        }
 
         let replacement = evaluation.decision.candidate.replacement
         var backspaceCount = 0
@@ -437,9 +451,13 @@ private func run() throws -> Never {
     if let inputPath = argument(after: "--physical-input") {
         return runPhysical(inputPath: inputPath, outputPath: argument(after: "--output"), faultName: argument(after: "--fault"))
     }
-    guard let model = LanguageModelStore.bundled else {
+    guard var model = LanguageModelStore.bundled else {
         FileHandle.standardError.write(Data("V3 language model unavailable\n".utf8))
         exit(70)
+    }
+    if let path = argument(after: "--personal-words") {
+        let words = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        model = model.personalized(with: words.mapValues(Set.init))
     }
     if let inputPath = argument(after: "--input") {
         try runSingle(inputPath: inputPath, model: model)
@@ -448,10 +466,20 @@ private func run() throws -> Never {
         try runBatch(inputPath: inputPath, model: model)
     }
     FileHandle.standardError.write(Data(
-        "usage: RuSwitcherTypingSimulator (--input fixture.json | --phrase-input phrases.jsonl | --physical-input physical.json) [--jobs N] [--output report.json] [--results results.jsonl] [--fault auto-off|no-layout-switch|drop-insertion|duplicate-insertion]\n".utf8
+        "usage: RuSwitcherTypingSimulator (--input fixture.json | --phrase-input phrases.jsonl | --physical-input physical.json) [--jobs N] [--learned-rules rules.json] [--personal-words words.json] [--output report.json] [--results results.jsonl] [--fault auto-off|no-layout-switch|drop-insertion|duplicate-insertion]\n".utf8
     ))
     exit(64)
 }
+
+/// Learned pairs in the app's own archive format, applied as the app applies them.
+private let learnedRules: AdaptiveRuleBook = argument(after: "--learned-rules").map { path in
+    do {
+        return try JSONDecoder().decode(AdaptiveRuleBook.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+    } catch {
+        FileHandle.standardError.write(Data("unreadable learned rules: \(error.localizedDescription)\n".utf8))
+        exit(65)
+    }
+} ?? AdaptiveRuleBook()
 
 do {
     try run()
