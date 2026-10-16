@@ -98,8 +98,8 @@ public enum SmartTokenizer {
     /// identifier, so a pair the user taught may produce one; the Latin side,
     /// and names with `_`, `/` or `@`, stay protected.
     public static func isLatinNameTypedInCyrillic(typed: String, name: String) -> Bool {
-        let typedLetters = typed.unicodeScalars.filter(CharacterSet.letters.contains)
-        let nameLetters = name.unicodeScalars.filter(CharacterSet.letters.contains)
+        let typedLetters = typed.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        let nameLetters = name.unicodeScalars.filter { CharacterSet.letters.contains($0) }
         return typedLetters.count >= 2 && nameLetters.count >= 2
             && typedLetters.allSatisfy { (0x0400...0x04FF).contains($0.value) }
             && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".-".unicodeScalars.contains($0)) }
