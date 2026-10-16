@@ -1439,7 +1439,7 @@ bash scripts/run_native_release_smoke.sh
   (dev 5, deliberate 4, against 3 and 2 with no learning); the extra errors
   come from two-letter learned words such as `ок` (`Jr.` -> `Ок.`).
 
-### Ten understanding variants (build 158)
+### Ten understanding variants (builds 158-159)
 
 - New independent phrase sets, all built with `scripts/make_text_mixed_tsv.py`
   (rows: whole text in the EN layout, in the RU layout, typed correctly with
@@ -1459,8 +1459,9 @@ bash scripts/run_native_release_smoke.sh
      Russian prose when its characters read clearly English (`ашпьфб` ->
      `figma`, advantage >= 2.5); short ones need an English word before, and
      stretched letters (`ащщще`) stay;
-  2. a rare word after a hand switch yields to a reading 2.5 Zipf more common
-     (`шт` -> `in`);
+  2. a word rare in conversation (Zipf < 3) after a hand switch yields to a
+     reading 2.5 Zipf more common (`шт` -> `in`); build 159 added the Zipf
+     limit after the release simulator caught `шею` -> `it.`;
   3. the same gap decides two known readings when no word of the typed
      language precedes and the previous token is not a number (`Шт` -> `In`);
   4. a word only conversational text attests decides an undecided case
@@ -1475,7 +1476,8 @@ bash scripts/run_native_release_smoke.sh
   -219 misses but false positives on letter names (`буквами c и g`); a
   trailing-key capital check (no measurable effect); a wider Zipf margin after
   source-language words (more misses, no harm change).
-- Build 157 -> 158, harmful / misses. Dev: legacy 0/139 -> 0/96, FLORES
+- Build 157 -> 158, harmful / misses. Dev: legacy 0/139 -> 0/96 (159: 0/104,
+  UD misses 1,569; the legacy gate default is 104), FLORES
   3/1,075 -> 3/865, UD 33/1,910 -> 33/1,565, chat 8/164 -> 8/131, deliberate
   2 -> 2. Validation: FLORES 8/294 -> 8/234, UD 9/1,032 -> 9/837, chat
   2/116 -> 2/95, deliberate 1 -> 1. The harmful sets are identical, not only
@@ -1487,9 +1489,12 @@ bash scripts/run_native_release_smoke.sh
   guards above fixed them, so that test is spent. Fresh test, run once after
   the fix: UD GSD+GUM 36/836 -> 36/634, second chat set 10/165 -> 10/132,
   harmful sets identical to build 157.
-- The release simulator's 8 failures (`руб` -> `he,`, `here` -> `руку`) predate
-  this build and are unchanged: its literal fixtures lack the hand-switch
-  flag the planner passes, and inferring it breaks the forgotten-layout ones.
+- The release simulator failed 8 literal fixtures since build 156 (`руб` ->
+  `he,`, `here` -> `руку`). A correct word after words of the other language
+  arises in the app only from a manual switch, so these fixtures now carry
+  `switchedLayoutByHand` as the planner would pass it; forgotten-layout
+  fixtures do not. The fresh test numbers above predate build 159, which only
+  keeps more words (`шею`), so it cannot add a conversion.
 
 ## Build, Signing and Installation
 

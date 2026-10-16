@@ -742,9 +742,12 @@ final class LayoutDecoderTests: XCTestCase {
         let atStart = evaluate("Шт", current: "ru", target: "en")
         XCTAssertEqual(atStart.decision.candidate.replacement, "In")
         XCTAssertEqual(atStart.decision.verdict, .switchToConverted)
-        // Close frequencies keep the typed word: `руку` is nearly as common as `here`.
-        let close = evaluate("руку", current: "ru", target: "en", context: ["dog"], switchedLayoutByHand: true)
-        XCTAssertEqual(close.decision.verdict, .keep)
+        // Close frequencies keep the typed word: `руку` is nearly as common as
+        // `here`, and a word in common use stays after a hand switch.
+        for typed in ["руку", "шею"] {
+            let kept = evaluate(typed, current: "ru", target: "en", context: ["dog"], switchedLayoutByHand: true)
+            XCTAssertEqual(kept.decision.verdict, .keep, typed)
+        }
         XCTAssertNotEqual(evaluate("шт", current: "ru", target: "en", context: ["пять"]).decision.verdict, .switchToConverted)
     }
 

@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/CerfSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
-  <img src="https://img.shields.io/badge/build-4.0.0%20(158)-brightgreen?style=flat-square" alt="Build 4.0.0 (158)">
+  <img src="https://img.shields.io/badge/build-4.0.0%20(159)-brightgreen?style=flat-square" alt="Build 4.0.0 (159)">
 </p>
 
 <p align="center">

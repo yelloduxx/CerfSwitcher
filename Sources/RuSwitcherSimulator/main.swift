@@ -14,6 +14,10 @@ private struct Fixture: Codable, Sendable {
     let context: [String]
     let expected: ExpectedVerdict
     let expectedReplacement: String?
+    /// A correct word of the current layout after words of the other language
+    /// arises in the app only from a manual switch: the app switches layouts
+    /// itself only after converting a word.
+    var switchedLayoutByHand: Bool? = nil
 }
 
 private struct Result: Codable, Sendable {
@@ -476,7 +480,8 @@ private func builtInFixtures(model: LanguageModelStore, limit: Int) -> [Fixture]
                 targetLanguage: target,
                 context: context,
                 expected: .keep,
-                expectedReplacement: nil
+                expectedReplacement: nil,
+                switchedLayoutByHand: true
             ))
         }
         for intended in model.trainingWords(language: target, limit: limit) where intended.count >= 2 {
@@ -526,6 +531,7 @@ private func evaluateEngine(
     targetLanguage: String,
     context: [String],
     belief: LanguageBelief,
+    switchedLayoutByHand: Bool = false,
     model: LanguageModelStore
 ) -> EngineDecision {
     let converted = KeyMapping.convert(typed)
@@ -537,6 +543,7 @@ private func evaluateEngine(
         capsLock: typed == typed.uppercased() && typed != typed.lowercased(),
         contextWords: context,
         languageBelief: belief,
+        switchedLayoutByHand: switchedLayoutByHand,
         policy: .empty,
         model: model
     )
@@ -559,6 +566,7 @@ private func evaluate(
         targetLanguage: fixture.targetLanguage,
         context: fixture.context,
         belief: belief,
+        switchedLayoutByHand: fixture.switchedLayoutByHand ?? false,
         model: model
     )
     let switched = evaluation.decision.verdict == .switchToConverted

@@ -255,10 +255,13 @@ public enum LayoutDecoder {
         if switchedLayoutByHand {
             let literalIsWord = model.attestedWordLogProbability(literal, language: currentCanonical) != nil
                 || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
-            // A rare word still yields to a far more common reading (`шт` → `in`).
+            // A word rare in conversation still yields to a far more common
+            // reading (`шт` → `in`); one in common use stays (`шею` is not `it.`).
+            let literalZipf = model.conversationalZipf(literal, language: currentCanonical) ?? 0
             let farMoreCommon = literal.count >= 2
-                && (model.conversationalZipf(replacement, language: targetCanonical) ?? 0)
-                    - (model.conversationalZipf(literal, language: currentCanonical) ?? 0) >= Self.handSwitchFrequencyMargin
+                && literalZipf < Self.conversationalEvidenceFloor
+                && (model.conversationalZipf(replacement, language: targetCanonical) ?? 0) - literalZipf
+                    >= Self.handSwitchFrequencyMargin
             if literal.count <= 1 || (literalIsWord && !farMoreCommon) {
                 return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
             }
