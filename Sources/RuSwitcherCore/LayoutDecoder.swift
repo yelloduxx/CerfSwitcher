@@ -311,6 +311,11 @@ public enum LayoutDecoder {
     /// makes an unlisted Russian spelling a layout mistake (`ашпьфб` → `figma`).
     private static let unlistedEnglishCharacterAdvantage = 2.5
 
+    private static func hasStretchedLetters(_ word: String) -> Bool {
+        let letters = Array(word)
+        return letters.indices.dropFirst(2).contains { letters[$0] == letters[$0 - 1] && letters[$0] == letters[$0 - 2] }
+    }
+
     private static func isUnusualInProse(_ character: Character) -> Bool {
         !character.isLetter && !character.isWhitespace && !".,!?;:()\"'«»-–—…".contains(character)
     }
@@ -445,6 +450,8 @@ public enum LayoutDecoder {
             && !(currentCanonical == "en" ? model.isExtendedEnglishWord(literalLetters) : model.isExtendedRussianWord(literalLetters))
         let targetZipf = model.conversationalZipf(converted, language: targetCanonical)
         let literalZipf = model.conversationalZipf(literal, language: currentCanonical)
+        // A number is followed by a unit or noun of the typed language (`1 шт.`).
+        let afterNumber = contextWords.last?.contains(where: \.isNumber) == true
         let literalIsExtended = currentCanonical == "en" ? model.isExtendedEnglishWord(literalLetters) : model.isExtendedRussianWord(literalLetters)
         // An acronym in conversational use whose typed letters never occur
         // (`ЗК` → `PR`). Russian text borrows English acronyms freely, so a
@@ -590,7 +597,7 @@ public enum LayoutDecoder {
            // Without words of the typed language just before, a far more
            // common reading wins over a rare known one (`Шт` → `In`).
            !((targetZipf ?? 0) - (literalZipf ?? 0) >= Self.knownReadingFrequencyMargin
-                && !recentLanguages.suffix(2).contains(currentCanonical)) {
+                && !recentLanguages.suffix(2).contains(currentCanonical) && !afterNumber) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
         }
         if literal.count >= 2, englishSourceConfidence == .frequent, !contextContinuesInTarget {
@@ -788,10 +795,11 @@ public enum LayoutDecoder {
             let characterAdvantage = model.characterLogProbability(converted, language: targetCanonical)
                 - model.characterLogProbability(literal, language: currentCanonical)
             // A clearer advantage also holds in Russian prose for longer words
-            // (`ашпьфб` → `figma`), and for short ones outside it.
-            let clearCharacterAdvantage = converted.count >= 3
+            // (`ашпьфб` → `figma`), and for short ones after an English word.
+            // Stretched letters (`ащщще`) are expressive Russian, not English.
+            let clearCharacterAdvantage = converted.count >= 3 && !Self.hasStretchedLetters(literal)
                 && characterAdvantage >= Self.unlistedEnglishCharacterAdvantage
-                && (converted.count >= 5 || currentProbability < 0.62)
+                && (converted.count >= 5 || previousLanguage == targetCanonical)
             if !clearCharacterAdvantage && (converted.count < 5
                 || characterAdvantage < model.thresholds.englishTargetCharacterAdvantage
                 || currentProbability >= 0.62) {
@@ -804,6 +812,7 @@ public enum LayoutDecoder {
             && sourceKnown == nil && !sourceExtendedRussian
             && model.attestedWordLogProbability(literal, language: currentCanonical) == nil
             && converted.count >= 3 && characterAdvantage >= Self.unlistedEnglishCharacterAdvantage
+            && !Self.hasStretchedLetters(literal)
         if unlistedEnglishEvidence { convertedScore += max(0, currentBeliefScore - targetBeliefScore) }
         let margin = convertedScore - literalScore
         let hasLexicalEvidence = targetKnown != nil
@@ -850,7 +859,7 @@ public enum LayoutDecoder {
         // A word only conversational text attests (`иец` → `btw`) decides
         // what the rules left open. Two letters also need the previous word
         // in the target language.
-        let conversationalOnly = ruleVerdict == .undecided
+        let conversationalOnly = ruleVerdict == .undecided && !afterNumber
             && candidate.prefix.isEmpty && converted.count >= 2
             && !(typedCore.count > 1 && typedCore == typedCore.uppercased())
             && Set(typedCore.filter(\.isLetter).map(\.isASCII)).count == 1

@@ -690,10 +690,14 @@ final class LayoutDecoderTests: XCTestCase {
                 .decision.candidate.replacement,
             "Craigslist,"
         )
-        for word in ["тимбилдинг", "рецепшн", "кринж", "задеплоил"] {
+        for word in ["тимбилдинг", "рецепшн", "кринж", "задеплоил", "ащщще", "Тщщщщ,", "еше"] {
             let kept = evaluate(word, current: "ru", target: "en", context: ["это", "был"], belief: russianBelief)
             XCTAssertNotEqual(kept.decision.verdict, .switchToConverted, word)
         }
+        XCTAssertNotEqual(
+            evaluate("шт.", current: "ru", target: "en", context: ["1"], belief: russianBelief).decision.verdict,
+            .switchToConverted
+        )
     }
 
     func testConversationalAcronymConvertsWhenItsLettersSpellNothing() {
