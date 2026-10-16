@@ -185,9 +185,10 @@ Hard blockers remain authoritative:
 - denied applications (terminals, IDEs, password managers, etc.);
 - URL, email and code/identifier shapes;
 - mixed-script identifiers and camelCase;
-- unconfirmed ALL-CAPS acronyms; a plain multi-letter acronym may convert only
-  through an explicitly confirmed global physical-layout pair, while URL/email,
-  structured identifiers and code-like shapes remain hard blockers;
+- ALL-CAPS acronyms, unless a confirmed pair, an attested other reading whose
+  typed letters spell no word (`CIF/` -> `США.`), or a conversational acronym
+  (build 158, `ЗК` -> `PR`) allows it; URL/email, structured identifiers and
+  code-like shapes remain hard blockers;
 - single uppercase Latin letters, except a non-word capital that is a Russian
   word, at phrase start or after Russian (`D` -> `В`, but `plan B` stays);
 - single uppercase Cyrillic letters that are words;
@@ -1437,6 +1438,58 @@ bash scripts/run_native_release_smoke.sh
   cannot carry 193. FLORES harm is equal for pairs, words and the hybrid
   (dev 5, deliberate 4, against 3 and 2 with no learning); the extra errors
   come from two-letter learned words such as `ок` (`Jr.` -> `Ок.`).
+
+### Ten understanding variants (build 158)
+
+- New independent phrase sets, all built with `scripts/make_text_mixed_tsv.py`
+  (rows: whole text in the EN layout, in the RU layout, typed correctly with
+  hand switches, and one mid-phrase slip): UD r2.14 English-EWT plus
+  Russian-Taiga social media (CC BY-SA 4.0; UD train sampled for dev, UD dev
+  for validation, UD test for test), and blind chat messages written by an
+  agent that never saw the code (300 dev, 300 validation, 300 test, plus 400
+  in a second test set). A later fresh test used UD Russian-GSD and
+  English-GUM test sentences. The corpora stay local; GUM is CC BY-NC-SA.
+- Tokens with characters no plain or Shift key gives (emoji, long dashes,
+  accented letters) are labelled technical: `ujlf!🙀😺` was counted as a
+  wrong replacement although the deletion guard correctly refused it.
+- Ten variants ran as temporary switches in one decoder, each once on dev.
+  Rule: harmful (wrong + false positive) must not rise on any dev corpus.
+  Accepted seven, now permanent:
+  1. an English word no dictionary lists, typed in the RU layout, converts in
+     Russian prose when its characters read clearly English (`ашпьфб` ->
+     `figma`, advantage >= 2.5); short ones need an English word before, and
+     stretched letters (`ащщще`) stay;
+  2. a rare word after a hand switch yields to a reading 2.5 Zipf more common
+     (`шт` -> `in`);
+  3. the same gap decides two known readings when no word of the typed
+     language precedes and the previous token is not a number (`Шт` -> `In`);
+  4. a word only conversational text attests decides an undecided case
+     (`иец` -> `btw`; two letters need a target-language word before);
+  5. a dotted abbreviation of single letters with a final dot (`n/l/` ->
+     `т.д.`, `ГюЫю` -> `U.S.`) after a word of its language;
+  6. a camelCase brand in conversational use (`шЗрщту` -> `iPhone`);
+  7. an all-caps acronym whose letters occur nowhere and whose target is not
+     an ordinary frequent word (`ЗК` -> `PR`, not `ECS` -> `УСЫ`); Russian
+     acronyms need a Russian word before.
+  Rejected: a lone letter after two target-language words (`b` -> `и`):
+  -219 misses but false positives on letter names (`буквами c и g`); a
+  trailing-key capital check (no measurable effect); a wider Zipf margin after
+  source-language words (more misses, no harm change).
+- Build 157 -> 158, harmful / misses. Dev: legacy 0/139 -> 0/96, FLORES
+  3/1,075 -> 3/865, UD 33/1,910 -> 33/1,565, chat 8/164 -> 8/131, deliberate
+  2 -> 2. Validation: FLORES 8/294 -> 8/234, UD 9/1,032 -> 9/837, chat
+  2/116 -> 2/95, deliberate 1 -> 1. The harmful sets are identical, not only
+  the counts. Validation was read three times; two fixes followed it
+  (abbreviations need single letters, then a final dot).
+- First test, run once: chat 6/98 -> 6/83; UD Taiga+EWT 36/1,130 -> 42/942.
+  The six new false positives were Russian social-media spellings: stretched
+  letters (`ащщще` -> `fooot`, `Тщщщщ` -> `Noooo`) and `1 шт.` -> `in`. The
+  guards above fixed them, so that test is spent. Fresh test, run once after
+  the fix: UD GSD+GUM 36/836 -> 36/634, second chat set 10/165 -> 10/132,
+  harmful sets identical to build 157.
+- The release simulator's 8 failures (`руб` -> `he,`, `here` -> `руку`) predate
+  this build and are unchanged: its literal fixtures lack the hand-switch
+  flag the planner passes, and inferring it breaks the forgotten-layout ones.
 
 ## Build, Signing and Installation
 

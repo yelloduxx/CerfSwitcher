@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/yelloduxx/CerfSwitcher?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-blue?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift 6">
-  <img src="https://img.shields.io/badge/build-4.0.0%20(157)-brightgreen?style=flat-square" alt="Build 4.0.0 (157)">
+  <img src="https://img.shields.io/badge/build-4.0.0%20(158)-brightgreen?style=flat-square" alt="Build 4.0.0 (158)">
 </p>
 
 <p align="center">
@@ -58,6 +58,7 @@ When the evidence is weak, it leaves the text alone. Some examples:
 - `ghbdtncnde.` → `приветствую` (the final `.` key is `ю`)
 - `b` → `и` in Russian text, but `plan B` stays
 - `ult` → `где`
+- `ашпьфб` → `figma` and `n/l/` → `т.д.` inside Russian text
 - `руку` and `here` stay, because both words are real
 
 It never touches:
@@ -66,7 +67,7 @@ It never touches:
 - terminals, IDEs and password managers (an editable app list);
 - URLs, e-mail addresses and file paths;
 - code identifiers, camelCase and mixed-script words;
-- unlearned ALL-CAPS acronyms.
+- ALL-CAPS acronyms, unless the other reading is one in common use (`ЗК` → `PR`).
 
 ### It learns from you
 
@@ -168,6 +169,7 @@ Cerf Switcher живёт в строке меню и исправляет сло
 - `ghbdtncnde.` → `приветствую` (клавиша `.` в конце это `ю`)
 - `b` → `и` в русском тексте, но `plan B` не трогается
 - `ult` → `где`
+- `ашпьфб` → `figma` и `n/l/` → `т.д.` в русском тексте
 - `руку` и `here` остаются, потому что оба слова настоящие
 
 Программа никогда не трогает:
@@ -176,7 +178,7 @@ Cerf Switcher живёт в строке меню и исправляет сло
 - терминалы, IDE и менеджеры паролей (список приложений редактируется);
 - адреса сайтов, почту и пути к файлам;
 - код, camelCase и слова со смешанными алфавитами;
-- необученные аббревиатуры ЗАГЛАВНЫМИ.
+- аббревиатуры ЗАГЛАВНЫМИ, если другое прочтение не известная аббревиатура (`ЗК` → `PR`).
 
 ### Учится у вас
 
