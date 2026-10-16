@@ -22,7 +22,7 @@ final class LearnedRulesStoreTests: XCTestCase {
 
     func testNewLabelChangesPhraseBehaviorAndSurvivesReloadExportResetAndImport() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
-        let word = "tilomeraq"
+        let word = "qzvrtk"
         let wrong = KeyMapping.convert(word)
         XCTAssertFalse(model.contains(word, language: "en") || model.isExtendedEnglishWord(word))
         XCTAssertFalse(model.contains(wrong, language: "ru") || model.isExtendedRussianWord(wrong))
@@ -55,7 +55,7 @@ final class LearnedRulesStoreTests: XCTestCase {
 
     func testApplicationExceptionIsPortableAndReaffirmingClearsOnlyThatApplication() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
-        let word = "tilomeraq"
+        let word = "qzvrtk"
         let wrong = KeyMapping.convert(word)
         let store = LearnedRulesStore(defaults: defaults)
         _ = store.recordManualCorrection(original: wrong, converted: word, appBundleID: "editor.first", model: model)

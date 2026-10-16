@@ -17,6 +17,7 @@ import gzip
 import json
 import random
 import re
+import string
 from pathlib import Path
 
 # Quotes are dropped: a Russian quote is Shift+2 (`@` in the English layout),
@@ -24,10 +25,14 @@ from pathlib import Path
 QUOTES = str.maketrans({"«": None, "»": None, "„": None, "“": None, "”": None, '"': None, "’": "'", "…": "..."})
 CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
 LATIN = re.compile(r"[a-z]", re.IGNORECASE)
+# Characters that a plain or Shift key press yields in the US or Russian-PC layout.
+# A token with anything else (emoji, dashes, accents) cannot come from a wrong layout.
+TYPEABLE = set(string.ascii_letters + string.digits + string.punctuation + "№") | set(
+    "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ")
 
 
 def kind(token: str) -> str:
-    if any(char.isdigit() for char in token):
+    if any(char.isdigit() or char not in TYPEABLE for char in token):
         return "technical"
     has_ru, has_en = bool(CYRILLIC.search(token)), bool(LATIN.search(token))
     if has_ru == has_en:

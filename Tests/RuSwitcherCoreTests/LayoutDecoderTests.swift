@@ -493,14 +493,9 @@ final class LayoutDecoderTests: XCTestCase {
     func testCalibratedScoreDecidesUndecidedNames() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
-        for (typed, current, target, context, expected) in [
-            ("Aewpzym/", "en", "ru", ["провинции"], "Фуцзянь."),
-            ("Скфшпыдшыеб", "ru", "en", ["или"], "Craigslist,"),
-        ] {
-            let result = evaluate(typed, current: current, target: target, context: context, belief: russianBelief)
-            XCTAssertEqual(result.decision.reason, .calibratedScore, typed)
-            XCTAssertEqual(result.decision.candidate.replacement, expected, typed)
-        }
+        let result = evaluate("Aewpzym/", context: ["провинции"], belief: russianBelief)
+        XCTAssertEqual(result.decision.reason, .calibratedScore)
+        XCTAssertEqual(result.decision.candidate.replacement, "Фуцзянь.")
         XCTAssertNotNil(model.thresholds.undecidedCalibration)
     }
 
@@ -673,7 +668,7 @@ final class LayoutDecoderTests: XCTestCase {
         )
     }
 
-    func testPlausibleUnknownEnglishWordStaysBlockedInStrongRussianContext() {
+    func testClearlyEnglishUnknownWordConvertsInRussianProse() {
         var russianBelief = LanguageBelief.neutral
         russianBelief.observe(language: "ru")
         russianBelief.observe(language: "ru")
@@ -688,7 +683,80 @@ final class LayoutDecoderTests: XCTestCase {
             context: ["это", "текст"],
             belief: russianBelief
         )
-        XCTAssertEqual(result.decision.verdict, .keep)
+        XCTAssertEqual(result.decision.candidate.replacement, intended)
+        XCTAssertEqual(result.decision.verdict, .switchToConverted)
+        XCTAssertEqual(
+            evaluate("Скфшпыдшыеб", current: "ru", target: "en", context: ["или"], belief: russianBelief)
+                .decision.candidate.replacement,
+            "Craigslist,"
+        )
+        for word in ["тимбилдинг", "рецепшн", "кринж", "задеплоил", "ащщще", "Тщщщщ,"] {
+            let kept = evaluate(word, current: "ru", target: "en", context: ["это", "был"], belief: russianBelief)
+            XCTAssertNotEqual(kept.decision.verdict, .switchToConverted, word)
+        }
+        XCTAssertNotEqual(
+            evaluate("шт.", current: "ru", target: "en", context: ["1"], belief: russianBelief).decision.verdict,
+            .switchToConverted
+        )
+    }
+
+    func testConversationalAcronymConvertsWhenItsLettersSpellNothing() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        let pr = evaluate("ЗК", current: "ru", target: "en", context: ["мержит"], belief: russianBelief)
+        XCTAssertEqual(pr.decision.verdict, .switchToConverted)
+        XCTAssertEqual(pr.decision.candidate.replacement, "PR")
+        // A common word in capitals is not an acronym, and a Russian acronym
+        // needs Russian words before it.
+        for (typed, context) in [("FCE.", ["to"]), ("TT.", ["Audi"])] {
+            XCTAssertNotEqual(evaluate(typed, context: context).decision.verdict, .switchToConverted, typed)
+        }
+    }
+
+    func testCamelCaseBrandAndDottedAbbreviationConvert() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        let brand = evaluate("шЗрщту", current: "ru", target: "en", context: ["новый"], belief: russianBelief)
+        XCTAssertEqual(brand.decision.candidate.replacement, "iPhone")
+        XCTAssertEqual(brand.decision.verdict, .switchToConverted)
+        for (typed, expected) in [("n/l/", "т.д."), ("n/r/", "т.к.")] {
+            let abbreviation = evaluate(typed, context: ["книги", "и"], belief: russianBelief)
+            XCTAssertEqual(abbreviation.decision.candidate.replacement, expected)
+            XCTAssertEqual(abbreviation.decision.verdict, .switchToConverted, typed)
+        }
+        let usa = evaluate("ГюЫю", current: "ru", target: "en", context: ["the"])
+        XCTAssertEqual(usa.decision.candidate.replacement, "U.S.")
+        XCTAssertEqual(usa.decision.verdict, .switchToConverted)
+        // Single letters between dots and a final dot: `d/bp` is `в/из`, `,/e` is `б/у`.
+        for typed in ["d/bp", ",/e"] {
+            XCTAssertEqual(evaluate(typed, context: ["отдал"], belief: russianBelief).decision.verdict, .keep, typed)
+        }
+        // Typed dotted letters in use stay (`U.S.` is not `Г.Ы.`).
+        XCTAssertEqual(evaluate("U.S.", context: ["the"]).decision.verdict, .keep)
+    }
+
+    func testFarMoreCommonReadingBeatsARareKnownWord() {
+        let afterHandSwitch = evaluate("шт", current: "ru", target: "en", context: ["I", "live"], switchedLayoutByHand: true)
+        XCTAssertEqual(afterHandSwitch.decision.candidate.replacement, "in")
+        XCTAssertEqual(afterHandSwitch.decision.verdict, .switchToConverted)
+        let atStart = evaluate("Шт", current: "ru", target: "en")
+        XCTAssertEqual(atStart.decision.candidate.replacement, "In")
+        XCTAssertEqual(atStart.decision.verdict, .switchToConverted)
+        // Close frequencies keep the typed word: `руку` is nearly as common as
+        // `here`, and a word in common use stays after a hand switch.
+        for typed in ["руку", "шею"] {
+            let kept = evaluate(typed, current: "ru", target: "en", context: ["dog"], switchedLayoutByHand: true)
+            XCTAssertEqual(kept.decision.verdict, .keep, typed)
+        }
+        XCTAssertNotEqual(evaluate("шт", current: "ru", target: "en", context: ["пять"]).decision.verdict, .switchToConverted)
+    }
+
+    func testWordOnlyConversationAttestsDecidesAnOpenCase() {
+        var russianBelief = LanguageBelief.neutral
+        russianBelief.observe(language: "ru")
+        let btw = evaluate("иец", current: "ru", target: "en", context: ["норм"], belief: russianBelief)
+        XCTAssertEqual(btw.decision.candidate.replacement, "btw")
+        XCTAssertEqual(btw.decision.verdict, .switchToConverted)
     }
 
     func testExtendedEnglishTargetCanOverrideStaleRussianContext() {
@@ -1055,7 +1123,10 @@ final class LayoutDecoderTests: XCTestCase {
         }
     }
 
-    func testDecoderPerformanceBudget() {
+    func testDecoderPerformanceBudget() throws {
+        // Sanitizer instrumentation makes wall time meaningless; the plain run
+        // still enforces the budget.
+        try XCTSkipIf(ProcessInfo.processInfo.environment["RUSWITCH_SANITIZER"] != nil)
         var durations: [Double] = []
         durations.reserveCapacity(2_000)
         for _ in 0..<2_000 {
