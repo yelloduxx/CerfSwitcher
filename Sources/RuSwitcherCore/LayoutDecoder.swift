@@ -250,15 +250,19 @@ public enum LayoutDecoder {
         // The previous word was typed as-is in the other layout, so the user
         // switched layouts by hand: a single letter, or a word of that
         // language, is what they meant (`родители vs`).
+        let replacementRaw = best.decision.candidate.replacement
+        let replacement = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: replacementRaw))
         if switchedLayoutByHand {
             let literalIsWord = model.attestedWordLogProbability(literal, language: currentCanonical) != nil
                 || (currentCanonical == "ru" && model.isExtendedRussianWord(literal))
-            if literal.count <= 1 || literalIsWord {
+            // A rare word still yields to a far more common reading (`шт` → `in`).
+            let farMoreCommon = literal.count >= 2
+                && (model.conversationalZipf(replacement, language: targetCanonical) ?? 0)
+                    - (model.conversationalZipf(literal, language: currentCanonical) ?? 0) >= Self.handSwitchFrequencyMargin
+            if literal.count <= 1 || (literalIsWord && !farMoreCommon) {
                 return fixed(best.decision.candidate, verdict: .keep, reason: .keepCurrentWord, evidence: [.blockedContext])
             }
         }
-        let replacementRaw = best.decision.candidate.replacement
-        let replacement = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: replacementRaw))
         let sameDecoration = typed.count == replacementRaw.count
             && zip(typed, replacementRaw).allSatisfy { $0.isLetter == $1.isLetter && ($0.isLetter || $0 == $1) }
         let contextInTarget = contextWords.suffix(2).compactMap(SmartTokenizer.languageHint).map(LanguageCode.canonical)
@@ -291,6 +295,21 @@ public enum LayoutDecoder {
 
     /// One order of magnitude, chosen on the FLORES development split.
     private static let conversationalFrequencyMargin = 1.0
+
+    /// Zipf gaps chosen on the development splits (FLORES, UD, chat): a word
+    /// typed after a hand switch, a reading over another known word, and a
+    /// word that only conversational text attests.
+    private static let handSwitchFrequencyMargin = 2.5
+    private static let knownReadingFrequencyMargin = 2.5
+    private static let conversationalOnlyFrequencyMargin = 2.0
+
+    /// Conversational text uses a word at least this often (Zipf 3, once per
+    /// million words) before it counts as evidence on its own.
+    private static let conversationalEvidenceFloor = 3.0
+
+    /// ln-probability advantage of the English reading's characters that
+    /// makes an unlisted Russian spelling a layout mistake (`ашпьфб` → `figma`).
+    private static let unlistedEnglishCharacterAdvantage = 2.5
 
     private static func isUnusualInProse(_ character: Character) -> Bool {
         !character.isLetter && !character.isWhitespace && !".,!?;:()\"'«»-–—…".contains(character)
@@ -424,7 +443,47 @@ public enum LayoutDecoder {
             && model.attestedWordLogProbability(converted, language: targetCanonical) != nil
             && model.attestedWordLogProbability(literalLetters, language: currentCanonical) == nil
             && !(currentCanonical == "en" ? model.isExtendedEnglishWord(literalLetters) : model.isExtendedRussianWord(literalLetters))
+        let targetZipf = model.conversationalZipf(converted, language: targetCanonical)
+        let literalZipf = model.conversationalZipf(literal, language: currentCanonical)
+        let literalIsExtended = currentCanonical == "en" ? model.isExtendedEnglishWord(literalLetters) : model.isExtendedRussianWord(literalLetters)
+        // An acronym in conversational use whose typed letters never occur
+        // (`ЗК` → `PR`). Russian text borrows English acronyms freely, so a
+        // Russian one needs Russian words before it; a common word in capitals
+        // (`ECS` → `УСЫ`) is not an acronym.
+        let conversationalAcronymPair = typedLetters.count >= 2 && typedLetters == typedLetters.uppercased()
+            && SmartTokenizer.isAllUppercaseWord(candidate.replacement)
+            && (targetZipf ?? 0) >= Self.conversationalEvidenceFloor
+            && model.conversationalZipf(literalLetters, language: currentCanonical) == nil
+            && model.attestedWordLogProbability(literalLetters, language: currentCanonical) == nil
+            && !literalIsExtended
+            && Set(typedLetters.map(\.isASCII)).count == 1
+            && model.wordLogProbability(converted, language: targetCanonical) == nil
+            && (targetCanonical == "en" || previousLanguage == targetCanonical)
+        // A camelCase brand in conversational use (`шЗрщту` → `iPhone`).
+        let conversationalBrand = convertedShape.kind != .lexical
+            && targetCanonical == "en" && candidate.prefix.isEmpty && candidate.suffix.isEmpty
+            && candidate.replacement.allSatisfy(\.isLetter)
+            && candidate.replacement.dropFirst().contains(where: \.isUppercase)
+            && candidate.replacement.contains(where: \.isLowercase)
+            && (targetZipf ?? 0) >= Self.conversationalEvidenceFloor && literalZipf == nil && !literalIsExtended
+            && model.attestedWordLogProbability(literal, language: currentCanonical) == nil
+        // A dotted abbreviation of single letters in use (`n/l/` → `т.д.`, not `б/у`,
+        // `ГюЫю` → `U.S.`) inside prose of its language, compared without its
+        // dots, against the typed letters only when they form one too.
+        func isDottedAbbreviation(_ text: String) -> Bool {
+            text.range(of: #"^\p{L}(\.\p{L})+\.$"#, options: .regularExpression) != nil
+        }
+        let abbreviationZipf = model.conversationalZipf(converted.filter(\.isLetter), language: targetCanonical) ?? 0
+        let typedAbbreviationZipf = isDottedAbbreviation(candidate.typedRaw)
+            ? model.conversationalZipf(literalLetters, language: currentCanonical) ?? 0
+            : 0
+        let conversationalAbbreviation = isDottedAbbreviation(candidate.replacement)
+            && previousLanguage == targetCanonical
+            && abbreviationZipf >= Self.conversationalEvidenceFloor
+            && abbreviationZipf - typedAbbreviationZipf >= Self.conversationalOnlyFrequencyMargin
+            && !literalIsExtended
         let softShapeOverride = confirmedAcronymPair || attestedAcronymPair || hyphenatedTargetWord
+            || conversationalAcronymPair || conversationalBrand || conversationalAbbreviation
         if (SmartTokenizer.isSingleUppercaseLetter(candidate.typedRaw) && !capitalIsOtherLayoutWord)
             || (sourceShapeIsProtected && !softShapeOverride)
             || (convertedShape.kind.blocksAutomaticConversion
@@ -447,6 +506,9 @@ public enum LayoutDecoder {
         }
         if adaptiveBias <= -10 {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedLearned, evidence: [.blockedContext])
+        }
+        if conversationalAbbreviation {
+            return fixed(baseCandidate, verdict: .switchToConverted, reason: .frequentShort, evidence: [.frequent])
         }
 
         let sourceKnown = model.wordLogProbability(literal, language: currentCanonical)
@@ -524,7 +586,11 @@ public enum LayoutDecoder {
            targetKnown != nil || targetExtendedEnglish || targetExtendedRussian,
            !frequentEnglishTargetBeatsWeakSource,
            !frequentTargetOutranksRareSource,
-           !contextContinuesInTarget {
+           !contextContinuesInTarget,
+           // Without words of the typed language just before, a far more
+           // common reading wins over a rare known one (`Шт` → `In`).
+           !((targetZipf ?? 0) - (literalZipf ?? 0) >= Self.knownReadingFrequencyMargin
+                && !recentLanguages.suffix(2).contains(currentCanonical)) {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
         }
         if literal.count >= 2, englishSourceConfidence == .frequent, !contextContinuesInTarget {
@@ -721,15 +787,27 @@ public enum LayoutDecoder {
             // advantage and the recent language state is not distinctly Russian.
             let characterAdvantage = model.characterLogProbability(converted, language: targetCanonical)
                 - model.characterLogProbability(literal, language: currentCanonical)
-            if converted.count < 5
+            // A clearer advantage also holds in Russian prose for longer words
+            // (`ашпьфб` → `figma`), and for short ones outside it.
+            let clearCharacterAdvantage = converted.count >= 3
+                && characterAdvantage >= Self.unlistedEnglishCharacterAdvantage
+                && (converted.count >= 5 || currentProbability < 0.62)
+            if !clearCharacterAdvantage && (converted.count < 5
                 || characterAdvantage < model.thresholds.englishTargetCharacterAdvantage
-                || currentProbability >= 0.62 {
+                || currentProbability >= 0.62) {
                 return fixed(baseCandidate, verdict: .keep, reason: .blockedContext, evidence: [.blockedContext])
             }
         }
 
+        if conversationalAcronymPair || conversationalBrand { convertedScore += 3.0 }
+        let unlistedEnglishEvidence = currentCanonical == "ru" && targetCanonical == "en"
+            && sourceKnown == nil && !sourceExtendedRussian
+            && model.attestedWordLogProbability(literal, language: currentCanonical) == nil
+            && converted.count >= 3 && characterAdvantage >= Self.unlistedEnglishCharacterAdvantage
+        if unlistedEnglishEvidence { convertedScore += max(0, currentBeliefScore - targetBeliefScore) }
         let margin = convertedScore - literalScore
         let hasLexicalEvidence = targetKnown != nil
+            || conversationalAcronymPair || conversationalBrand || unlistedEnglishEvidence
             || attestedAcronymPair
             || hyphenatedTargetWord
             || rankedExtendedEnglishTarget
@@ -769,7 +847,20 @@ public enum LayoutDecoder {
             )
             : nil
         let calibrated = calibrationFeatures.map { model.thresholds.undecidedCalibration?.accepts($0) == true } == true
-        let verdict: LayoutVerdict = calibrated ? .switchToConverted : ruleVerdict
+        // A word only conversational text attests (`иец` → `btw`) decides
+        // what the rules left open. Two letters also need the previous word
+        // in the target language.
+        let conversationalOnly = ruleVerdict == .undecided
+            && candidate.prefix.isEmpty && converted.count >= 2
+            && !(typedCore.count > 1 && typedCore == typedCore.uppercased())
+            && Set(typedCore.filter(\.isLetter).map(\.isASCII)).count == 1
+            && (converted.count >= 3 || contextWords.last.flatMap(SmartTokenizer.languageHint).map(LanguageCode.canonical) == targetCanonical)
+            && candidate.typedRaw.filter(\.isLetter).count == candidate.replacement.filter(\.isLetter).count
+            && (targetZipf ?? 0) >= Self.conversationalEvidenceFloor
+            && (targetZipf ?? 0) - (literalZipf ?? 0) >= Self.conversationalOnlyFrequencyMargin
+            && model.attestedWordLogProbability(literal, language: currentCanonical) == nil
+            && !literalIsExtended && !sourceExtendedRussian
+        let verdict: LayoutVerdict = calibrated || conversationalOnly ? .switchToConverted : ruleVerdict
         if verdict == .undecided { evidence.append(.abstained) }
         if calibrated { evidence.append(.calibrated) }
         let reason: AutoConvertDecisionReason
