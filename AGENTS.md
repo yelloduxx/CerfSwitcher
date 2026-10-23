@@ -1501,6 +1501,20 @@ bash scripts/run_native_release_smoke.sh
   fixtures do not. The fresh test numbers above predate build 159, which only
   keeps more words (`шею`), so it cannot add a conversion.
 
+### Handwritten adversarial phrases (build 161)
+
+- `Tests/Fixtures/Adversarial/handwritten-v1..v3.txt` are messages written by
+  hand to catch the switcher, not taken from any corpus.
+  `bash scripts/run_adversarial_phrases.sh` runs them through the planner path
+  and writes each wrong decision to `.build/adversarial-findings.tsv`;
+  `scripts/list_layout_failures.py` does the same for any event-stream run.
+- Build 161 snapshot (`findings-build161.tsv`): 4 wrong replacements, 17 false
+  positives, 243 misses (45 after an earlier conversion in the same message).
+  Long natural messages had no harm; errors cluster in short messages, first
+  words, slang, letter names and last letters on punctuation keys. The
+  directory's README lists the classes. These phrases are now a development
+  set: write new ones for an independent check.
+
 ## Build, Signing and Installation
 
 Before installation:

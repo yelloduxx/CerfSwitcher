@@ -1,0 +1,265 @@
+set	class	typed	actual	expected	reason	earlier_switch	phrase
+handwritten-v1	wrong	rhby;	крин;	кринж	frequentWord	no	this is so кринж 
+handwritten-v1	wrong	rhby;	крин;	кринж	frequentWord	no	кринж какой-то 
+handwritten-v1	false-positive	йцукен	qwerty	йцукен	dictionary	no	йцукен это раскладка 
+handwritten-v1	false-positive	C	С	C	frequentShort	yes	витамин C 
+handwritten-v1	false-positive	afk	фал	afk	frequentShort	no	brb, afk 
+handwritten-v1	false-positive	c	с	c	frequentShort	no	c и g это буквы 
+handwritten-v1	false-positive	c	с	c	frequentShort	no	c и g это буквы 
+handwritten-v1	false-positive	hf	ра	hf	frequentShort	no	np, gl hf 
+handwritten-v1	false-positive	ща	of	ща	frequentShort	no	ща приду 
+handwritten-v1	false-positive	ща,	of?	ща,	frequentShort	no	ща, погоди минутку 
+handwritten-v1	false-positive	туче	next	туче	frequentWord	no	по туче видно что будет дождь 
+handwritten-v1	miss	ЖВ	ЖВ	:D	blockedCodeLike	yes	ok :D 
+handwritten-v1	miss	ФшкЗщвы	ФшкЗщвы	AirPods	blockedCodeLike	no	AirPods сели 
+handwritten-v1	miss	И	И	B	blockedCodeLike	yes	plan B is ready 
+handwritten-v1	miss	И	И	B	blockedCodeLike	no	plan B is ready 
+handwritten-v1	miss	С	С	C	blockedCodeLike	no	витамин C 
+handwritten-v1	miss	СУЩ	СУЩ	CEO	blockedCodeLike	no	CEO и HR ушли 
+handwritten-v1	miss	СУЩ	СУЩ	CEO	blockedCodeLike	no	CEO и HR ушли 
+handwritten-v1	miss	СШ	СШ	CI	blockedCodeLike	yes	у меня упал build на CI 
+handwritten-v1	miss	РК	РК	HR	blockedCodeLike	no	CEO и HR ушли 
+handwritten-v1	miss	ТгддЗщштеукУчсузешщт	ТгддЗщштеукУчсузешщт	NullPointerException	blockedCodeLike	no	это кидает NullPointerException 
+handwritten-v1	miss	КУФВЬУ	КУФВЬУ	README	blockedCodeLike	no	поменяй README и закоммить 
+handwritten-v1	miss	КУФВЬУ	КУФВЬУ	README	blockedCodeLike	no	поменяй README и закоммить 
+handwritten-v1	miss	ГЛ	ГЛ	UK	blockedCodeLike	yes	the USA and the UK 
+handwritten-v1	miss	ГЛ	ГЛ	UK	blockedCodeLike	no	the USA and the UK 
+handwritten-v1	miss	сщтыщдуюдщп	сщтыщдуюдщп	console.log	blockedCodeLike	no	вызови console.log и посмотри 
+handwritten-v1	miss	сщтыщдуюдщп	сщтыщдуюдщп	console.log	blockedCodeLike	no	вызови console.log и посмотри 
+handwritten-v1	miss	шЗрщтуб	шЗрщтуб	iPhone,	blockedCodeLike	no	купил iPhone, но верну 
+handwritten-v1	miss	шЗрщтуб	шЗрщтуб	iPhone,	blockedCodeLike	no	купил iPhone, но верну 
+handwritten-v1	miss	<	<	Б	blockedCodeLike	yes	план Б 
+handwritten-v1	miss	DRjynfrnt	DRjynfrnt	ВКонтакте	blockedCodeLike	no	ВКонтакте 
+handwritten-v1	miss	:R{	:R{	ЖКХ	blockedCodeLike	no	ЖКХ опять подняли 
+handwritten-v1	miss	BG	BG	ИП	blockedCodeLike	no	ИП Иванов 
+handwritten-v1	miss	GR	GR	ПК	blockedCodeLike	no	ПК сломался 
+handwritten-v1	miss	HA	HA	РФ	blockedCodeLike	yes	в РФ и США 
+handwritten-v1	miss	HA	HA	РФ	blockedCodeLike	no	в РФ и США 
+handwritten-v1	miss	NP	NP	ТЗ	blockedCodeLike	no	ТЗ готово 
+handwritten-v1	miss	NbrNjr	NbrNjr	ТикТок	blockedCodeLike	no	ТикТок 
+handwritten-v1	miss	n/t/	n/t/	т.е.	blockedCodeLike	no	т.е. ты не придешь 
+handwritten-v1	miss	'[?	'[?	эх,	blockedCodeLike	no	эх, жаль 
+handwritten-v1	miss	Вщеф	Вщеф	Dota	blockedContext	no	погнали в Dota после работы 
+handwritten-v1	miss	Щящт	Щящт	Ozon	blockedContext	no	закажи на Ozon или Wildberries 
+handwritten-v1	miss	Цш-Аш	Цш-Аш	Wi-Fi	blockedContext	no	Wi-Fi пароль на холодильнике 
+handwritten-v1	miss	Цш-Аш	Цш-Аш	Wi-Fi	blockedContext	no	Wi-Fi пароль на холодильнике 
+handwritten-v1	miss	фыва	фыва	asdf	blockedContext	no	asdf и фыва 
+handwritten-v1	miss	вудф,	вудф,	dela?	blockedContext	yes	privet, kak dela? 
+handwritten-v1	miss	руку	руку	here	blockedContext	no	here we go again 
+handwritten-v1	miss	руку	руку	here	blockedContext	yes	I'm here 
+handwritten-v1	miss	лфл	лфл	kak	blockedContext	yes	privet, kak dela? 
+handwritten-v1	miss	тзь	тзь	npm	blockedContext	no	запусти npm install и потом npm run dev 
+handwritten-v1	miss	тзь	тзь	npm	blockedContext	yes	запусти npm install и потом npm run dev 
+handwritten-v1	miss	тзь	тзь	npm	blockedContext	yes	запусти npm install и потом npm run dev 
+handwritten-v1	miss	зудьутш	зудьутш	pelmeni	blockedContext	yes	my babushka makes the best pelmeni 
+handwritten-v1	miss	зудьутш	зудьутш	pelmeni	blockedContext	yes	my babushka makes the best pelmeni 
+handwritten-v1	miss	кщслэтэкщдд	кщслэтэкщдд	rock'n'roll	blockedContext	no	rock'n'roll forever 
+handwritten-v1	miss	еще	еще	tot	blockedContext	yes	the tot is asleep 
+handwritten-v1	miss	ямщтш	ямщтш	zvoni	blockedContext	yes	ya doma, zvoni 
+handwritten-v1	miss	b	b	и	blockedContext	no	еще чуть-чуть и всё 
+handwritten-v1	miss	b	b	и	blockedContext	no	ну и где он теперь 
+handwritten-v1	miss	b	b	и	blockedContext	no	a и b переменные 
+handwritten-v1	miss	b	b	и	blockedContext	no	CEO и HR ушли 
+handwritten-v1	miss	b	b	и	blockedContext	no	Нью-Йорк и Лос-Анджелес 
+handwritten-v1	miss	b	b	и	blockedContext	no	ну и ну 
+handwritten-v1	miss	b	b	и	blockedContext	no	asdf и фыва 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну еще раз попробуй 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну и где он теперь 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну ваще 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну такое 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну ладно ))) 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну да 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну и ну 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну и ну 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну пока 
+handwritten-v1	miss	ye	ye	ну	blockedContext	no	ну ты даёшь 
+handwritten-v1	miss	ye///	ye///	ну...	blockedContext	no	ну... 
+handwritten-v1	miss	he,	he,	руб	blockedContext	yes	2 шт. по 100 руб 
+handwritten-v1	miss	here	here	руку	blockedContext	yes	тут руку не подадут 
+handwritten-v1	miss	here?	here?	руку,	blockedContext	yes	дай руку, тут скользко 
+handwritten-v1	miss	next	next	туче	blockedContext	yes	по туче видно что будет дождь 
+handwritten-v1	miss	next	next	туче	blockedContext	no	по туче видно что будет дождь 
+handwritten-v1	miss	in/	in/	шт.	blockedContext	no	2 шт. по 100 руб 
+handwritten-v1	miss	фал	фал	afk	keepCurrentWord	yes	brb, afk 
+handwritten-v1	miss	и	и	b	keepCurrentWord	yes	a и b переменные 
+handwritten-v1	miss	с	с	c	keepCurrentWord	no	c и g это буквы 
+handwritten-v1	miss	с	с	c	keepCurrentWord	no	c и g это буквы 
+handwritten-v1	miss	руку	руку	here	keepCurrentWord	no	we are here now 
+handwritten-v1	miss	ра	ра	hf	keepCurrentWord	no	np, gl hf 
+handwritten-v1	miss	туе	туе	net	keepCurrentWord	yes	da net navernoe 
+handwritten-v1	miss	B	B	И	keepCurrentWord	no	НЕТ НЕТ И НЕТ 
+handwritten-v1	miss	d	d	в	keepCurrentWord	no	Петя и Маша едут в Казань 
+handwritten-v1	miss	d	d	в	keepCurrentWord	no	Гарри Поттер в Хогвартсе 
+handwritten-v1	miss	tot	tot	еще	keepCurrentWord	no	еще чуть-чуть и всё 
+handwritten-v1	miss	tot	tot	еще	keepCurrentWord	no	ну еще раз попробуй 
+handwritten-v1	miss	b	b	и	keepCurrentWord	no	поменяй README и закоммить 
+handwritten-v1	miss	b	b	и	keepCurrentWord	no	c и g это буквы 
+handwritten-v1	miss	b	b	и	keepCurrentWord	no	CEO и HR ушли 
+handwritten-v1	miss	b	b	и	keepCurrentWord	no	Шерлок Холмс и доктор Ватсон 
+handwritten-v1	miss	b	b	и	keepCurrentWord	no	то то и оно 
+handwritten-v1	miss	qwerty	qwerty	йцукен	keepCurrentWord	no	йцукен это раскладка 
+handwritten-v1	miss	vlf	vlf	мда	keepCurrentWord	no	мда 
+handwritten-v1	miss	he,	he,	руб	keepCurrentWord	no	2 шт. по 100 руб 
+handwritten-v1	miss	c	c	с	keepCurrentWord	no	ору с этого видоса 
+handwritten-v1	miss	of	of	ща	keepCurrentWord	no	ща приду 
+handwritten-v1	miss	of?	of?	ща,	keepCurrentWord	no	ща, погоди минутку 
+handwritten-v1	miss	ofc	ofc	щас	keepCurrentWord	no	щас буду 
+handwritten-v1	miss	игпб	игпб	bug,	undecided	no	это не bug, это feature 
+handwritten-v1	miss	п	п	g	undecided	no	c и g это буквы 
+handwritten-v1	miss	пд	пд	gl	undecided	no	np, gl hf 
+handwritten-v1	miss	ды	ды	ls	undecided	yes	открой terminal и набери ls 
+handwritten-v1	miss	тзб	тзб	np,	undecided	no	np, gl hf 
+handwritten-v1	miss	чВ	чВ	xD	undecided	no	лол xD 
+handwritten-v1	miss	DEP	DEP	ВУЗ	undecided	no	ВУЗ закончил 
+handwritten-v1	miss	Kjc-Fyl;tktc	Kjc-Fyl;tktc	Лос-Анджелес	undecided	no	Нью-Йорк и Лос-Анджелес 
+handwritten-v1	miss	VUE	VUE	МГУ	undecided	no	МГУ или МФТИ 
+handwritten-v1	miss	VAW	VAW	МФЦ	undecided	no	МФЦ 
+handwritten-v1	miss	Ym.-Qjhr	Ym.-Qjhr	Нью-Йорк	undecided	no	Нью-Йорк и Лос-Анджелес 
+handwritten-v1	miss	Cfyrn-Gtnth,ehu	Cfyrn-Gtnth,ehu	Санкт-Петербург	undecided	no	Санкт-Петербург 
+handwritten-v1	miss	fq	fq	ай	undecided	no	ай 
+handwritten-v1	miss	,h	,h	бр	undecided	no	бр 
+handwritten-v1	miss	lf-lf	lf-lf	да-да	undecided	no	да-да 
+handwritten-v1	miss	ru	ru	кг	undecided	no	5 кг яблок 
+handwritten-v1	miss	rtr?	rtr?	кек,	undecided	yes	лол, кек, чебурек 
+handwritten-v1	miss	kz	kz	ля	undecided	no	ля ля тополя 
+handwritten-v1	miss	kz	kz	ля	undecided	no	ля ля тополя 
+handwritten-v1	miss	jr	jr	ок	undecided	no	ок ок 
+handwritten-v1	miss	jr	jr	ок	undecided	no	ок ок 
+handwritten-v1	miss	jr?	jr?	ок,	undecided	no	ок, понял 
+handwritten-v1	miss	je	je	оу	undecided	no	оу май гад 
+handwritten-v1	miss	g;	g;	пж	undecided	yes	спс, пж 
+handwritten-v1	miss	ae	ae	фу	undecided	no	фу 
+handwritten-v1	miss	asdf	asdf	фыва	undecided	no	asdf и фыва 
+handwritten-v1	miss	xenm-xenm	xenm-xenm	чуть-чуть	undecided	no	еще чуть-чуть и всё 
+handwritten-v1	miss	'v	'v	эм	undecided	no	эм 
+handwritten-v2	wrong	dfq,	вай,	вайб	characterModel	no	вайб 
+handwritten-v2	wrong	gfcb,	паси,	пасиб	frequentWord	no	пасиб 
+handwritten-v2	false-positive	B	И	B	frequentShort	yes	буква B 
+handwritten-v2	false-positive	D	В	D	frequentShort	yes	витамин D 
+handwritten-v2	false-positive	ку	re	ку	frequentShort	no	ку всем 
+handwritten-v2	false-positive	ку,	re?	ку,	frequentShort	no	ку, как сам? 
+handwritten-v2	false-positive	ша,	if?	ша,	frequentShort	no	ша, тихо 
+handwritten-v2	false-positive	шт	in	шт	frequentShort	no	шт это штуки 
+handwritten-v2	false-positive	ща	of	ща	frequentShort	no	ща буду 
+handwritten-v2	false-positive	ща	of	ща	frequentShort	no	ща сделаю 
+handwritten-v2	miss	И	И	B	blockedCodeLike	no	буква B 
+handwritten-v2	miss	В	В	D	blockedCodeLike	no	витамин D 
+handwritten-v2	miss	Д	Д	L	blockedCodeLike	no	L 
+handwritten-v2	miss	Ь	Ь	M	blockedCodeLike	no	размер M 
+handwritten-v2	miss	Ц	Ц	W	blockedCodeLike	no	W 
+handwritten-v2	miss	<	<	Б	blockedCodeLike	yes	группа Б 
+handwritten-v2	miss	T	T	Е	blockedCodeLike	yes	витамин Е 
+handwritten-v2	miss	,	,	б	blockedCodeLike	yes	вариант а или б 
+handwritten-v2	miss	,	,	б	blockedCodeLike	yes	вариант а или б 
+handwritten-v2	miss	,/e	,/e	б/у	blockedCodeLike	no	б/у телефон 
+handwritten-v2	miss	;/l	;/l	ж/д	blockedCodeLike	no	ж/д вокзал 
+handwritten-v2	miss	'-'-'	'-'-'	э-э-э	blockedCodeLike	no	э-э-э 
+handwritten-v2	miss	`;	`;	ёж	blockedCodeLike	no	ёж в лесу 
+handwritten-v2	miss	Ищи	Ищи	Bob	blockedContext	no	Bob is my uncle 
+handwritten-v2	miss	Ищи	Ищи	Bob	blockedContext	yes	ask Bob about it 
+handwritten-v2	miss	пеп	пеп	gtg	blockedContext	no	gtg bye 
+handwritten-v2	miss	рук	рук	her	blockedContext	yes	pass her the salt 
+handwritten-v2	miss	рук	рук	her	blockedContext	no	pass her the salt 
+handwritten-v2	miss	руки	руки	herb	blockedContext	no	herb garden in the backyard 
+handwritten-v2	miss	руки	руки	herb	blockedContext	yes	add some fresh herb 
+handwritten-v2	miss	руки	руки	herb	blockedContext	yes	add some fresh herb 
+handwritten-v2	miss	тмь	тмь	nvm	blockedContext	no	nvm 
+handwritten-v2	miss	еще	еще	tot	blockedContext	yes	a tot and a dog 
+handwritten-v2	miss	еенд	еенд	ttyl	blockedContext	no	ttyl 
+handwritten-v2	miss	чщчщ	чщчщ	xoxo	blockedContext	no	xoxo 
+handwritten-v2	miss	ну	ну	ye	blockedContext	no	ye olde shop 
+handwritten-v2	miss	b	b	и	blockedContext	no	ну и ладно 
+handwritten-v2	miss	ye	ye	ну	blockedContext	no	ну и ладно 
+handwritten-v2	miss	ye	ye	ну	blockedContext	no	ну давай 
+handwritten-v2	miss	ye	ye	ну	blockedContext	no	эм ну 
+handwritten-v2	miss	ye	ye	ну	blockedContext	no	ну ё-моё 
+handwritten-v2	miss	ye	ye	ну	blockedContext	no	ну всё, пока 
+handwritten-v2	miss	her	her	рук	blockedContext	no	рук не хватает 
+handwritten-v2	miss	in	in	шт	blockedContext	no	шт это штуки 
+handwritten-v2	miss	туе	туе	net	keepCurrentWord	yes	the net is down 
+handwritten-v2	miss	щас	щас	ofc	keepCurrentWord	no	ofc yes 
+handwritten-v2	miss	к	к	r	keepCurrentWord	no	u r right 
+handwritten-v2	miss	tot	tot	еще	keepCurrentWord	no	еще одну 
+handwritten-v2	miss	tot	tot	еще	keepCurrentWord	no	еще бы 
+handwritten-v2	miss	bob	bob	ищи	keepCurrentWord	no	ищи ключи под ковриком 
+handwritten-v2	miss	bob	bob	ищи	keepCurrentWord	no	ищи ветра в поле 
+handwritten-v2	miss	re	re	ку	keepCurrentWord	no	ку всем 
+handwritten-v2	miss	re?	re?	ку,	keepCurrentWord	no	ку, как сам? 
+handwritten-v2	miss	vlf	vlf	мда	keepCurrentWord	no	мда уж 
+handwritten-v2	miss	ht	ht	ре	keepCurrentWord	no	ре мажор 
+handwritten-v2	miss	herb	herb	руки	keepCurrentWord	no	руки вверх 
+handwritten-v2	miss	herb	herb	руки	keepCurrentWord	yes	мой руки перед едой 
+handwritten-v2	miss	if?	if?	ша,	keepCurrentWord	no	ша, тихо 
+handwritten-v2	miss	of	of	ща	keepCurrentWord	no	ща буду 
+handwritten-v2	miss	of	of	ща	keepCurrentWord	no	ща сделаю 
+handwritten-v2	miss	ЧД	ЧД	XL	undecided	no	размер XL 
+handwritten-v2	miss	вь	вь	dm	undecided	no	dm me 
+handwritten-v2	miss	уя	уя	ez	undecided	no	gg ez 
+handwritten-v2	miss	ак	ак	fr	undecided	no	fr fr 
+handwritten-v2	miss	ак	ак	fr	undecided	no	fr fr 
+handwritten-v2	miss	пп	пп	gg	undecided	no	gg wp 
+handwritten-v2	miss	пп	пп	gg	undecided	no	gg ez 
+handwritten-v2	miss	ол	ол	jk	undecided	no	jk lol 
+handwritten-v2	miss	л	л	k	undecided	no	k thx 
+handwritten-v2	miss	лл	лл	kk	undecided	no	kk 
+handwritten-v2	miss	кт	кт	rn	undecided	no	rn busy 
+handwritten-v2	miss	ен	ен	ty	undecided	no	ty so much 
+handwritten-v2	miss	г	г	u	undecided	no	u r right 
+handwritten-v2	miss	г	г	u	undecided	yes	love u 
+handwritten-v2	miss	цз	цз	wp	undecided	no	gg wp 
+handwritten-v2	miss	f-f-f	f-f-f	а-а-а	undecided	no	а-а-а 
+handwritten-v2	miss	fq	fq	ай	undecided	no	ай да молодец 
+handwritten-v2	miss	,h	,h	бр	undecided	no	бр холодно 
+handwritten-v2	miss	le,	le,	дуб	undecided	yes	старый дуб 
+handwritten-v2	miss	rtr	rtr	кек	undecided	no	кек 
+handwritten-v2	miss	rvr	rvr	кмк	undecided	no	кмк нормально 
+handwritten-v2	miss	kc	kc	лс	undecided	no	лс проверь 
+handwritten-v2	miss	v,	v,	мб	undecided	no	мб завтра 
+handwritten-v2	miss	yt-f	yt-f	не-а	undecided	no	не-а 
+handwritten-v2	miss	ye-ye	ye-ye	ну-ну	undecided	no	ну-ну 
+handwritten-v2	miss	j-j-j	j-j-j	о-о-о	undecided	no	о-о-о 
+handwritten-v2	miss	jr	jr	ок	undecided	no	ок 
+handwritten-v2	miss	jrlf	jrlf	окда	undecided	no	окда 
+handwritten-v2	miss	g;	g;	пж	undecided	no	пж помоги 
+handwritten-v2	miss	crea	crea	скуф	undecided	no	скуф 
+handwritten-v2	miss	ae	ae	фу	undecided	no	фу как противно 
+handwritten-v2	miss	xl	xl	чд	undecided	no	чд 
+handwritten-v2	miss	'v	'v	эм	undecided	no	эм ну 
+handwritten-v2	miss	`-vj`	`-vj`	ё-моё	undecided	no	ну ё-моё 
+handwritten-v3	miss	.фзш.щквукы	.фзш.щквукы	/api/orders	blockedCodeLike	no	ошибка 500 на эндпоинте /api/orders 
+handwritten-v3	miss	СШб	СШб	CI,	blockedCodeLike	no	тесты упали на CI, посмотри логи 
+handwritten-v3	miss	СШб	СШб	CI,	blockedCodeLike	no	тесты упали на CI, посмотри логи 
+handwritten-v3	miss	СЕК	СЕК	CTR	blockedCodeLike	no	CTR упал, давай поменяем обложку 
+handwritten-v3	miss	СЕК	СЕК	CTR	blockedCodeLike	no	CTR упал, давай поменяем обложку 
+handwritten-v3	miss	СкфырДщщзИфслЩаа	СкфырДщщзИфслЩаа	CrashLoopBackOff	blockedCodeLike	yes	kubectl get pods показывает CrashLoopBackOff 
+handwritten-v3	miss	СкфырДщщзИфслЩаа	СкфырДщщзИфслЩаа	CrashLoopBackOff	blockedCodeLike	yes	kubectl get pods показывает CrashLoopBackOff 
+handwritten-v3	miss	ЕнзуУккщк	ЕнзуУккщк	TypeError	blockedCodeLike	yes	в логах Sentry куча ошибок TypeError 
+handwritten-v3	miss	МЗТб	МЗТб	VPN,	blockedCodeLike	no	скачай VPN, без него не работает 
+handwritten-v3	miss	МЗТб	МЗТб	VPN,	blockedCodeLike	no	скачай VPN, без него не работает 
+handwritten-v3	miss	МЫ	МЫ	VS	blockedCodeLike	no	в VS Code открой терминал и запусти тесты 
+handwritten-v3	miss	ЦИ	ЦИ	WB	blockedCodeLike	no	реклама на WB съела весь бюджет за два дня 
+handwritten-v3	miss	ЦИ	ЦИ	WB	blockedCodeLike	no	реклама на WB съела весь бюджет за два дня 
+handwritten-v3	miss	учфьздуюсщь	учфьздуюсщь	example.com	blockedCodeLike	no	сайт example.com не открывается 
+handwritten-v3	miss	учфьздуюсщь	учфьздуюсщь	example.com	blockedCodeLike	no	сайт example.com не открывается 
+handwritten-v3	miss	пшергиюсщь	пшергиюсщь	github.com	blockedCodeLike	no	зайди на github.com и найди репу 
+handwritten-v3	miss	пшергиюсщь	пшергиюсщь	github.com	blockedCodeLike	no	зайди на github.com и найди репу 
+handwritten-v3	miss	шмфтюзуекщм@ьфшдюкг	шмфтюзуекщм@ьфшдюкг	ivan.petrov@mail.ru	blockedCodeLike	yes	мой email ivan.petrov@mail.ru 
+handwritten-v3	miss	ьфсЩЫб	ьфсЩЫб	macOS,	blockedCodeLike	no	надо обновить macOS, а то всё тормозит 
+handwritten-v3	miss	гыук_шв	гыук_шв	user_id	blockedCodeLike	no	переменная user_id не определена 
+handwritten-v3	miss	LHH	LHH	ДРР	blockedCodeLike	no	ДРР слишком высокий, отключи автоставки 
+handwritten-v3	miss	Ошкф	Ошкф	Jira	blockedContext	no	заведи задачу в Jira и назначь на меня 
+handwritten-v3	miss	Ошкф	Ошкф	Jira	blockedContext	no	заведи задачу в Jira и назначь на меня 
+handwritten-v3	miss	Щящт	Щящт	Ozon	blockedContext	no	слушай, а ты уже обновил карточку товара на Ozon или ещё нет? 
+handwritten-v3	miss	лгиусед	лгиусед	kubectl	blockedContext	no	kubectl get pods показывает CrashLoopBackOff 
+handwritten-v3	miss	ye	ye	ну	blockedContext	no	ну ты и придумал конечно 
+handwritten-v3	miss	b	b	и	keepCurrentWord	no	ну ты и придумал конечно 
+handwritten-v3	miss	b	b	и	keepCurrentWord	no	сделай форк репозитория и открой pull request 
+handwritten-v3	miss	ye	ye	ну	keepCurrentWord	no	слушай, я тут подумал, может ну его 
+handwritten-v3	miss	[kt,	[kt,	хлеб	keepCurrentWord	no	мама просила купить молоко и хлеб 
+handwritten-v3	miss	z	z	я	keepCurrentWord	no	типа я такой: what?! а он молчит 
+handwritten-v3	miss	ЗВА	ЗВА	PDF	undecided	no	скинь мне PDF с презентацией 
+handwritten-v3	miss	зь	зь	pm	undecided	yes	the meeting is moved to Thursday at 3 pm 
+handwritten-v3	miss	зь	зь	pm	undecided	no	the meeting is moved to Thursday at 3 pm 
+handwritten-v3	miss	ru?	ru?	кг,	undecided	yes	вес 70 кг, рост 180 см 
+handwritten-v3	miss	cv	cv	см	undecided	yes	вес 70 кг, рост 180 см 
+handwritten-v3	miss	cv	cv	см	undecided	no	вес 70 кг, рост 180 см 
