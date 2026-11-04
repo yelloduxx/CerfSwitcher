@@ -75,6 +75,11 @@ let package = Package(
             path: "Tests/NativeDriver"
         ),
         .testTarget(
+            name: "RuSwitcherNativeTests",
+            dependencies: ["RuSwitcher", "RuSwitcherAppSupport"],
+            path: "Tests/RuSwitcherNativeTests"
+        ),
+        .testTarget(
             name: "RuSwitcherTypingTests",
             dependencies: ["RuSwitcherTestSupport", "RuSwitcherCore"],
             path: "Tests/RuSwitcherTypingTests"

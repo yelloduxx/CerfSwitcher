@@ -14,7 +14,7 @@ installed build changes.
 - Automatic conversion is off by default until the user enables it.
 - Primary repository: `yelloduxx/CerfSwitcher` (renamed from
   `yelloduxx/RuSwitcher`); the production branch is `main`.
-- The product is **Cerf Switcher** `4.0.0` build **161**. The name is what
+- The product is **Cerf Switcher** `4.0.0` build **162**. The name is what
   the Russian word «сука» becomes when typed in the English layout.
   - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
   - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
@@ -44,9 +44,11 @@ installed build changes.
     while structured identifiers remain protected (build 130).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
-  - Last installed build was RuSwitcher Pro 130, executable SHA-256
-    `2b59f4bc61eaad8754a75442d75d7798af37a576a9139dacc85f2b2c984044aa`.
-    Cerf Switcher has not been installed yet.
+  - Installed locally on 2026-11-04: Cerf Switcher 162, executable SHA-256
+    `114421c7a69ae5cb8c4bdee9ae9f7c41c46666ce8035d014c5652e288c55aa7a`.
+    The fix is in `/Users/bezh/Documents/cerfswitcher-fix-162`, branch
+    `codex/fix-settings-shift-crash`, based on `origin/main` at `09289a6`.
+    Older working directories can still contain build-131 sources.
 - Verify the installed binary hash and PID after every local replacement; do
   not infer the running build from `version.json` alone.
 - Changing `ProductIdentity.bundleIdentifier` requires re-granting Accessibility
@@ -1516,6 +1518,26 @@ bash scripts/run_native_release_smoke.sh
   set: write new ones for an independent check.
 
 ## Build, Signing and Installation
+
+### Build 162: own-window Accessibility crash
+
+- The build-161 crash report from 2026-11-04 shows `readSelection` entering
+  SwiftUI's own accessibility tree on `com.ruswitcher.manual-ax`, causing
+  `EXC_BAD_ACCESS`. In-process AX bypasses IPC: reads as well as writes must
+  execute on the main thread.
+- `TextConverter.convertSelectedText` now reads its own process on the main
+  actor. The native resolver rejects background self-process lookups and
+  leases, and does not schedule its own process for background prefetch.
+- Debug logging remains opt-in and was already enabled on this Mac. Automatic
+  decisions now log keep/replace plus a fixed reason code, never the token.
+- `SelfAccessibilityTests` covers both background entry points and, with
+  `RUSWITCH_ALLOW_FOCUS_STEALING=1`, three real CGEvent double-Shift gestures
+  in a SwiftUI settings window. The native test requires focus, event access
+  and no other switcher process, and checks completion and unchanged clipboard.
+  It passed independently; the normal headless run skips the window case.
+- Full Swift tests with warnings-as-errors passed. The fixed release simulator
+  passed 11,162 checks / 1,011 phrases. These are regression fixtures, not proof
+  that every word converts; the decoder and model were not changed in this fix.
 
 Before installation:
 

@@ -74,6 +74,29 @@ func rslog(_ msg: StaticString) {
     }
 }
 
+func rslogDecision(_ reason: AutoConvertDecisionReason?) {
+    switch reason {
+    case .frequentShort: rslog("auto_reason_frequent_short")
+    case .frequentWord: rslog("auto_reason_frequent_word")
+    case .dictionary: rslog("auto_reason_dictionary")
+    case .scriptScore: rslog("auto_reason_script_score")
+    case .characterModel: rslog("auto_reason_character_model")
+    case .calibratedScore: rslog("auto_reason_calibrated_score")
+    case .phraseContext: rslog("auto_reason_phrase_context")
+    case .compound: rslog("auto_reason_compound")
+    case .confirmedByUser: rslog("auto_reason_confirmed")
+    case .blockedNever: rslog("auto_reason_blocked_never")
+    case .blockedCodeLike: rslog("auto_reason_blocked_code")
+    case .blockedContext: rslog("auto_reason_blocked_context")
+    case .blockedLearned: rslog("auto_reason_blocked_learned")
+    case .blockedEditing: rslog("auto_reason_blocked_editing")
+    case .keepCurrentWord: rslog("auto_reason_keep_current_word")
+    case .alwaysConvert: rslog("auto_reason_always_convert")
+    case .undecided: rslog("auto_reason_undecided")
+    case nil: rslog("auto_reason_no_evaluation")
+    }
+}
+
 /// Конфигурация клавиши-триггера (читается из настроек, кэшируется в KeyboardMonitor).
 struct TriggerConfig {
     enum Kind {

@@ -177,6 +177,12 @@ final class TextConverter {
         let processID = frontmost.processIdentifier
         let bundleID = frontmost.bundleIdentifier
         let completion = ManualCompletionBox(completion)
+        if processID == ProcessInfo.processInfo.processIdentifier {
+            rslog("manual_self_selection_main_thread")
+            let result = readSelection(processID: processID, bundleID: bundleID)
+            handleSelectionRead(result, allowClipboardFallback: allowClipboardFallback, completion: completion)
+            return
+        }
         manualQueue.async { [weak self] in
             guard let self else { return }
             let result = self.readSelection(processID: processID, bundleID: bundleID)

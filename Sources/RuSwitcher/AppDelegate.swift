@@ -1112,6 +1112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let request: ReplacementRequest
         switch plan {
         case let .keep(handling, evaluation):
+            rslog("auto_kept")
+            rslogDecision(evaluation?.decision.reason)
             // A plain word typed and left alone is a sighting for the personal
             // lexicon, except when editing state or a user rule decided it.
             if !deferToRemote, let langs, let reason = evaluation?.decision.reason,
@@ -1120,7 +1122,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 personalLexicon.observe(typed: pair.original, language: langs.current, focus: snapshot.focus)
             }
             return handling
-        case let .replace(prepared, _): request = prepared
+        case let .replace(prepared, evaluation):
+            rslog("auto_replacement_requested")
+            rslogDecision(evaluation.decision.reason)
+            request = prepared
         }
         guard let langs else { return .passThrough }
         let targetLang = langs.opposite

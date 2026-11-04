@@ -77,6 +77,10 @@ final class NativeFocusedEditableResolver: @unchecked Sendable {
         timeoutMilliseconds: Int,
         allowTreeSearch: Bool = false
     ) -> FocusedEditableLookup<AXUIElement> {
+        // In-process AX calls invoke AppKit/SwiftUI directly, bypassing IPC.
+        guard processID != ProcessInfo.processInfo.processIdentifier || Thread.isMainThread else {
+            return .unavailable(.noEditableElement)
+        }
         let timeout = max(1, timeoutMilliseconds)
         let deadline = Date().addingTimeInterval(Double(timeout) / 1_000)
         let processLock = lock(for: processID)
@@ -99,6 +103,9 @@ final class NativeFocusedEditableResolver: @unchecked Sendable {
         allowTreeSearch: Bool = false,
         operation: (NativeAXElementLease) -> Value
     ) -> NativeFocusedElementOperation<Value> {
+        guard processID != ProcessInfo.processInfo.processIdentifier || Thread.isMainThread else {
+            return .unavailable(.noEditableElement)
+        }
         let timeout = max(1, timeoutMilliseconds)
         let deadlineDate = Date().addingTimeInterval(Double(timeout) / 1_000)
         let deadlineNanoseconds = DispatchTime.now().uptimeNanoseconds
@@ -137,7 +144,7 @@ final class NativeFocusedEditableResolver: @unchecked Sendable {
     /// printable key schedules a coalesced warm-up; boundary-time validation then
     /// reuses the focused element and only reads the exact suffix.
     func prefetch(processID: Int32) {
-        guard processID > 0 else { return }
+        guard processID > 0, processID != ProcessInfo.processInfo.processIdentifier else { return }
         pendingLock.lock()
         let inserted = pendingProcessIDs.insert(processID).inserted
         pendingLock.unlock()
