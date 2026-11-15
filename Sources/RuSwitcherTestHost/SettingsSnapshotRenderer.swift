@@ -1,4 +1,5 @@
 import AppKit
+import RuSwitcherTestSupport
 import RuSwitcherAppSupport
 import RuSwitcherCore
 import SwiftUI
@@ -39,7 +40,27 @@ enum SettingsSnapshotRenderer {
                     try render(page.view, appearance: NSAppearance(named: appearanceID), to: url)
                     print(url.path)
                 }
+                let notice = FeedbackNoticeController()
+                let examples = [
+                    ("saved", L10n.learningSaved, true),
+                    ("exception", L10n.learningExceptionSaved, true),
+                    ("unreadable", L10n.conversionResult(.refused(.fieldUnavailable)), false),
+                    ("unverified", L10n.conversionResult(.unverified), false),
+                ]
+                for (name, message, undo) in examples {
+                    let url = directory.appendingPathComponent("\(prefix)-notice-\(name)-\(appearanceName).png")
+                    try renderNotice(notice.makeContent(message: message, offersUndo: undo),
+                                     appearance: NSAppearance(named: appearanceID), to: url)
+                    print(url.path)
+                }
             }
+            let delegate = AppDelegate()
+            let menu = delegate.makeStatusMenu()
+            let menuData = try JSONSerialization.data(withJSONObject: menu.items.map {
+                ["title": $0.title, "separator": $0.isSeparatorItem,
+                 "command": $0.action.map(NSStringFromSelector) ?? ""] as [String: Any]
+            }, options: [.prettyPrinted, .sortedKeys])
+            try menuData.write(to: directory.appendingPathComponent("\(prefix)-menu.json"), options: .atomic)
             try measureFullDictionary(directory: directory, prefix: prefix)
         } catch {
             FileHandle.standardError.write(Data("render failed: \(error)\n".utf8))
@@ -149,6 +170,22 @@ enum SettingsSnapshotRenderer {
         }
         target.cacheDisplay(in: target.bounds, to: rep)
         guard let png = rep.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try png.write(to: url, options: .atomic)
+        window.contentView = nil
+    }
+
+    private static func renderNotice(_ view: NSView, appearance: NSAppearance?, to url: URL) throws {
+        let window = FeedbackNoticeController.makePanel(content: view)
+        window.appearance = appearance
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
             throw CocoaError(.fileWriteUnknown)
         }
         try png.write(to: url, options: .atomic)

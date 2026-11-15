@@ -14,7 +14,7 @@ installed build changes.
 - Automatic conversion is off by default until the user enables it.
 - Primary repository: `yelloduxx/CerfSwitcher` (renamed from
   `yelloduxx/RuSwitcher`); the production branch is `main`.
-- The product is **Cerf Switcher** `4.0.0` build **162**. The name is what
+- The product is **Cerf Switcher** `4.0.0` build **167**. The name is what
   the Russian word «сука» becomes when typed in the English layout.
   - Bundle: `CerfSwitcher.app` → `/Applications/CerfSwitcher.app`
   - Bundle ID: `com.cerfswitcher.app` · Executable: `CerfSwitcher` · Dev tag: `pro`
@@ -44,8 +44,15 @@ installed build changes.
     while structured identifiers remain protected (build 130).
   - Signed with the reusable `RuSwitcher Local Code Signing` identity (or
     Developer ID when available).
-  - Installed locally on 2026-11-04: Cerf Switcher 162, executable SHA-256
-    `114421c7a69ae5cb8c4bdee9ae9f7c41c46666ce8035d014c5652e288c55aa7a`.
+  - Installed locally on 2026-11-15: Cerf Switcher 167, executable SHA-256
+    `dd7e64d364643fc0469bf06c35cfe0a49dbd10d7824df6741680e0ecaac04d2c`.
+    Launch verified as PID 78136 with one enabled event tap. PID is historical;
+    always re-read it. All seven personal-data sections are semantically unchanged.
+    Build 166 and a private defaults export are backed up under
+    `~/Library/Application Support/CerfSwitcher/Backups/build-166-20261115T213222Z/`.
+    The same certificate leaf/designated requirement is retained. Gatekeeper
+    assessment returned accepted with `override=security disabled`; signature
+    verification was performed independently, not inferred from that result.
     The fix is in `/Users/bezh/Documents/cerfswitcher-fix-162`, branch
     `codex/fix-settings-shift-crash`, based on `origin/main` at `09289a6`.
     Older working directories can still contain build-131 sources.
@@ -65,8 +72,191 @@ installed build changes.
   and CGEvent/HID probes from the terminal.
 - Do not replace the reusable signing identity with ad-hoc signing.
 - Work with the existing worktree and never discard unrelated user changes.
+- Tests must exercise the behavior being investigated, not just pass an existing
+  harness. If a fixture, driver or test window prevents the required interaction
+  (for example typing during a pending replacement), extend it or replace it with
+  a focused test. Reuse transport/setup where useful; do not multiply redundant
+  suites. Assert observable text, caret, layout and delivery evidence, include a
+  negative control, and distinguish real native results from simulations and
+  invalid runs. Never weaken an oracle or timing/evidence gate to obtain green.
+  A fixed-shape fixture restriction is a constraint of that fixture, not a reason
+  to skip a necessary user scenario.
+- Select native-test text for the failure under investigation. Historical
+  examples such as `plan B` belong in a focused context regression, not every
+  typing probe. Check the general property with varied phrases; do not mistake
+  repeated success on the same memorized example for broad quality evidence.
 
 ## Package Layout
+
+### Manual-only words (build 167)
+
+- The existing `com.ruswitcher.deniedWords` list is named "Manual conversion
+  only" / "Только ручное переключение" in Settings > Exceptions. Either spelling
+  excludes the physical-layout pair in both directions. Case, wrappers, and
+  trailing whitespace are handled by `AutoConvertPolicy.excludes`.
+- The decoder applies exclusions across the whole candidate set before ranking.
+  A punctuation alternative cannot bypass an excluded source or target. Confirmed
+  and always-convert rules cannot override the exclusion.
+- Manual triggers still toggle the text. `ManualLearningPolicy`, current-list
+  checks in `LearnedRulesStore`, and reconversion handling prevent confirmations,
+  reversal learning, weak reinforcement, or application exceptions for the pair.
+  Existing rule bytes are retained. Removing the exclusion restores normal rules.
+- The list and archive formats are unchanged. Full personal backup includes it;
+  the old learned-rule-only archive still contains pairs, not these exclusions.
+- The Swift suite passed 479 tests with one existing skip. Four short native
+  AppKit/WebKit cases passed: listed pair toggles twice without learning, while
+  the unlisted control really learns at the first checkpoint. Clipboard and
+  neighboring text are unchanged. One initial focus-loss run remains invalid.
+  See `docs/verification/build-167-manual-only.md` and `.audit/install-167-result.json`.
+- Universal production warnings-as-errors, signing and installation passed. The
+  installed app retains all seven personal-data sections and the prior signing
+  identity; no words were added to the user's list by the installation.
+
+### Native interaction safety (build 166)
+
+- Every caret-preparation outcome checks focus, sequence, and revision before
+  acting. A stale empty-caret result cannot clear a newer token or switch layout.
+- Manual and automatic switches both record `QueuedLayoutTransition`, including
+  switch-only. An event translated before the switch receives the same Unicode
+  interpretation as the input session; no deletion or event repost is added.
+- Selected-text keyboard fallback reads back immediately, polling only unchanged
+  or unavailable results. Retries and queued AX work share the remaining 150 ms
+  budget rather than starting another 250 ms request. Late proof does not learn.
+- `scripts/run_native_interaction_tests.py` authors seven short cases per editor,
+  including an explicit auto-off control. It uses independent full-text oracles,
+  separate native processes, 2 ms continuation at the first boundary, exact
+  caret/layout and clipboard checks. Its `--prepared` path verifies both current
+  source and binary hashes before input and after execution.
+- All 14 AppKit/WebKit cases passed; the final deadline correction was retested
+  with selected-word toggles in both editors. Actual auto-off captures fail the
+  enabled-conversion oracle. Invalid schedules and lost focus remain invalid.
+  The Swift suite has 474 tests, one existing skip, no failures. The Python
+  harness suite has 43 tests, four optional preflight skips, no failures.
+- Callback-segment maxima still exceeded 5 ms. No p99 or all-editors guarantee
+  is claimed. See `docs/verification/build-166-native-interaction.md` for exact
+  scenarios, evidence locations, invalid runs, and limits. Installed build 166
+  retains all seven personal-data sections and the reusable signing identity.
+
+### Glass notices (build 165)
+
+- Notices use native `NSGlassEffectView` with a 26-point corner radius on
+  macOS 26+. Content is embedded via `contentView`, not arbitrary glass subviews.
+- Older macOS uses an `NSVisualEffectView.maskImage` with stretchable corner
+  insets. Layer clipping alone does not define the compositor material or the
+  window shadow; do not restore the build-164 cornerRadius-only approach.
+- Runtime, snapshots and tests share the transparent non-activating panel factory.
+  Native tests check transparent rendered corners in both appearances, nonblank
+  content, fallback mask alpha at 1x/2x, layout and focus restrictions.
+- Debug and release suites each passed 463 tests with one own-settings window
+  test skipped. RU/EN light/dark notices were rendered offscreen and inspected;
+  this does not measure the live WindowServer backdrop/shadow. No desktop input
+  or focus-stealing test was needed. Decoder, model and personal data are unchanged.
+
+### Quiet feedback (build 164)
+
+- No status-bar tooltip is registered. Readiness is evaluated when opening the
+  menu, not republished as hover text every two seconds. The existing layout
+  icon refresh remains; conversion and learning are unchanged.
+- Ready status says "Auto-conversion is enabled", not that a conversion is
+  happening. Automatic per-token outcomes still do not create notices.
+- Manual notices use a non-activating, rounded visual-effect panel, app icon,
+  content-sized height, explicit dismiss and compact Undo. They never become
+  key or main windows. Offscreen RU/EN light/dark rendering and three native
+  view tests cover sizing, control wiring and focus restrictions.
+- Debug and release suites passed 460 tests with one own-settings window test
+  skipped. No HID input or desktop focus change was needed for this UI fix.
+
+### Predictable UX (build 163)
+
+- `ConversionFeedback` retains only the latest result code, source and time in
+  memory. It never retains typed text. `ManualConversionLifecycle` is separate:
+  a second, busy gesture may replace the displayed result but cannot cancel the
+  first operation's completion. Editing or pausing invalidates pending work.
+- The menu shows readiness separately from the last attempt. Frequent commands
+  are pause, the current-app auto-conversion exception, Settings and Dictionary.
+  Layouts remain a submenu. Sound and monochrome-icon controls are in Advanced.
+- Manual refusals and unverified edits use a short non-activating notice.
+  Automatic per-token outcomes do not create popups. A learning notice appears
+  only after a successful defaults read-back and offers conditional undo.
+- A readable selection whose AX write leaves the document unchanged is replaced
+  by targeted Unicode input over that same verified selection. There is no
+  clipboard conversion path. Mismatch or missing evidence never triggers a
+  second edit. Full-document proof is bounded to 65,536 UTF-16 units; larger or
+  unreadable fields cannot produce a false verified result.
+- `LearnedRulesStore` and `PersonalLexiconStore` issue instance-owned receipts
+  for exact changes. Undo preserves unrelated data and rejects conflicting,
+  consumed or expired receipts. Weak reinforcement of an already confirmed pair
+  does not invalidate its receipt. Confirmed-pair Undo saves an application
+  exception through the same acknowledged path as the visible notice.
+- `LearningCounter.maximum` is shared by runtime increments and archive
+  validation. Saturation preserves exportability after an imported maximum count.
+- Dictionary contains the learned-rule import/export/reset actions and a full
+  `CerfSwitcherPersonalData` version-1 backup. It includes adaptive rules,
+  personal-lexicon candidates and promoted words, the explicit word list,
+  always/never words, and raw added/removed app exclusions. General settings,
+  logs and typed context are excluded. Legacy learned JSON and word-list TXT
+  are unchanged.
+- Full backup is bounded to 16 MiB and validated before restore. Restore replaces
+  personal sections after confirmation and checks read-back. Failed writes
+  attempt to restore the previous sections; this is not a crash-atomic or
+  cross-process transaction across UserDefaults keys. Export flushes pending
+  observations without cancelling manual learning or editing operations.
+- These changes are installed locally as build 163 with the existing identity.
+  No GitHub commit, push or release was made by this installation task.
+  Debug and release suites each passed 457 tests with one own-settings window
+  test skipped; the separate native hosts passed. Production packaging is
+  universal and passes the V3-only and no-test-code binary guards.
+- Native UX validation uses `scripts/run_external_native_suite.py --manual-toggle
+  --editor nstextview|webkit --restart-installed-pro`, with explicit focus-stealing
+  authorization. Three short cases cover current word, completed word with two
+  spaces, and a selected phrase; each toggles twice and checks exact text,
+  selection, layout, learning state, feedback and unchanged pasteboard count.
+  A disabled-trigger control must fail the normal oracle. Both hosts passed on
+  2026-11-06. These are functional checks at 60 ms/key, with a 25 ms producer
+  lateness limit; the automatic continuous-input limit remains 10 ms. They do
+  not establish compatibility with every editor or a p99 latency guarantee.
+
+### Test separation (build 163)
+
+- `Sources/RuSwitcher` now holds the shared application runtime, without an
+  entry point or diagnostic programs. Decoder and replacement behavior are
+  unchanged by this separation.
+- `Sources/RuSwitcherProduction` is the normal entry point. The root package
+  selects it by default and keeps the product name `RuSwitcher`.
+- `RUSWITCH_TEST_HOST=1` selects `Sources/RuSwitcherTestHost` and the product
+  `CerfSwitcherTestHost`, in the same internal Swift module. This includes HID,
+  external-native and AX probes, settings snapshot fixtures and timing recorders.
+  Both configurations compile the exact same runtime source files; do not copy
+  the runtime into a test implementation or expose internals as public API.
+- Test-only transport switches and instrumentation hooks are compiled only
+  with `RUSWITCH_TEST_HOST`. `RuntimePreferencesDomain` and
+  `ExternalNativeProbeConfiguration` now live in `Tests/Support`, not AppSupport.
+- `build_app.sh` forces test mode off, uses `.build/production`, and runs
+  `scripts/verify_production_boundary.py` on the Mach-O before packaging.
+  `scripts/tests/test_production_boundary.py` checks both package graphs and
+  shared runtime inputs. The binary guard rejects diagnostic symbols/arguments
+  even if test mode accidentally reaches another release build command.
+- `bash scripts/build_test_host.sh` builds release-optimized test code in
+  `.build/test-host` and signs `.build/test-host/apps/CerfSwitcherTestHost.app`
+  with the existing reusable identity. Its bundle ID is
+  `com.cerfswitcher.testhost`; `RSTestHost=true` is mandatory for native wrappers.
+  This is not an installable production replacement. Never launch it as a
+  background switcher without an explicit probe/snapshot mode.
+- Legacy HID/manual runners validate this test bundle and its hash reference,
+  not `/Applications/CerfSwitcher.app`. They refuse input while another switcher
+  or test process is running and do not stop/restart the installed application.
+  The external native runner retains its explicit stop/restore permission.
+- The test bundle has a separate ID and uses the same signing certificate. A native run
+  still needs TCC preflight; a successful build does not prove Accessibility
+  access or editor delivery. Only the production bundle is installed as build 163.
+
+```bash
+swift test -Xswiftc -warnings-as-errors
+RUSWITCH_TEST_HOST=1 swift build -c release --scratch-path .build/test-host \
+  --product CerfSwitcherTestHost -Xswiftc -warnings-as-errors
+bash scripts/build_test_host.sh
+python3 -m unittest scripts.tests.test_production_boundary scripts.tests.test_test_host_scripts
+```
 
 - `Sources/RuSwitcherCore`: pure/testable V3 decoder, language model, state and
   transaction data.
@@ -365,9 +555,11 @@ The configured trigger is currently used as double Shift by the user. Priority:
 6. Switch layout only.
 
 Selection direction is based on dominant script, not the active layout. AX
-selected-text replacement is preferred. Clipboard fallback is retained only
-when the selected text itself cannot be read; it preserves pasteboard types.
-Failure must leave selection and layout unchanged.
+selected-text replacement is preferred. If read-back proves no change and the
+same exact selection is still present, targeted Unicode input replaces it
+without using the pasteboard. An unreadable known selection is refused, never
+redirected to a different buffered word. A failed or unverified edit does not
+switch the layout or report a verified replacement.
 
 A real, user-made **selection** is converted through Accessibility
 (`readSelection` → `kAXSelectedText`), because that write replaces a genuine
@@ -376,8 +568,8 @@ different: in an **external** host it goes straight to a keyboard path.
 Programmatically selecting the suffix via `kAXSelectedTextRange` and then
 writing `kAXSelectedText` inserts instead of replacing in
 Chromium/Electron (Claude desktop, VS Code) and terminals — it leaves the
-original word and duplicates text, and `recoverInsertedReplacement` cannot heal
-it because the collapse write uses the same broken AX primitive. AX-readable
+original word and duplicates text. Retrying the same AX primitive cannot repair
+that result safely, so the old recovery mutation was removed. AX-readable
 external hosts use the established targeted replacement. AX-blind hosts select
 the exact suffix with marked Shift+Left and type physical target-layout keys
 over that selection, so a dropped insertion cannot first erase the word. Only
@@ -418,8 +610,8 @@ Adaptive learning behavior:
   `cerf` -> `сука`. Before build 154 the app only recorded an app exception and
   never learned the user's direction. `recordConfirmed` never leaves two opposite
   global confirmations, but imported archives are merged without that check.
-- Toggling a manually converted word straight back to what was typed restores
-  the rule book from a checkpoint taken just before that manual learning
+- Toggling a manually converted word straight back to what was typed undoes
+  only the saved rule and lexical changes through conditional receipts
   (`learning_manual_reverted`). Converting the typed word again learns that
   direction. Before build 154, every toggle cycle reconfirmed the old pair.
   Undoing an automatic conversion still goes through `learnFromUndo`. The

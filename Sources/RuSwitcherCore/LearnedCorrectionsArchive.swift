@@ -96,8 +96,8 @@ public struct LearnedCorrectionsArchive: Codable, Equatable, Sendable {
                 && $0.count <= maximumTokenLength
                 && !$0.unicodeScalars.contains(where: { scalar in CharacterSet.controlCharacters.contains(scalar) })
         }) else { return false }
-        guard rule.positiveCount >= 0, rule.positiveCount <= 1_000_000,
-              rule.negativeCount >= 0, rule.negativeCount <= 1_000_000 else { return false }
+        guard (0...LearningCounter.maximum).contains(rule.positiveCount),
+              (0...LearningCounter.maximum).contains(rule.negativeCount) else { return false }
         guard !rule.applicationException || rule.appBundleID != nil else { return false }
         return rule.appBundleID.map { !$0.isEmpty && $0.count <= 256 } ?? true
     }

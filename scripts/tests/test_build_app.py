@@ -20,6 +20,7 @@ VERSION = {"version": "9.8.7", "build": "654", "dev": "t"}
 UNIVERSAL = ("arm64", "x86_64")
 SWIFT_STUB = """#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_SWIFT_LOG"
+printf '%s\\n' "${RUSWITCH_TEST_HOST:-unset}" >> "$STUB_SWIFT_MODE_LOG"
 for argument in "$@"; do
     if [ "$argument" = "--show-bin-path" ]; then
         printf '%s\\n' "$STUB_PRODUCTS"
@@ -70,6 +71,8 @@ class BuildAppTests(unittest.TestCase):
                      "THIRD_PARTY_NOTICES.md"):
             shutil.copy2(REPOSITORY / name, self.project / name)
         (self.project / "scripts" / "data").mkdir(parents=True)
+        shutil.copy2(REPOSITORY / "scripts" / "verify_production_boundary.py",
+                     self.project / "scripts" / "verify_production_boundary.py")
         for name in NOTICES[1:]:
             shutil.copy2(REPOSITORY / "scripts" / "data" / name,
                          self.project / "scripts" / "data" / name)
@@ -90,6 +93,7 @@ class BuildAppTests(unittest.TestCase):
             (stubs / name).write_text(body)
             (stubs / name).chmod(0o755)
         self.swift_log = self.project / "swift-calls.log"
+        self.swift_mode_log = self.project / "swift-modes.log"
         self.codesign_log = self.project / "codesign-calls.log"
         self.environment = {
             key: value for key, value in os.environ.items()
@@ -100,6 +104,7 @@ class BuildAppTests(unittest.TestCase):
             PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}",
             STUB_PRODUCTS=str(self.products),
             STUB_SWIFT_LOG=str(self.swift_log),
+            STUB_SWIFT_MODE_LOG=str(self.swift_mode_log),
             STUB_CODESIGN_LOG=str(self.codesign_log),
         )
         self.bundle = self.project / f"{EXECUTABLE}.app"
@@ -157,8 +162,23 @@ class BuildAppTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.swift_calls()
         self.assertEqual(len(calls), 2, calls)
-        build = "build -c release --arch arm64 --arch x86_64 --product " + SPM_PRODUCT
+        build = ("build -c release --arch arm64 --arch x86_64 --product " + SPM_PRODUCT
+                 + " --scratch-path " + str(self.project / ".build/production"))
         self.assertEqual(calls, [build, build + " --show-bin-path"])
+
+    def testInheritedTestModeCannotProduceAReleaseBundle(self):
+        result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE="1", RUSWITCH_TEST_HOST="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.swift_mode_log.read_text().splitlines(), ["0", "0"])
+
+    def testProbeBinaryCannotBePackagedAsProduction(self):
+        binary = self.products / SPM_PRODUCT
+        with binary.open("ab") as handle:
+            handle.write(b"\0--hid-probe\0")
+        result = self.run_script(RUSWITCH_UNSIGNED_BUNDLE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("test code in production executable: --hid-probe", result.stderr)
+        self.assertNotIn("Done", result.stdout)
 
     def testMissingSigningIdentityWithoutOptInFails(self):
         result = self.run_script()

@@ -45,6 +45,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 enum SettingsToggle: CaseIterable {
     case enabled, autoConvert, caretFlag, perAppLayout, launchAtLogin, checkUpdates
     case triggerRightOnly, triggerDoubleTap, axlessConversion, remoteDesktop, debugLog
+    case keySound, monochromeIcon
 
     var keyPath: ReferenceWritableKeyPath<SettingsManager, Bool> {
         switch self {
@@ -59,6 +60,8 @@ enum SettingsToggle: CaseIterable {
         case .axlessConversion: \.axlessConversion
         case .remoteDesktop: \.remoteDesktopMode
         case .debugLog: \.debugLogEnabled
+        case .keySound: \.keySound
+        case .monochromeIcon: \.monochromeIcon
         }
     }
 }
@@ -81,6 +84,7 @@ enum SettingsAction {
     case showLog, sendLog
     case exportLearning, importLearning, clearLearning
     case importDictionary, exportDictionary, clearDictionary
+    case exportPersonalBackup, restorePersonalBackup
     case openGitHub
 }
 

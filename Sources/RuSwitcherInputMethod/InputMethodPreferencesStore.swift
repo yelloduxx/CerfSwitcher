@@ -41,10 +41,12 @@ final class InputMethodPreferencesStore {
     }
 
     func recordManualCorrection(original: String, converted: String, appBundleID: String?) {
-        var rules = snapshot(appBundleID: appBundleID).adaptiveRules
+        let preferences = snapshot(appBundleID: appBundleID)
+        var rules = preferences.adaptiveRules
         let decision = ManualLearningPolicy.decision(
             original: original, converted: converted, appBundleID: appBundleID,
-            ruleBook: rules, model: LanguageModelStore.bundled
+            ruleBook: rules, model: LanguageModelStore.bundled,
+            neverConvert: preferences.policy.neverConvert
         )
         guard decision != .ignore else { return }
         decision.apply(to: &rules)

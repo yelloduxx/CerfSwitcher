@@ -5,19 +5,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=ruswitch_test_app.sh
 source "$ROOT/scripts/ruswitch_test_app.sh"
 ruswitch_validate_test_app "$ROOT"
+ruswitch_require_idle_desktop
 APP="$RUSWITCH_APP"
 APP_EXECUTABLE="$RUSWITCH_APP_EXECUTABLE"
 APP_EXEC="$RUSWITCH_APP_EXEC"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ruswitch-toggle-cycle.XXXXXX")"
-WAS_RUNNING=0
 
 test -x "$APP_EXEC"
-if pgrep -x "$APP_EXECUTABLE" >/dev/null; then WAS_RUNNING=1; fi
 
 cleanup() {
     pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
     rm -rf "$WORK_DIR"
-    if [ "$WAS_RUNNING" -eq 1 ]; then open "$APP"; fi
 }
 trap cleanup EXIT
 

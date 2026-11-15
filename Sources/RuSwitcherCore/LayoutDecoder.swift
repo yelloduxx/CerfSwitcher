@@ -81,6 +81,14 @@ public enum LayoutDecoder {
             )
             return fixed(candidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])
         }
+        // A punctuation alternative must not bypass an excluded spelling.
+        if let excluded = generated.first(where: {
+            policy.excludes(original: typed, converted: $0.replacement)
+        }) {
+            return integrity == .clean
+                ? fixed(excluded, verdict: .keep, reason: .blockedNever, evidence: [.blockedNever])
+                : fixed(excluded, verdict: .keep, reason: .blockedEditing, evidence: [.blockedEditing])
+        }
         let targetCanonical = LanguageCode.canonical(targetLanguage)
         func candidateWord(_ candidate: AutoConvertCandidate) -> String {
             FrequentWordLexicon.normalize(
@@ -396,12 +404,6 @@ public enum LayoutDecoder {
 
         if integrity != .clean {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedEditing, evidence: [.blockedEditing])
-        }
-        // A listed word stays listed with punctuation around it (`ghbdtn,`),
-        // the way learned pairs match by lexical core.
-        if policy.neverConvert.contains(typed) || policy.neverConvert.contains(literal)
-            || policy.neverConvert.contains(converted) {
-            return fixed(baseCandidate, verdict: .keep, reason: .blockedNever, evidence: [.blockedNever])
         }
         if literal.isEmpty {
             return fixed(baseCandidate, verdict: .keep, reason: .blockedCodeLike, evidence: [.blockedCode])

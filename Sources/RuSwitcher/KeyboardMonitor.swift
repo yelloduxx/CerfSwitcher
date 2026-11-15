@@ -3,31 +3,14 @@ import CoreGraphics
 import Foundation
 import RuSwitcherAppSupport
 import RuSwitcherCore
+#if RUSWITCH_TEST_HOST
+import RuSwitcherTestSupport
+#endif
 
 /// Маркер для симулированных событий — KeyboardMonitor их игнорирует.
 /// Branch-specific so parallel RuSwitcher installs do not treat each other as user input.
 let kRuSwitcherEventMarker: Int64 = ProductIdentity.eventMarker
 
-struct KeyboardCallbackTiming {
-    let eventType: CGEventType
-    let keyCode: UInt16
-    let marker: Int64
-    let startedNanoseconds: UInt64
-    let finishedNanoseconds: UInt64
-    let consumed: Bool
-    let sourceLayoutID: String?
-}
-
-/// Probe-only phase marks inside an event callback. Normal runs leave the
-/// recorder nil, so marking reads no clock.
-enum CallbackPhaseProbe {
-    nonisolated(unsafe) static var recorder: ((StaticString, UInt64) -> Void)?
-
-    static func mark(_ phase: StaticString) {
-        guard let recorder else { return }
-        recorder(phase, DispatchTime.now().uptimeNanoseconds)
-    }
-}
 
 struct ManualTokenSnapshot {
     let keys: [TypedKey]
@@ -42,7 +25,11 @@ struct ManualTokenSnapshot {
 /// поток обработки событий (event tap висит на главном run loop, а лог пишется
 /// для каждого нажатия при включённом debug).
 private let rsLogQueue = DispatchQueue(label: "com.ruswitcher.log")
+#if RUSWITCH_TEST_HOST
 private let rsLogSuiteName = RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments)
+#else
+private let rsLogSuiteName: String? = nil
+#endif
 
 func rslog(_ msg: StaticString) {
     // Thread-safe: читаем UserDefaults напрямую (без MainActor)
@@ -138,7 +125,9 @@ final class KeyboardMonitor: @unchecked Sendable {
     fileprivate var eventTap: CFMachPort?
     fileprivate private(set) var activeTap = false
     private var runLoopSource: CFRunLoopSource?
+    #if RUSWITCH_TEST_HOST
     var onCallbackTiming: ((KeyboardCallbackTiming) -> Void)?
+    #endif
     var eventTapEnabled: Bool { eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
     private var inputSession = InputSession(contextLimit: InputContextLimits.maximumTokens)
     private var observedFrontmostProcessID: pid_t?
@@ -292,7 +281,7 @@ final class KeyboardMonitor: @unchecked Sendable {
         keysTypedSinceConversion = false
     }
 
-    func recordAutomaticLayoutSwitch(targetLayoutID: String, completedAt: UInt64) {
+    func recordLayoutSwitch(targetLayoutID: String, completedAt: UInt64) {
         queuedLayoutTransition.record(targetLayoutID: targetLayoutID, completedAt: completedAt)
     }
 
@@ -884,6 +873,7 @@ private func keyboardCallback(
     }
 
     let monitor = Unmanaged<KeyboardMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+    #if RUSWITCH_TEST_HOST
     let timingObserver = monitor.onCallbackTiming
     let started = timingObserver.map { _ in DispatchTime.now().uptimeNanoseconds }
     var consumed = false
@@ -901,6 +891,7 @@ private func keyboardCallback(
         }
     }
 
+    #endif
     if monitor.shouldDeferToCompanionInputMethod() {
         return Unmanaged.passRetained(event)
     }
@@ -915,7 +906,9 @@ private func keyboardCallback(
         event.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &len, unicodeString: &buf)
         let eventProducedText = len > 0 ? String(utf16CodeUnits: buf, count: len) : nil
         let sourceLayoutID = remote && keyCode == 0 ? nil : LayoutSwitcher.currentLayoutID()
+        #if RUSWITCH_TEST_HOST
         if timingObserver != nil { measuredSourceLayoutID = sourceLayoutID }
+        #endif
         let producedText = remote
             ? eventProducedText
             : monitor.interpretedProducedText(
@@ -940,7 +933,9 @@ private func keyboardCallback(
                 activeTap: monitor.activeTap,
                 key: repeatedKey
             ) == .suppress {
+                #if RUSWITCH_TEST_HOST
                 consumed = true
+                #endif
                 return nil
             }
         }
@@ -953,7 +948,12 @@ private func keyboardCallback(
             producedText: producedText,
             sourceLayoutID: sourceLayoutID
         )
-        if consume { consumed = true; return nil }
+        if consume {
+            #if RUSWITCH_TEST_HOST
+            consumed = true
+            #endif
+            return nil
+        }
         if !remote, monitor.activeTap,
            event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskSecondaryFn]).isEmpty {
             if let text = monitor.queuedLayoutTransition.overrideText(
@@ -968,7 +968,9 @@ private func keyboardCallback(
     } else if type == .flagsChanged {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         if monitor.handleFlagsChanged(flags: event.flags, keyCode: keyCode) {
+            #if RUSWITCH_TEST_HOST
             consumed = true
+            #endif
             return nil  // съедаем Caps Lock, чтобы не переключался регистр
         }
     } else if type == .leftMouseDown || type == .rightMouseDown {

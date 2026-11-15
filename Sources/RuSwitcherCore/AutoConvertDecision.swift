@@ -1,3 +1,5 @@
+import Foundation
+
 public enum LayoutVerdict: Equatable, Sendable {
     case switchToConverted
     case keep
@@ -47,7 +49,19 @@ public struct AutoConvertPolicy: Equatable, Sendable {
     public static let empty = AutoConvertPolicy(neverConvert: [], alwaysConvert: [])
 
     public init(neverConvert: Set<String>, alwaysConvert: Set<String>) {
-        self.neverConvert = neverConvert
+        self.neverConvert = Set(neverConvert.map {
+            FrequentWordLexicon.normalize($0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }.filter { !$0.isEmpty })
         self.alwaysConvert = alwaysConvert
+    }
+
+    /// Either spelling excludes the physical-layout pair, including wrappers.
+    public func excludes(original: String, converted: String) -> Bool {
+        guard !neverConvert.isEmpty else { return false }
+        return [original, converted].contains { text in
+            let word = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return neverConvert.contains(FrequentWordLexicon.normalize(word))
+                || neverConvert.contains(FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: word)))
+        }
     }
 }

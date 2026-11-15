@@ -2,13 +2,20 @@ import Foundation
 import RuSwitcherCore
 
 public enum AutomaticConversionPlan: Equatable, Sendable {
-    case keep(TokenHandlingResult, evaluation: LayoutDecoderEvaluation?)
+    case keep(TokenHandlingResult, evaluation: LayoutDecoderEvaluation?, refusal: ConversionRefusal? = nil)
     case replace(ReplacementRequest, evaluation: LayoutDecoderEvaluation)
 
     public var evaluation: LayoutDecoderEvaluation? {
         switch self {
-        case let .keep(_, evaluation): return evaluation
+        case let .keep(_, evaluation, _): return evaluation
         case let .replace(_, evaluation): return evaluation
+        }
+    }
+
+    public var refusal: ConversionRefusal? {
+        switch self {
+        case let .keep(_, _, refusal): return refusal
+        case .replace: return nil
         }
     }
 }
@@ -32,13 +39,17 @@ public enum AutomaticConversionPlanner {
     ) -> AutomaticConversionPlan {
         if policy.neverConvert.contains(original.lowercased()) || policy.neverConvert.contains(converted.lowercased()) {
             return .keep(.init(consumeBoundary: false, resolvedText: original,
-                               resolvedLanguage: SmartTokenizer.languageHint(for: original), wasConverted: false), evaluation: nil)
+                               resolvedLanguage: SmartTokenizer.languageHint(for: original), wasConverted: false),
+                         evaluation: nil, refusal: .wordRule)
         }
-        guard let currentLanguage, let targetLanguage else { return .keep(.passThrough, evaluation: nil) }
+        guard let currentLanguage, let targetLanguage else {
+            return .keep(.passThrough, evaluation: nil, refusal: .unsupportedLayout)
+        }
         let languages = Set([String(currentLanguage.lowercased().prefix(2)), String(targetLanguage.lowercased().prefix(2))])
         guard languages == Set(["en", "ru"]), let model else {
             return .keep(.init(consumeBoundary: false, resolvedText: original,
-                               resolvedLanguage: currentLanguage, wasConverted: false), evaluation: nil)
+                               resolvedLanguage: currentLanguage, wasConverted: false), evaluation: nil,
+                         refusal: languages != Set(["en", "ru"]) ? .unsupportedLayout : .modelUnavailable)
         }
         let evaluation = LayoutDecoder.evaluate(
             typed: original, converted: converted, currentLanguage: currentLanguage, targetLanguage: targetLanguage,

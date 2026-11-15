@@ -46,6 +46,11 @@ jobs:
       - name: Warnings as errors
         run: swift build -Xswiftc -warnings-as-errors
 
+      - name: Separate test host
+        run: |
+          RUSWITCH_TEST_HOST=1 swift build -c release --scratch-path .build/test-host \
+            --product CerfSwitcherTestHost -Xswiftc -warnings-as-errors
+
       - name: Address sanitizer
         env:
           RUSWITCH_SANITIZER: address

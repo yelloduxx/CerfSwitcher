@@ -10,15 +10,18 @@ public struct ExternalNativeProbeConfiguration: Codable, Equatable, Sendable {
     public let inputMarker: Int64
     public let replacementMarker: Int64
     public let timeoutSeconds: Double
+    public let neverConvertWords: [String]?
 
     public init(runID: UUID, layoutIDs: [String], automaticConversion: Bool,
-                inputMarker: Int64, replacementMarker: Int64, timeoutSeconds: Double = 45) {
+                inputMarker: Int64, replacementMarker: Int64, timeoutSeconds: Double = 45,
+                neverConvertWords: [String]? = nil) {
         self.runID = runID
         self.layoutIDs = layoutIDs
         self.automaticConversion = automaticConversion
         self.inputMarker = inputMarker
         self.replacementMarker = replacementMarker
         self.timeoutSeconds = timeoutSeconds
+        self.neverConvertWords = neverConvertWords
     }
 
     public var preferencesDomain: String { "com.ruswitcher.nativeprobe.\(runID.uuidString.lowercased())" }
@@ -40,6 +43,10 @@ public struct ExternalNativeProbeConfiguration: Codable, Equatable, Sendable {
               inputMarker > 0, inputMarker <= Int64.max - Int64(Self.maximumActions), replacementMarker != 0,
               !(inputMarker...(inputMarker + Int64(Self.maximumActions))).contains(replacementMarker),
               timeoutSeconds.isFinite, (1...120).contains(timeoutSeconds) else {
+            throw ConfigurationError.invalid
+        }
+        let words = neverConvertWords ?? []
+        guard words.count <= 2_000, words.allSatisfy({ !$0.isEmpty && $0.count <= 256 }) else {
             throw ConfigurationError.invalid
         }
     }

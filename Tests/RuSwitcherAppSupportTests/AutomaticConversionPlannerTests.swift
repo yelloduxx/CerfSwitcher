@@ -144,6 +144,7 @@ final class AutomaticConversionPlannerTests: XCTestCase {
             )
             XCTAssertNil(assertKept(plan, text: "Ghbdtn", language: "en"))
             XCTAssertNil(plan.evaluation)
+            XCTAssertEqual(plan.refusal, .wordRule)
             XCTAssertEqual(targetLookups, 0, "Raw never-match must not resolve the target layout")
         }
 
@@ -336,7 +337,7 @@ final class AutomaticConversionPlannerTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> LayoutDecoderEvaluation? {
-        guard case let .keep(handling, evaluation) = plan else {
+        guard case let .keep(handling, evaluation, _) = plan else {
             XCTFail("Expected keep plan without a replacement request", file: file, line: line)
             return nil
         }

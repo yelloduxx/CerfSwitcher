@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=ruswitch_test_app.sh
 source "$ROOT/scripts/ruswitch_test_app.sh"
 ruswitch_validate_test_app "$ROOT"
+ruswitch_require_idle_desktop
 APP="$RUSWITCH_APP"
 APP_EXECUTABLE="$RUSWITCH_APP_EXECUTABLE"
 APP_EXEC="$RUSWITCH_APP_EXEC"
@@ -17,22 +18,8 @@ BUFFER_RESULT="$(mktemp "${TMPDIR:-/tmp}/ruswitch-buffer-trigger.XXXXXX.json")"
 PREVIOUS_RESULT="$(mktemp "${TMPDIR:-/tmp}/ruswitch-previous-trigger.XXXXXX.json")"
 FIXTURE="$(mktemp "${TMPDIR:-/tmp}/ruswitch-learning-fixture.XXXXXX.json")"
 
-defaults export "$DOMAIN" "$BACKUP" >/dev/null
-
-restart_app() {
-    pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
-    for _ in {1..20}; do
-        pgrep -x "$APP_EXECUTABLE" >/dev/null || break
-        sleep 0.1
-    done
-    sleep 0.3
-    open "$APP"
-    for _ in {1..30}; do
-        pgrep -f "$APP_EXEC" >/dev/null && return
-        sleep 0.1
-    done
-    return 1
-}
+HAD_DEFAULTS=0
+if defaults export "$DOMAIN" "$BACKUP" >/dev/null 2>&1; then HAD_DEFAULTS=1; fi
 
 stop_app() {
     pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
@@ -45,9 +32,12 @@ stop_app() {
 
 restore_preferences() {
     pkill -x "$APP_EXECUTABLE" 2>/dev/null || true
-    defaults import "$DOMAIN" "$BACKUP" >/dev/null
+    if [ "$HAD_DEFAULTS" -eq 1 ]; then
+        defaults import "$DOMAIN" "$BACKUP" >/dev/null
+    else
+        defaults delete "$DOMAIN" >/dev/null 2>&1 || true
+    fi
     rm -f "$BACKUP" "$RESULT" "$BASELINE_RESULT" "$PERSISTED_RESULT" "$BUFFER_RESULT" "$PREVIOUS_RESULT" "$FIXTURE"
-    restart_app || true
 }
 trap restore_preferences EXIT
 

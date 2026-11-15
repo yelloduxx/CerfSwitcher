@@ -1,4 +1,5 @@
 import XCTest
+import RuSwitcherTestSupport
 @testable import RuSwitcherAppSupport
 
 final class RuntimePreferencesDomainTests: XCTestCase {

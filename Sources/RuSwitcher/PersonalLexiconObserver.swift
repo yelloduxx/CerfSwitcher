@@ -51,13 +51,10 @@ final class PersonalLexiconObserver: @unchecked Sendable {
         }
     }
 
-    /// The user converted this spelling by hand, so it is not one of their words.
-    func forget(original: String, language: String) {
-        let word = FrequentWordLexicon.normalize(SmartTokenizer.lexicalCore(of: original))
-        guard !word.isEmpty else { return }
-        queue.async { [self] in
-            if store.remove(word: word, language: language) { refreshModel() }
-            scheduleFlush()
+    func withSerializedChanges<T>(_ change: () throws -> T) rethrows -> T {
+        try queue.sync {
+            defer { refreshModel() }
+            return try change()
         }
     }
 

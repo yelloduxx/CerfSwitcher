@@ -8,13 +8,37 @@ enum SelectedTextConversionOutcome: Equatable {
     case none
     case converted
     case postedUnverified
+    case blocked(ConversionRefusal)
     case failed
+
+    static func unreadableSelection(selectionKnown: Bool) -> Self {
+        selectionKnown ? .blocked(.fieldUnavailable) : .none
+    }
+
+    init(verification: ReplacementVerification) {
+        switch verification {
+        case .match: self = .converted
+        case .unavailable: self = .postedUnverified
+        case let .notAttempted(reason): self = .blocked(reason)
+        case .unchanged, .mismatch: self = .failed
+        }
+    }
 }
 
 enum ManualSuffixReplacementOutcome: Equatable {
     case verified
     case postedUnverified
+    case blocked(ConversionRefusal)
     case failed
+
+    init(verification: ReplacementVerification) {
+        switch verification {
+        case .match: self = .verified
+        case .unavailable: self = .postedUnverified
+        case let .notAttempted(reason): self = .blocked(reason)
+        case .unchanged, .mismatch: self = .failed
+        }
+    }
 }
 
 struct BufferedManualConversion {
@@ -27,6 +51,8 @@ struct BufferedManualReconversion {
     let current: String
     let replacement: String
     let targetLayoutID: String?
+    var focus: FocusedElementIdentity? = nil
+    var expectedCaretLocation: Int? = nil
 }
 
 struct CaretWordConversion {
@@ -43,28 +69,100 @@ enum CaretWordPreparationOutcome {
     case conversion(CaretWordConversion)
     case noCandidate
     case busy
+    case blocked(ConversionRefusal)
 }
 
-private enum ReplacementVerification: Sendable {
+enum ReplacementVerification: Equatable, Sendable {
     case match
     case unchanged
     case mismatch
     case unavailable
+    case notAttempted(ConversionRefusal)
 }
 
-private typealias SelectedTextConversion = (
-    converted: String,
-    sourceLanguage: String,
-    targetLanguage: String,
-    sourceLayoutID: String?,
-    targetLayoutID: String?
-)
+struct ManualReplacementEvidence: Sendable {
+    static let maximumDocumentUTF16Length = 64 * 1024
+    let document: String
+    let range: NSRange
+
+    init?(document: String?, original: String, range: NSRange) {
+        guard let document, document.utf16.count <= Self.maximumDocumentUTF16Length,
+              range.location >= 0, range.length > 0,
+              range.location <= document.utf16.count,
+              range.length <= document.utf16.count - range.location,
+              (document as NSString).substring(with: range).utf16.elementsEqual(original.utf16) else {
+            return nil
+        }
+        self.document = document
+        self.range = range
+    }
+
+    static func readBoundedDocument(characterCount: Int?, readValue: () -> String?) -> String? {
+        guard let characterCount, (0...maximumDocumentUTF16Length).contains(characterCount),
+              let value = readValue(), value.utf16.count == characterCount else { return nil }
+        return value
+    }
+
+    func verify(_ actual: String?, replacement: String) -> ReplacementVerification {
+        guard let actual else { return .unavailable }
+        let expected = (document as NSString).replacingCharacters(in: range, with: replacement)
+        if actual.utf16.elementsEqual(expected.utf16) { return .match }
+        if actual.utf16.elementsEqual(document.utf16) { return .unchanged }
+        return .mismatch
+    }
+}
+
+struct ManualOperationOwnership {
+    private(set) var activeID: UUID?
+
+    mutating func begin() -> UUID? {
+        guard activeID == nil else { return nil }
+        let id = UUID()
+        activeID = id
+        return id
+    }
+
+    func owns(_ id: UUID) -> Bool { activeID == id }
+
+    @discardableResult
+    mutating func finish(_ id: UUID) -> Bool {
+        guard owns(id) else { return false }
+        activeID = nil
+        return true
+    }
+
+    mutating func cancel() { activeID = nil }
+}
+
+enum ManualMutationSafety {
+    static func perform(
+        validation: () -> ConversionRefusal?,
+        refusal: () -> ConversionRefusal?,
+        mutation: () -> ReplacementVerification
+    ) -> ReplacementVerification {
+        if let reason = validation() { return .notAttempted(reason) }
+        if let reason = refusal() { return .notAttempted(reason) }
+        return mutation()
+    }
+
+    static func matchesSelectionText(_ actual: String?, expected: String, range: NSRange) -> Bool {
+        guard let actual, !expected.isEmpty,
+              range.location >= 0, range.length > 0, range.location <= Int.max - range.length,
+              range.length == expected.utf16.count else { return false }
+        return actual.utf16.elementsEqual(expected.utf16)
+    }
+}
 
 private struct CaretPrefix: Sendable {
     let text: String
     let beginsAtDocumentStart: Bool
     let elementIdentifier: String
     let caretLocation: Int
+}
+
+private enum CaretPrefixRead: Sendable {
+    case value(CaretPrefix)
+    case blocked(ConversionRefusal)
 }
 
 private struct PhysicalReplacementStroke: Sendable {
@@ -75,16 +173,8 @@ private struct PhysicalReplacementStroke: Sendable {
 /// Конвертация текста между раскладками
 @MainActor
 final class TextConverter {
-    private static let transientPasteboardType = NSPasteboard.PasteboardType(
-        "org.nspasteboard.TransientType"
-    )
-    private static let concealedPasteboardType = NSPasteboard.PasteboardType(
-        "org.nspasteboard.ConcealedType"
-    )
-    private var savedClipboardItems: [NSPasteboardItem]?
-    private var clipboardRestoreWork: DispatchWorkItem?
-    private var clipboardTemporaryChangeCount: Int?
-    private var isConverting = false
+    private var operations = ManualOperationOwnership()
+    private var isConverting: Bool { operations.activeID != nil }
     nonisolated private let manualQueue = DispatchQueue(label: "com.ruswitcher.manual-ax", qos: .userInitiated)
     nonisolated private let focusedElementResolver: NativeFocusedEditableResolver
 
@@ -93,53 +183,95 @@ final class TextConverter {
         let identifier: String
         let range: CFRange
         let text: String
-        /// Only used to teach `ManualHostPolicy` when a replacement turns out
-        /// to insert instead of replace; not part of AX identity/matching.
+        let evidence: ManualReplacementEvidence?
         let bundleID: String?
 
-        init(processID: pid_t, identifier: String, range: CFRange, text: String, bundleID: String? = nil) {
+        init(processID: pid_t, identifier: String, range: CFRange, text: String,
+             document: String?, bundleID: String? = nil) {
             self.processID = processID
             self.identifier = identifier
             self.range = range
             self.text = text
+            self.evidence = ManualReplacementEvidence(document: document, original: text,
+                range: NSRange(location: range.location, length: range.length))
             self.bundleID = bundleID
         }
     }
 
-    private final class ManualCompletionBox: @unchecked Sendable {
+    @MainActor private final class ManualCompletionBox {
+        let operationID: UUID
         let callback: (SelectedTextConversionOutcome) -> Void
+        let processID: pid_t
+        let isCurrent: @MainActor @Sendable () -> Bool
+        var identifier: String?
+        var range: CFRange?
+        var attemptedEdit = false
+        private var finished = false
 
-        init(_ callback: @escaping (SelectedTextConversionOutcome) -> Void) {
+        init(operationID: UUID, processID: pid_t, isCurrent: @escaping @MainActor @Sendable () -> Bool,
+             callback: @escaping (SelectedTextConversionOutcome) -> Void) {
+            self.operationID = operationID
+            self.processID = processID
+            self.isCurrent = isCurrent
             self.callback = callback
+        }
+
+        func finish(_ outcome: SelectedTextConversionOutcome) {
+            guard !finished else { return }
+            finished = true
+            if attemptedEdit, case .blocked = outcome { callback(.failed) }
+            else { callback(outcome) }
         }
     }
 
-    private final class SuffixCompletionBox: @unchecked Sendable {
+    @MainActor private final class SuffixCompletionBox {
+        let operationID: UUID
         let callback: (ManualSuffixReplacementOutcome) -> Void
+        var attemptedEdit = false
+        var evidence: ManualReplacementEvidence?
+        private var finished = false
 
-        init(_ callback: @escaping (ManualSuffixReplacementOutcome) -> Void) {
+        init(operationID: UUID, callback: @escaping (ManualSuffixReplacementOutcome) -> Void) {
+            self.operationID = operationID
             self.callback = callback
+        }
+
+        func finish(_ outcome: ManualSuffixReplacementOutcome) {
+            guard !finished else { return }
+            finished = true
+            if attemptedEdit, case .blocked = outcome { callback(.failed) }
+            else { callback(outcome) }
         }
     }
 
-    private final class CaretCompletionBox: @unchecked Sendable {
+    @MainActor private final class CaretCompletionBox {
+        let operationID: UUID
         let callback: (CaretWordPreparationOutcome) -> Void
+        private var finished = false
 
-        init(_ callback: @escaping (CaretWordPreparationOutcome) -> Void) {
+        init(operationID: UUID, callback: @escaping (CaretWordPreparationOutcome) -> Void) {
+            self.operationID = operationID
             self.callback = callback
+        }
+
+        func finish(_ outcome: CaretWordPreparationOutcome) {
+            guard !finished else { return }
+            finished = true
+            callback(outcome)
         }
     }
 
     private enum SelectionReadResult: @unchecked Sendable {
         case none
         case selected(SelectionSnapshot)
-        case fallback(selectionKnown: Bool, snapshot: SelectionSnapshot?)
+        case fallback(selectionKnown: Bool, identifier: String?, range: CFRange?)
     }
 
     // Состояние движка перепечатки (буфер нажатий → юникод-вставка)
     private var lastOriginal = ""
     private var lastConverted = ""
     private var lastWasBuffer = false
+    private var lastSelectionLocation: Int?
     private(set) var lastTransaction: ConversionTransaction?
     private(set) var lastLearningPair: (original: String, converted: String)?
     private(set) var lastManualTargetLayoutID: String?
@@ -161,26 +293,31 @@ final class TextConverter {
     // MARK: - Public API
 
     func convertSelectedText(
-        allowClipboardFallback: Bool = true,
+        requireReadableSelection: Bool = true,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool = { true },
         completion: @escaping (SelectedTextConversionOutcome) -> Void
     ) {
-        guard !isConverting else {
-            completion(.failed)
+        guard isCurrent() else {
+            completion(.blocked(.editorChanged))
             return
         }
-        isConverting = true
+        guard let operationID = operations.begin() else {
+            completion(.blocked(.busy))
+            return
+        }
         guard let frontmost = NSWorkspace.shared.frontmostApplication else {
-            isConverting = false
-            completion(.none)
+            operations.finish(operationID)
+            completion(.blocked(.fieldUnavailable))
             return
         }
         let processID = frontmost.processIdentifier
         let bundleID = frontmost.bundleIdentifier
-        let completion = ManualCompletionBox(completion)
+        let completion = ManualCompletionBox(operationID: operationID, processID: processID,
+            isCurrent: isCurrent, callback: completion)
         if processID == ProcessInfo.processInfo.processIdentifier {
             rslog("manual_self_selection_main_thread")
             let result = readSelection(processID: processID, bundleID: bundleID)
-            handleSelectionRead(result, allowClipboardFallback: allowClipboardFallback, completion: completion)
+            handleSelectionRead(result, requireReadableSelection: requireReadableSelection, completion: completion)
             return
         }
         manualQueue.async { [weak self] in
@@ -189,11 +326,87 @@ final class TextConverter {
             Task { @MainActor [weak self] in
                 self?.handleSelectionRead(
                     result,
-                    allowClipboardFallback: allowClipboardFallback,
+                    requireReadableSelection: requireReadableSelection,
                     completion: completion
                 )
             }
         }
+    }
+
+    private func selectionRefusal(_ completion: ManualCompletionBox,
+                                  checkRange: Bool = false,
+                                  expectedText: String? = nil) -> ConversionRefusal? {
+        if let reason = basicSelectionRefusal(completion) { return reason }
+        guard let identifier = completion.identifier else { return nil }
+        let result = focusedElementResolver.withElement(
+            processID: completion.processID, expectedIdentifier: identifier,
+            timeoutMilliseconds: 50, allowTreeSearch: true
+        ) { lease -> ConversionRefusal? in
+            guard checkRange, let expected = completion.range else { return nil }
+            let read = lease.copyAttribute(kAXSelectedTextRangeAttribute as CFString)
+            guard read.0 == .success, let raw = read.1,
+                  CFGetTypeID(raw) == AXValueGetTypeID() else { return .fieldUnavailable }
+            let value = unsafeDowncast(raw, to: AXValue.self)
+            var actual = CFRange()
+            guard AXValueGetType(value) == .cfRange,
+                  AXValueGetValue(value, .cfRange, &actual) else { return .fieldUnavailable }
+            guard actual.location == expected.location && actual.length == expected.length else {
+                return .editorChanged
+            }
+            guard let expectedText else { return nil }
+            let textRead = lease.copyAttribute(kAXSelectedTextAttribute as CFString)
+            guard textRead.0 == .success, let text = textRead.1 as? String else { return .fieldUnavailable }
+            return ManualMutationSafety.matchesSelectionText(text, expected: expectedText,
+                range: NSRange(location: actual.location, length: actual.length)) ? nil : .editorChanged
+        }
+        if let reason = basicSelectionRefusal(completion) { return reason }
+        switch result {
+        case let .value(reason): return reason
+        case .unavailable(.identifierMismatch): return .editorChanged
+        case .unavailable: return .fieldUnavailable
+        }
+    }
+
+    private func basicSelectionRefusal(_ completion: ManualCompletionBox) -> ConversionRefusal? {
+        guard operations.owns(completion.operationID), completion.isCurrent(),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == completion.processID else {
+            return .editorChanged
+        }
+        return AutoSwitchPolicy.secureInputActive ? .secureInput : nil
+    }
+
+    nonisolated private func selectionRefusalBeforeAX(_ completion: ManualCompletionBox) -> ConversionRefusal? {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { basicSelectionRefusal(completion) }
+        }
+        return DispatchQueue.main.sync { basicSelectionRefusal(completion) }
+    }
+
+    private func finishSelection(_ outcome: SelectedTextConversionOutcome, completion: ManualCompletionBox) {
+        guard operations.owns(completion.operationID) else {
+            completion.finish(.blocked(.editorChanged))
+            return
+        }
+        let result: SelectedTextConversionOutcome
+        if completion.attemptedEdit, case .blocked = outcome { result = .failed }
+        else { result = outcome }
+        if result == .failed || result == .postedUnverified {
+            clearState()
+        }
+        operations.finish(completion.operationID)
+        completion.finish(result)
+    }
+
+    private func finishSuffix(_ outcome: ManualSuffixReplacementOutcome, completion: SuffixCompletionBox) {
+        guard operations.finish(completion.operationID) else {
+            completion.finish(.blocked(.editorChanged))
+            return
+        }
+        completion.finish(outcome)
+    }
+
+    private func finishCaret(_ outcome: CaretWordPreparationOutcome, completion: CaretCompletionBox) {
+        completion.finish(operations.finish(completion.operationID) ? outcome : .blocked(.editorChanged))
     }
 
     /// Replaces the exact text immediately before the caret through AX. Unlike
@@ -212,15 +425,29 @@ final class TextConverter {
         isCurrent: @escaping @MainActor @Sendable () -> Bool,
         completion: @escaping (ManualSuffixReplacementOutcome) -> Void
     ) {
-        guard !expected.isEmpty, !replacement.isEmpty, isCurrent() else {
-            completion(.failed)
+        guard isCurrent() else {
+            completion(.blocked(.editorChanged))
             return
         }
-        isConverting = true
-        let completion = SuffixCompletionBox(completion)
-        if ManualHostPolicy.shared.prefersKeyboardDeletion(bundleID: focus.bundleID)
+        guard !expected.isEmpty, !replacement.isEmpty else {
+            completion(.blocked(.uncertain))
+            return
+        }
+        guard let operationID = operations.begin() else {
+            completion(.blocked(.busy))
+            return
+        }
+        let completion = SuffixCompletionBox(operationID: operationID, callback: completion)
+        let callerIsCurrent = isCurrent
+        let isCurrent: @MainActor @Sendable () -> Bool = { [weak self] in
+            self?.operations.owns(operationID) == true && callerIsCurrent()
+        }
+        var prefersKeyboardDeletion = ManualHostPolicy.shared.prefersKeyboardDeletion(bundleID: focus.bundleID)
+        #if RUSWITCH_TEST_HOST
+        prefersKeyboardDeletion = prefersKeyboardDeletion
             || CommandLine.arguments.contains("--force-keyboard-deletion-fallback")
-        {
+        #endif
+        if prefersKeyboardDeletion {
             replaceFocusedSuffixViaKeyboardDeletion(
                 expected: expected,
                 replacement: replacement,
@@ -232,6 +459,7 @@ final class TextConverter {
             )
             return
         }
+        #if RUSWITCH_TEST_HOST
         if CommandLine.arguments.contains("--force-synthetic-input-fallback") {
             finishFocusedSuffixReplacement(
                 .unchanged,
@@ -247,7 +475,7 @@ final class TextConverter {
         }
         if CommandLine.arguments.contains("--force-ax-unavailable-fallback") {
             finishFocusedSuffixReplacement(
-                .unavailable,
+                .notAttempted(.fieldUnavailable),
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
@@ -258,14 +486,17 @@ final class TextConverter {
             )
             return
         }
+        #endif
         if focus.processID == ProcessInfo.processInfo.processIdentifier {
             let verification = setAndVerifyFocusedSuffix(
                 expected: expected,
                 replacement: replacement,
                 focus: focus,
                 expectedCaretLocation: expectedCaretLocation,
-                pollForDelayedCommit: false
+                pollForDelayedCommit: false,
+                mutationRefusal: { isCurrent() ? nil : .editorChanged }
             )
+            if case .notAttempted = verification {} else { completion.attemptedEdit = true }
             finishFocusedSuffixReplacement(
                 verification,
                 expected: expected,
@@ -308,9 +539,13 @@ final class TextConverter {
         isCurrent: @escaping @MainActor @Sendable () -> Bool,
         completion: SuffixCompletionBox
     ) {
+        guard isCurrent() else {
+            finishSuffix(.blocked(.editorChanged), completion: completion)
+            return
+        }
         switch verification {
         case .match:
-            completion.callback(.verified)
+            finishSuffix(.verified, completion: completion)
         case .unchanged:
             if ManualHostPolicy.shared.prefersKeyboardDeletion(bundleID: focus.bundleID) {
                 replaceFocusedSuffixViaKeyboardDeletion(
@@ -332,14 +567,7 @@ final class TextConverter {
                     completion: completion
                 )
             }
-        case .unavailable:
-            // AX could not confirm the caret content at all — the common case
-            // for terminal emulators that expose little or no Accessibility
-            // text API. Do not give up: fall through to Backspace+Unicode for
-            // ANY host here, not only ones pre-listed by bundle ID. Safety
-            // comes from the isCurrent()/frontmost recheck immediately before
-            // posting inside replaceFocusedSuffixViaKeyboardDeletion, not from
-            // AX confirmation (which is exactly what is unavailable).
+        case .notAttempted(.fieldUnavailable):
             replaceFocusedSuffixViaKeyboardDeletion(
                 expected: expected,
                 replacement: replacement,
@@ -349,12 +577,8 @@ final class TextConverter {
                 isCurrent: isCurrent,
                 completion: completion
             )
-        case .mismatch:
-            // AX read successfully and confirmed the caret is NOT where
-            // expected — a real, positive signal that state drifted. Keep
-            // the text unchanged rather than guessing.
-            isConverting = false
-            completion.callback(.failed)
+        case .mismatch, .unavailable, .notAttempted:
+            finishSuffix(.init(verification: verification), completion: completion)
         }
     }
 
@@ -373,8 +597,7 @@ final class TextConverter {
     ) {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID,
               isCurrent() else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.editorChanged), completion: completion)
             return
         }
         let probe = focusedSuffixProbe(
@@ -383,15 +606,22 @@ final class TextConverter {
             expectedCaretLocation: expectedCaretLocation,
             timeoutMilliseconds: 50
         )
-        let forceGlobalEventStream = CommandLine.arguments.contains("--force-global-event-stream")
+        completion.evidence = probe.evidence
         let delivery: KeyboardEventDelivery
-        switch probe {
+        switch probe.verification {
         case .mismatch:
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.editorChanged), completion: completion)
+            return
+        case let .notAttempted(reason):
+            finishSuffix(.blocked(reason), completion: completion)
             return
         case .match, .unchanged:
-            delivery = forceGlobalEventStream ? .globalEventStream : .targetedProcess
+            #if RUSWITCH_TEST_HOST
+            delivery = CommandLine.arguments.contains("--force-global-event-stream")
+                ? .globalEventStream : .targetedProcess
+            #else
+            delivery = .targetedProcess
+            #endif
         case .unavailable:
             // Some custom editors do not expose AX text but do receive marked
             // HID-stream events. Targeted CGEvents are silently ignored there.
@@ -404,15 +634,13 @@ final class TextConverter {
         // and "delete whatever is actually under the caret now".
         guard isCurrent(),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.editorChanged), completion: completion)
             return
         }
 
         let replacementSpanCount = expected.count
         guard replacementSpanCount > 0 else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.uncertain), completion: completion)
             return
         }
         if delivery == .globalEventStream {
@@ -422,8 +650,7 @@ final class TextConverter {
                     targetLayoutID: targetLayoutID
                   ),
                   !strokes.isEmpty else {
-                isConverting = false
-                completion.callback(.failed)
+                finishSuffix(.blocked(.unsupportedLayout), completion: completion)
                 return
             }
             let originalLayoutID = LayoutSwitcher.currentLayoutID()
@@ -452,15 +679,14 @@ final class TextConverter {
             replacementText: replacement
         ) else {
             rslog("manual_keyboard_ambiguous_deletion")
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.protectedText), completion: completion)
             return
         }
         guard post(plan, to: focus.processID, delivery: delivery) else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.deliveryFailed), completion: completion)
             return
         }
+        completion.attemptedEdit = true
         rslog("manual_keyboard_deletion_posted")
         verifyPostedSuffixReplacement(
             replacement: replacement,
@@ -481,18 +707,20 @@ final class TextConverter {
         attempt: Int,
         completion: SuffixCompletionBox
     ) {
+        guard operations.owns(completion.operationID) else {
+            finishSuffix(.blocked(.editorChanged), completion: completion)
+            return
+        }
         guard isCurrent(),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
             restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.editorChanged), completion: completion)
             return
         }
         guard LayoutSwitcher.currentLayoutID() == targetLayoutID else {
             guard attempt < 20 else {
                 restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
-                isConverting = false
-                completion.callback(.failed)
+                finishSuffix(.blocked(.unsupportedLayout), completion: completion)
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.003) { [weak self] in
@@ -516,10 +744,10 @@ final class TextConverter {
             to: focus.processID
         ) else {
             restoreLayoutAfterAbortedPhysicalReplacement(originalLayoutID)
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.blocked(.deliveryFailed), completion: completion)
             return
         }
+        completion.attemptedEdit = true
         rslog("manual_global_physical_selection_posted")
         verifyPostedSuffixReplacement(
             replacement: replacement,
@@ -544,20 +772,19 @@ final class TextConverter {
             guard let self else { return }
             guard isCurrent(),
                   NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
-                self.isConverting = false
-                completion.callback(.failed)
+                self.finishSuffix(.failed, completion: completion)
                 return
             }
-            if !replacement.isEmpty, self.focusedSuffixMatches(
-                replacement,
-                focus: focus,
+            let verification = self.readReplacement(
+                replacement, evidence: completion.evidence, focus: focus,
                 timeoutMilliseconds: 40
-            ) {
-                completion.callback(.verified)
-            } else {
-                // Terminals often cannot read back; treat as posted, never learn.
-                completion.callback(.postedUnverified)
+            )
+            guard isCurrent(),
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
+                self.finishSuffix(.failed, completion: completion)
+                return
             }
+            self.finishSuffix(.init(verification: verification), completion: completion)
         }
     }
 
@@ -571,21 +798,26 @@ final class TextConverter {
     ) {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID,
               !expected.isEmpty,
-              isCurrent(),
-              focusedSuffixMatches(
-                expected,
-                focus: focus,
-                expectedCaretLocation: expectedCaretLocation,
-                timeoutMilliseconds: 50
-              ) else {
-            isConverting = false
-            completion.callback(.failed)
+              isCurrent() else {
+            finishSuffix(.blocked(.editorChanged), completion: completion)
             return
         }
+        let probe = focusedSuffixProbe(expected, focus: focus,
+            expectedCaretLocation: expectedCaretLocation, timeoutMilliseconds: 50)
+        guard probe.verification == .match else {
+            finishSuffix(.blocked(.editorChanged), completion: completion)
+            return
+        }
+        completion.evidence = probe.evidence
 
+        guard isCurrent(),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
+            finishSuffix(.blocked(.editorChanged), completion: completion)
+            return
+        }
+        completion.attemptedEdit = true
         guard postSelection(characterCount: expected.count, to: focus.processID) else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.failed, completion: completion)
             return
         }
         let selectionDeadline = DispatchTime.now().uptimeNanoseconds + 90_000_000
@@ -612,33 +844,27 @@ final class TextConverter {
     ) {
         guard isCurrent(),
               NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.failed, completion: completion)
             return
         }
         // Require a real non-empty selection range, not only SelectedText string.
         // Some Electron hosts echo the caret word as "selected" without selecting.
         if selectedRangeAndTextMatch(expected, focus: focus, timeoutMilliseconds: 12) {
-            guard postUnicodeText(replacement, to: focus.processID) else {
-                isConverting = false
-                completion.callback(.failed)
+            guard isCurrent(),
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
+                finishSuffix(.failed, completion: completion)
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-                guard let self else { return }
-                guard isCurrent(),
-                      NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
-                    self.isConverting = false
-                    completion.callback(.failed)
-                    return
-                }
-                completion.callback(.postedUnverified)
+            guard postUnicodeText(replacement, to: focus.processID) else {
+                finishSuffix(.failed, completion: completion)
+                return
             }
+            verifyPostedSuffixReplacement(replacement: replacement, focus: focus,
+                isCurrent: isCurrent, completion: completion)
             return
         }
         guard DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds else {
-            isConverting = false
-            completion.callback(.failed)
+            finishSuffix(.failed, completion: completion)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
@@ -655,35 +881,55 @@ final class TextConverter {
 
     private func handleSelectionRead(
         _ result: SelectionReadResult,
-        allowClipboardFallback: Bool,
+        requireReadableSelection: Bool,
         completion: ManualCompletionBox
     ) {
         switch result {
+        case let .selected(snapshot):
+            completion.identifier = snapshot.identifier
+            completion.range = snapshot.range
+        case let .fallback(_, identifier, range):
+            completion.identifier = identifier
+            completion.range = range
+        case .none: break
+        }
+        if let reason = selectionRefusal(completion) {
+            finishSelection(.blocked(reason), completion: completion)
+            return
+        }
+        switch result {
         case .none:
-            isConverting = false
-            completion.callback(.none)
-        case let .fallback(selectionKnown, snapshot):
-            guard allowClipboardFallback else {
-                isConverting = false
-                completion.callback(.none)
-                return
-            }
-            convertSelectionViaClipboardAsync(
-                selectionKnown: selectionKnown,
-                snapshot: snapshot,
-                completion: completion
-            )
+            finishSelection(.none, completion: completion)
+        case let .fallback(selectionKnown, _, _):
+            finishSelection(requireReadableSelection ? .blocked(.fieldUnavailable)
+                : .unreadableSelection(selectionKnown: selectionKnown), completion: completion)
         case let .selected(snapshot):
             guard let conversion = DynamicKeyMapping.convertSelectedText(snapshot.text) else {
-                isConverting = false
-                completion.callback(.failed)
+                finishSelection(.blocked(.unsupportedLayout), completion: completion)
                 return
             }
-            let replacement = manualReplacement(
+            var replacement = manualReplacement(
                 typed: snapshot.text,
                 converted: conversion.converted,
                 targetLanguage: conversion.targetLanguage
             )
+            var sourceLayoutID = conversion.sourceLayoutID
+            var targetLayoutID = conversion.targetLayoutID
+            if lastSelectionLocation == snapshot.range.location,
+               lastTransaction?.focus.processID == snapshot.processID,
+               lastTransaction?.focus.identifier == snapshot.identifier,
+               lastConverted == snapshot.text {
+                replacement = lastOriginal
+                sourceLayoutID = lastTransaction?.targetLayoutID
+                targetLayoutID = lastTransaction?.sourceLayoutID
+            }
+            let preparedReplacement = replacement
+            let preparedSourceLayoutID = sourceLayoutID
+            let preparedTargetLayoutID = targetLayoutID
+            guard sourceLayoutID != nil, targetLayoutID != nil else {
+                finishSelection(.blocked(.unsupportedLayout), completion: completion)
+                return
+            }
             if snapshot.processID == ProcessInfo.processInfo.processIdentifier {
                 // AX dispatches an in-process NSTextView mutation directly into AppKit.
                 // AppKit requires that mutation on its main queue and traps otherwise.
@@ -691,11 +937,13 @@ final class TextConverter {
                     verification: setAndVerifySelectedText(
                         snapshot: snapshot,
                         replacement: replacement,
-                        pollForDelayedCommit: false
+                        pollForDelayedCommit: false,
+                        completion: completion
                     ),
                     snapshot: snapshot,
                     replacement: replacement,
-                    targetLayoutID: conversion.targetLayoutID,
+                    sourceLayoutID: sourceLayoutID,
+                    targetLayoutID: targetLayoutID,
                     completion: completion
                 )
             } else {
@@ -703,15 +951,17 @@ final class TextConverter {
                     guard let self else { return }
                     let verification = self.setAndVerifySelectedText(
                         snapshot: snapshot,
-                        replacement: replacement,
-                        pollForDelayedCommit: true
+                        replacement: preparedReplacement,
+                        pollForDelayedCommit: true,
+                        completion: completion
                     )
                     Task { @MainActor [weak self] in
                         self?.finishSelectedTextReplacement(
                             verification: verification,
                             snapshot: snapshot,
-                            replacement: replacement,
-                            targetLayoutID: conversion.targetLayoutID,
+                            replacement: preparedReplacement,
+                            sourceLayoutID: preparedSourceLayoutID,
+                            targetLayoutID: preparedTargetLayoutID,
                             completion: completion
                         )
                     }
@@ -723,8 +973,10 @@ final class TextConverter {
     nonisolated private func setAndVerifySelectedText(
         snapshot: SelectionSnapshot,
         replacement: String,
-        pollForDelayedCommit: Bool
+        pollForDelayedCommit: Bool,
+        completion: ManualCompletionBox
     ) -> ReplacementVerification {
+        if let reason = selectionRefusalBeforeAX(completion) { return .notAttempted(reason) }
         switch focusedElementResolver.withElement(
             processID: snapshot.processID,
             expectedIdentifier: snapshot.identifier,
@@ -732,22 +984,23 @@ final class TextConverter {
             allowTreeSearch: true,
             operation: { lease -> ReplacementVerification in
                 guard selectionMatches(snapshot, lease: lease) else {
-                    return ReplacementVerification.mismatch
+                    return .notAttempted(.editorChanged)
                 }
                 return setAndVerifySelectedText(
                     snapshot: snapshot,
                     replacement: replacement,
                     pollForDelayedCommit: pollForDelayedCommit,
-                    lease: lease
+                    lease: lease,
+                    mutationRefusal: { self.selectionRefusalBeforeAX(completion) }
                 )
             }
         ) {
         case let .value(result):
             return result
         case .unavailable(.identifierMismatch):
-            return .mismatch
+            return .notAttempted(.editorChanged)
         case .unavailable:
-            return .unavailable
+            return .notAttempted(.fieldUnavailable)
         }
     }
 
@@ -755,132 +1008,105 @@ final class TextConverter {
         snapshot: SelectionSnapshot,
         replacement: String,
         pollForDelayedCommit: Bool,
-        lease: NativeAXElementLease
+        lease: NativeAXElementLease,
+        mutationRefusal: () -> ConversionRefusal?
     ) -> ReplacementVerification {
-        let setResult = lease.setAttribute(
-            kAXSelectedTextAttribute as CFString,
-            value: replacement as CFString
-        )
-        guard setResult == .success else { return .unchanged }
-        if !pollForDelayedCommit {
-            let quick = verifyReplacement(
-                replacement,
-                original: snapshot.text,
-                originalRange: snapshot.range,
-                lease: lease
-            )
-            if quick == .match { return .match }
-            if recoverInsertedReplacement(
-                original: snapshot.text,
-                replacement: replacement,
-                originalRange: snapshot.range,
-                bundleID: snapshot.bundleID,
-                lease: lease
-            ) {
-                return .match
+        return ManualMutationSafety.perform(validation: {
+            if let evidence = snapshot.evidence,
+               let current = self.documentText(from: lease),
+               !current.utf16.elementsEqual(evidence.document.utf16) {
+                return .editorChanged
             }
-            return quick
+            return nil
+        }, refusal: mutationRefusal) {
+            let setResult = lease.setAttribute(kAXSelectedTextAttribute as CFString,
+                value: replacement as CFString)
+            let deadline = Date().addingTimeInterval(pollForDelayedCommit ? 0.25 : 0)
+            var verification: ReplacementVerification
+            repeat {
+                verification = verifyReplacement(replacement, evidence: snapshot.evidence, lease: lease)
+                if verification == .match || verification == .mismatch { return verification }
+                if setResult != .success || mutationRefusal() != nil { return verification }
+                if Date() < deadline { usleep(5_000) }
+            } while Date() < deadline
+            return verification
         }
-
-        let deadline = Date().addingTimeInterval(0.25)
-        var verification: ReplacementVerification = .unavailable
-        repeat {
-            verification = verifyReplacement(
-                replacement,
-                original: snapshot.text,
-                originalRange: snapshot.range,
-                lease: lease
-            )
-            if verification == .match { return .match }
-            if verification == .mismatch {
-                // Host inserted instead of replacing → converted+original at caret.
-                if recoverInsertedReplacement(
-                    original: snapshot.text,
-                    replacement: replacement,
-                    originalRange: snapshot.range,
-                    bundleID: snapshot.bundleID,
-                    lease: lease
-                ) {
-                    return .match
-                }
-                break
-            }
-            if Date() < deadline { usleep(5_000) }
-        } while Date() < deadline
-        return verification
     }
 
-    /// When `kAXSelectedText` inserts at the selection start instead of replacing,
-    /// the buffer becomes `replacement + original`. Collapse it back to `replacement`.
-    nonisolated private func recoverInsertedReplacement(
-        original: String,
-        replacement: String,
-        originalRange: CFRange,
-        bundleID: String?,
-        lease: NativeAXElementLease
-    ) -> Bool {
-        let combined = (replacement + original).precomposedStringWithCanonicalMapping
-        let combinedLength = combined.utf16.count
-        guard combinedLength > original.utf16.count else { return false }
-        var probe = CFRange(location: originalRange.location, length: combinedLength)
-        guard let probeValue = AXValueCreate(.cfRange, &probe) else { return false }
-        let read = lease.copyParameterizedAttribute(
-            kAXStringForRangeParameterizedAttribute as CFString,
-            parameter: probeValue
-        )
-        guard read.0 == .success,
-              let actual = read.1 as? String,
-              actual.precomposedStringWithCanonicalMapping == combined else { return false }
-        // Confirmed (not merely suspected): this host's kAXSelectedTextAttribute
-        // write inserted instead of replacing. Remember it so the next manual
-        // conversion for this app skips straight to Backspace+Unicode instead
-        // of duplicating text again first.
-        ManualHostPolicy.shared.learnPrefersKeyboardDeletion(bundleID: bundleID)
-        guard lease.setAttribute(
-            kAXSelectedTextRangeAttribute as CFString,
-            value: probeValue
-        ) == .success else { return false }
-        guard lease.setAttribute(
-            kAXSelectedTextAttribute as CFString,
-            value: replacement as CFString
-        ) == .success else { return false }
-        let verified = verifyReplacement(
-            replacement,
-            original: original,
-            originalRange: originalRange,
-            lease: lease
-        )
-        if verified == .match {
-            rslog("manual_ax_insert_recovered")
-            return true
+    nonisolated private func documentText(from lease: NativeAXElementLease) -> String? {
+        let countRead = lease.copyAttribute(kAXNumberOfCharactersAttribute as CFString)
+        guard countRead.0 == .success, let count = countRead.1 as? NSNumber else { return nil }
+        return ManualReplacementEvidence.readBoundedDocument(characterCount: count.intValue) {
+            let read = lease.copyAttribute(kAXValueAttribute as CFString)
+            guard read.0 == .success else { return nil }
+            return read.1 as? String
         }
-        return false
+    }
+
+    nonisolated private func verifyReplacement(
+        _ replacement: String,
+        evidence: ManualReplacementEvidence?,
+        lease: NativeAXElementLease
+    ) -> ReplacementVerification {
+        // A selected string or matching prefix cannot prove the original span was removed.
+        guard let evidence else { return .unavailable }
+        return evidence.verify(documentText(from: lease), replacement: replacement)
+    }
+
+    nonisolated private func readReplacement(
+        _ replacement: String,
+        evidence: ManualReplacementEvidence?,
+        focus: FocusedElementIdentity,
+        timeoutMilliseconds: Int
+    ) -> ReplacementVerification {
+        switch focusedElementResolver.withElement(
+            processID: focus.processID, expectedIdentifier: focus.identifier,
+            timeoutMilliseconds: timeoutMilliseconds, allowTreeSearch: true,
+            operation: { lease in
+                self.verifyReplacement(replacement, evidence: evidence, lease: lease)
+            }
+        ) {
+        case let .value(result): return result
+        case .unavailable(.identifierMismatch): return .mismatch
+        case .unavailable: return .unavailable
+        }
     }
 
     private func finishSelectedTextReplacement(
         verification: ReplacementVerification,
         snapshot: SelectionSnapshot,
         replacement: String,
+        sourceLayoutID: String?,
         targetLayoutID: String?,
         completion: ManualCompletionBox
     ) {
+        if case .notAttempted = verification {} else { completion.attemptedEdit = true }
+        if let reason = selectionRefusal(completion) {
+            let outcome: SelectedTextConversionOutcome = completion.attemptedEdit
+                ? (reason == .fieldUnavailable ? .postedUnverified : .failed) : .blocked(reason)
+            finishSelection(outcome, completion: completion)
+            return
+        }
         switch verification {
         case .match:
-            lastManualTargetLayoutID = targetLayoutID
-            lastLearningPair = (snapshot.text, replacement)
-            lastWasBuffer = false
-            isConverting = false
-            completion.callback(.converted)
+            recordVerifiedSelection(ConversionTransaction(
+                original: snapshot.text, replacement: replacement, boundary: .punctuation(""),
+                focus: FocusedElementIdentity(processID: snapshot.processID,
+                    bundleID: snapshot.bundleID, identifier: snapshot.identifier),
+                sourceLayoutID: sourceLayoutID, targetLayoutID: targetLayoutID,
+                sequence: 0, automatic: false
+            ), selectionLocation: snapshot.range.location)
+            finishSelection(.converted, completion: completion)
         case .unchanged:
-            convertSelectionViaClipboardAsync(
-                selectionKnown: true,
+            convertSelectionViaKeyboardAsync(
                 snapshot: snapshot,
+                replacement: replacement,
+                sourceLayoutID: sourceLayoutID,
+                targetLayoutID: targetLayoutID,
                 completion: completion
             )
-        case .mismatch, .unavailable:
-            lastLearningPair = nil
-            isConverting = false
-            completion.callback(.failed)
+        case .mismatch, .unavailable, .notAttempted:
+            finishSelection(.init(verification: verification), completion: completion)
         }
     }
 
@@ -893,26 +1119,27 @@ final class TextConverter {
                 let rangeRead = lease.copyAttribute(kAXSelectedTextRangeAttribute as CFString)
                 guard rangeRead.0 == .success, let rangeRaw = rangeRead.1,
                       CFGetTypeID(rangeRaw) == AXValueGetTypeID() else {
-                    return .fallback(selectionKnown: false, snapshot: nil)
+                    return .fallback(selectionKnown: false, identifier: lease.identifier, range: nil)
                 }
                 let rangeValue = unsafeDowncast(rangeRaw, to: AXValue.self)
                 var range = CFRange()
                 guard AXValueGetType(rangeValue) == .cfRange,
                       AXValueGetValue(rangeValue, .cfRange, &range) else {
-                    return .fallback(selectionKnown: false, snapshot: nil)
+                    return .fallback(selectionKnown: false, identifier: lease.identifier, range: nil)
                 }
                 guard range.length > 0 else { return .none }
                 let textRead = lease.copyAttribute(kAXSelectedTextAttribute as CFString)
                 guard textRead.0 == .success,
                       let text = textRead.1 as? String,
                       !text.isEmpty else {
-                    return .fallback(selectionKnown: true, snapshot: nil)
+                    return .fallback(selectionKnown: true, identifier: lease.identifier, range: range)
                 }
                 return .selected(SelectionSnapshot(
                     processID: processID,
                     identifier: lease.identifier,
                     range: range,
                     text: text,
+                    document: self.documentText(from: lease),
                     bundleID: bundleID
                 ))
             }
@@ -920,7 +1147,7 @@ final class TextConverter {
         case let .value(result):
             return result
         case .unavailable:
-            return .fallback(selectionKnown: false, snapshot: nil)
+            return .fallback(selectionKnown: false, identifier: nil, range: nil)
         }
     }
 
@@ -929,7 +1156,8 @@ final class TextConverter {
         replacement: String,
         focus: FocusedElementIdentity,
         expectedCaretLocation: Int?,
-        pollForDelayedCommit: Bool
+        pollForDelayedCommit: Bool,
+        mutationRefusal: () -> ConversionRefusal?
     ) -> ReplacementVerification {
         switch focusedElementResolver.withElement(
             processID: focus.processID,
@@ -939,33 +1167,35 @@ final class TextConverter {
             operation: { lease -> ReplacementVerification in
                 let rangeRead = lease.copyAttribute(kAXSelectedTextRangeAttribute as CFString)
                 guard rangeRead.0 == .success, let rangeRaw = rangeRead.1,
-                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return .unavailable }
+                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return .notAttempted(.fieldUnavailable) }
                 let rangeValue = unsafeDowncast(rangeRaw, to: AXValue.self)
                 var caret = CFRange()
                 guard AXValueGetType(rangeValue) == .cfRange,
                       AXValueGetValue(rangeValue, .cfRange, &caret),
-                      caret.length == 0 else { return .mismatch }
+                      caret.length == 0 else { return .notAttempted(.editorChanged) }
                 if let expectedCaretLocation,
-                   caret.location != expectedCaretLocation { return .mismatch }
+                   caret.location != expectedCaretLocation { return .notAttempted(.editorChanged) }
 
                 let expectedLength = expected.utf16.count
-                guard caret.location >= expectedLength else { return .mismatch }
+                guard caret.location >= expectedLength else { return .notAttempted(.editorChanged) }
                 var suffixRange = CFRange(
                     location: caret.location - expectedLength,
                     length: expectedLength
                 )
                 guard let suffixRangeValue = AXValueCreate(.cfRange, &suffixRange) else {
-                    return .unavailable
+                    return .notAttempted(.fieldUnavailable)
                 }
                 let suffixRead = lease.copyParameterizedAttribute(
                     kAXStringForRangeParameterizedAttribute as CFString,
                     parameter: suffixRangeValue
                 )
                 guard suffixRead.0 == .success,
-                      let actual = suffixRead.1 as? String else { return .unavailable }
+                      let actual = suffixRead.1 as? String else { return .notAttempted(.fieldUnavailable) }
                 guard actual.precomposedStringWithCanonicalMapping
-                        == expected.precomposedStringWithCanonicalMapping else { return .mismatch }
+                        == expected.precomposedStringWithCanonicalMapping else { return .notAttempted(.editorChanged) }
 
+                let document = self.documentText(from: lease)
+                if let reason = mutationRefusal() { return .notAttempted(reason) }
                 guard lease.setAttribute(
                     kAXSelectedTextRangeAttribute as CFString,
                     value: suffixRangeValue
@@ -976,6 +1206,7 @@ final class TextConverter {
                     identifier: lease.identifier,
                     range: suffixRange,
                     text: expected,
+                    document: document,
                     bundleID: focus.bundleID
                 )
                 // Never call kAXSelectedText unless the selection is confirmed.
@@ -985,13 +1216,14 @@ final class TextConverter {
                     snapshot: snapshot,
                     replacement: replacement,
                     pollForDelayedCommit: pollForDelayedCommit,
-                    lease: lease
+                    lease: lease,
+                    mutationRefusal: mutationRefusal
                 )
 
                 var finalRange = verification == .match
                     ? CFRange(location: suffixRange.location + replacement.utf16.count, length: 0)
                     : caret
-                if let finalRangeValue = AXValueCreate(.cfRange, &finalRange) {
+                if let finalRangeValue = AXValueCreate(.cfRange, &finalRange), mutationRefusal() == nil {
                     _ = lease.setAttribute(
                         kAXSelectedTextRangeAttribute as CFString,
                         value: finalRangeValue
@@ -1003,9 +1235,9 @@ final class TextConverter {
         case let .value(result):
             return result
         case .unavailable(.identifierMismatch):
-            return .mismatch
+            return .notAttempted(.editorChanged)
         case .unavailable:
-            return .unavailable
+            return .notAttempted(.fieldUnavailable)
         }
     }
 
@@ -1024,50 +1256,56 @@ final class TextConverter {
               range.length == snapshot.range.length else { return false }
         let textRead = lease.copyAttribute(kAXSelectedTextAttribute as CFString)
         guard textRead.0 == .success, let text = textRead.1 as? String else { return false }
-        return text.precomposedStringWithCanonicalMapping
-            == snapshot.text.precomposedStringWithCanonicalMapping
+        return ManualMutationSafety.matchesSelectionText(text, expected: snapshot.text,
+            range: NSRange(location: snapshot.range.location, length: snapshot.range.length))
     }
 
     nonisolated private func readTextBeforeCaret(
         focus: FocusedElementIdentity,
         maxUTF16Length: Int
-    ) -> CaretPrefix? {
+    ) -> CaretPrefixRead {
         switch focusedElementResolver.withElement(
             processID: focus.processID,
             expectedIdentifier: focus.identifier,
             timeoutMilliseconds: 250,
             allowTreeSearch: true,
-            operation: { lease -> CaretPrefix? in
+            operation: { lease -> CaretPrefixRead in
                 let rangeRead = lease.copyAttribute(kAXSelectedTextRangeAttribute as CFString)
                 guard rangeRead.0 == .success, let rangeRaw = rangeRead.1,
-                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return nil }
+                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return .blocked(.fieldUnavailable) }
                 let rangeValue = unsafeDowncast(rangeRaw, to: AXValue.self)
                 var caret = CFRange()
                 guard AXValueGetType(rangeValue) == .cfRange,
                       AXValueGetValue(rangeValue, .cfRange, &caret),
-                      caret.length == 0,
-                      caret.location > 0 else { return nil }
+                      caret.location >= 0 else { return .blocked(.fieldUnavailable) }
+                guard caret.length == 0 else { return .blocked(.editorChanged) }
+                if caret.location == 0 {
+                    return .value(CaretPrefix(text: "", beginsAtDocumentStart: true,
+                        elementIdentifier: lease.identifier, caretLocation: 0))
+                }
                 let length = min(max(1, maxUTF16Length), caret.location)
                 var prefixRange = CFRange(location: caret.location - length, length: length)
-                guard let prefixValue = AXValueCreate(.cfRange, &prefixRange) else { return nil }
+                guard let prefixValue = AXValueCreate(.cfRange, &prefixRange) else { return .blocked(.fieldUnavailable) }
                 let textRead = lease.copyParameterizedAttribute(
                     kAXStringForRangeParameterizedAttribute as CFString,
                     parameter: prefixValue
                 )
-                guard textRead.0 == .success, let text = textRead.1 as? String else { return nil }
-                guard !text.isEmpty else { return nil }
-                return CaretPrefix(
+                guard textRead.0 == .success, let text = textRead.1 as? String,
+                      text.utf16.count == length else { return .blocked(.fieldUnavailable) }
+                return .value(CaretPrefix(
                     text: text,
                     beginsAtDocumentStart: prefixRange.location == 0,
                     elementIdentifier: lease.identifier,
                     caretLocation: caret.location
-                )
+                ))
             }
         ) {
         case let .value(text):
             return text
+        case .unavailable(.identifierMismatch):
+            return .blocked(.editorChanged)
         case .unavailable:
-            return nil
+            return .blocked(.fieldUnavailable)
         }
     }
 
@@ -1076,49 +1314,50 @@ final class TextConverter {
         focus: FocusedElementIdentity,
         expectedCaretLocation: Int? = nil,
         timeoutMilliseconds: Int
-    ) -> ReplacementVerification {
+    ) -> (verification: ReplacementVerification, evidence: ManualReplacementEvidence?) {
         switch focusedElementResolver.withElement(
             processID: focus.processID,
             expectedIdentifier: focus.identifier,
             timeoutMilliseconds: timeoutMilliseconds,
             allowTreeSearch: true,
-            operation: { lease -> ReplacementVerification in
+            operation: { lease -> (ReplacementVerification, ManualReplacementEvidence?) in
                 let rangeRead = lease.copyAttribute(kAXSelectedTextRangeAttribute as CFString)
                 guard rangeRead.0 == .success, let rangeRaw = rangeRead.1,
-                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return .unavailable }
+                      CFGetTypeID(rangeRaw) == AXValueGetTypeID() else { return (.unavailable, nil) }
                 let rangeValue = unsafeDowncast(rangeRaw, to: AXValue.self)
                 var caret = CFRange()
                 guard AXValueGetType(rangeValue) == .cfRange,
                       AXValueGetValue(rangeValue, .cfRange, &caret),
-                      caret.length == 0 else { return .mismatch }
+                      caret.length == 0 else { return (.mismatch, nil) }
                 if let expectedCaretLocation,
-                   caret.location != expectedCaretLocation { return .mismatch }
+                   caret.location != expectedCaretLocation { return (.mismatch, nil) }
                 let expectedLength = expected.utf16.count
-                guard caret.location >= expectedLength else { return .mismatch }
+                guard caret.location >= expectedLength else { return (.mismatch, nil) }
                 var suffixRange = CFRange(
                     location: caret.location - expectedLength,
                     length: expectedLength
                 )
                 guard let suffixRangeValue = AXValueCreate(.cfRange, &suffixRange) else {
-                    return .unavailable
+                    return (.unavailable, nil)
                 }
                 let suffixRead = lease.copyParameterizedAttribute(
                     kAXStringForRangeParameterizedAttribute as CFString,
                     parameter: suffixRangeValue
                 )
                 guard suffixRead.0 == .success, let actual = suffixRead.1 as? String else {
-                    return .unavailable
+                    return (.unavailable, nil)
                 }
-                return actual.precomposedStringWithCanonicalMapping
-                    == expected.precomposedStringWithCanonicalMapping
-                    ? .match
-                    : .mismatch
+                guard actual.utf16.elementsEqual(expected.utf16) else { return (.mismatch, nil) }
+                return (.match, ManualReplacementEvidence(document: self.documentText(from: lease),
+                    original: expected, range: NSRange(location: suffixRange.location, length: suffixRange.length)))
             }
         ) {
         case let .value(result):
             return result
+        case .unavailable(.identifierMismatch):
+            return (.mismatch, nil)
         case .unavailable:
-            return .unavailable
+            return (.unavailable, nil)
         }
     }
 
@@ -1133,7 +1372,7 @@ final class TextConverter {
             focus: focus,
             expectedCaretLocation: expectedCaretLocation,
             timeoutMilliseconds: timeoutMilliseconds
-        ) == .match
+        ).verification == .match
     }
 
     nonisolated private func selectedTextMatches(
@@ -1197,12 +1436,12 @@ final class TextConverter {
         _ conversion: BufferedManualConversion,
         transaction: ConversionTransaction
     ) {
+        lastSelectionLocation = nil
         lastOriginal = transaction.originalTextForUndo
         lastConverted = transaction.insertedText
         lastLearningPair = (conversion.original, conversion.replacement)
         lastWasBuffer = true
         lastTransaction = transaction
-        isConverting = false
     }
 
     nonisolated private func postSelection(characterCount: Int, to processID: Int32) -> Bool {
@@ -1374,11 +1613,18 @@ final class TextConverter {
     }
 
     func recordCommittedTransaction(_ transaction: ConversionTransaction) {
+        lastSelectionLocation = nil
         lastTransaction = transaction
         lastLearningPair = (transaction.original, transaction.replacement)
         lastOriginal = transaction.originalTextForUndo
         lastConverted = transaction.insertedText
         lastWasBuffer = true
+    }
+
+    func recordVerifiedSelection(_ transaction: ConversionTransaction, selectionLocation: Int) {
+        recordCommittedTransaction(transaction)
+        lastSelectionLocation = selectionLocation
+        lastManualTargetLayoutID = transaction.targetLayoutID
     }
 
     /// Recovers the last token after focus/navigation cleared the physical-key
@@ -1388,67 +1634,102 @@ final class TextConverter {
         focus: FocusedElementIdentity,
         completion: @escaping (CaretWordPreparationOutcome) -> Void
     ) {
-        guard !isConverting else {
+        guard let operationID = operations.begin() else {
             completion(.busy)
             return
         }
-        isConverting = true
-        let completion = CaretCompletionBox(completion)
+        let completion = CaretCompletionBox(operationID: operationID, callback: completion)
+        if focus.processID == ProcessInfo.processInfo.processIdentifier {
+            finishCaretPreparation(readTextBeforeCaret(focus: focus, maxUTF16Length: 96),
+                focus: focus, completion: completion)
+            return
+        }
         manualQueue.async { [weak self] in
             guard let self else { return }
             let prefix = self.readTextBeforeCaret(focus: focus, maxUTF16Length: 96)
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.isConverting = false
-                guard let prefix,
-                      let parsed = CaretTokenParser.tokenBeforeCaret(
-                        from: prefix.text,
-                        tokenAtInputStartIsComplete: prefix.beginsAtDocumentStart
-                      ),
-                      let conversion = DynamicKeyMapping.convertSelectedText(parsed.word)
-                else {
-                    completion.callback(.noCandidate)
-                    return
-                }
-                let replacement = self.manualReplacement(
-                    typed: parsed.word,
-                    converted: conversion.converted,
-                    targetLanguage: conversion.targetLanguage
-                )
-                guard replacement != parsed.word else {
-                    completion.callback(.noCandidate)
-                    return
-                }
-                completion.callback(.conversion(CaretWordConversion(
-                    original: parsed.word,
-                    replacement: replacement,
-                    expectedSuffix: parsed.word + parsed.trailingWhitespace,
-                    elementIdentifier: prefix.elementIdentifier,
-                    caretLocation: prefix.caretLocation,
-                    sourceLayoutID: conversion.sourceLayoutID,
-                    targetLayoutID: conversion.targetLayoutID
-                )))
+                self?.finishCaretPreparation(prefix, focus: focus, completion: completion)
             }
         }
+    }
+
+    private func finishCaretPreparation(_ read: CaretPrefixRead, focus: FocusedElementIdentity,
+                                        completion: CaretCompletionBox) {
+        guard operations.owns(completion.operationID),
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == focus.processID else {
+            finishCaret(.blocked(.editorChanged), completion: completion)
+            return
+        }
+        let prefix: CaretPrefix
+        switch read {
+        case let .blocked(reason):
+            finishCaret(.blocked(reason), completion: completion)
+            return
+        case let .value(value): prefix = value
+        }
+        switch focusedElementResolver.resolve(processID: focus.processID,
+            expectedIdentifier: prefix.elementIdentifier, timeoutMilliseconds: 50, allowTreeSearch: true) {
+        case .unavailable(.identifierMismatch):
+            finishCaret(.blocked(.editorChanged), completion: completion)
+            return
+        case .unavailable:
+            finishCaret(.blocked(.fieldUnavailable), completion: completion)
+            return
+        case .resolved: break
+        }
+        guard let parsed = CaretTokenParser.tokenBeforeCaret(from: prefix.text,
+            tokenAtInputStartIsComplete: prefix.beginsAtDocumentStart) else {
+            let body = prefix.text.trimmingCharacters(in: .whitespaces)
+            let truncatedToken = !prefix.beginsAtDocumentStart
+                && !body.contains(where: \.isWhitespace) && body.contains(where: \.isLetter)
+            finishCaret(truncatedToken ? .blocked(.uncertain) : .noCandidate, completion: completion)
+            return
+        }
+        guard let conversion = DynamicKeyMapping.convertSelectedText(parsed.word),
+              conversion.sourceLayoutID != nil, conversion.targetLayoutID != nil else {
+            finishCaret(.blocked(.unsupportedLayout), completion: completion)
+            return
+        }
+        let replacement = manualReplacement(typed: parsed.word, converted: conversion.converted,
+            targetLanguage: conversion.targetLanguage)
+        guard replacement != parsed.word else {
+            finishCaret(.noCandidate, completion: completion)
+            return
+        }
+        finishCaret(.conversion(CaretWordConversion(
+            original: parsed.word, replacement: replacement,
+            expectedSuffix: parsed.word + parsed.trailingWhitespace,
+            elementIdentifier: prefix.elementIdentifier, caretLocation: prefix.caretLocation,
+            sourceLayoutID: conversion.sourceLayoutID, targetLayoutID: conversion.targetLayoutID
+        )), completion: completion)
     }
 
     func recordPostedCaretWord(
         _ conversion: CaretWordConversion,
         transaction: ConversionTransaction
     ) {
+        lastSelectionLocation = nil
         lastOriginal = transaction.originalTextForUndo
         lastConverted = transaction.insertedText
         lastLearningPair = (conversion.original, conversion.replacement)
         lastWasBuffer = true
         lastTransaction = transaction
         lastManualTargetLayoutID = conversion.targetLayoutID
-        isConverting = false
     }
 
     /// Builds the next forced toggle without mutating the remembered pair.
     /// The caller commits it only after the targeted replacement was posted.
     func prepareReconversion(trailingSpaces: Int = 0) -> BufferedManualReconversion? {
         guard canReconvert else { return nil }
+        if let location = lastSelectionLocation {
+            let spaces = String(repeating: " ", count: max(0, trailingSpaces))
+            return BufferedManualReconversion(
+                current: lastConverted + spaces, replacement: lastOriginal + spaces,
+                targetLayoutID: lastTransaction?.sourceLayoutID,
+                focus: lastTransaction?.focus,
+                expectedCaretLocation: location + lastConverted.utf16.count + spaces.utf16.count
+            )
+        }
         // Do not set isConverting here — only once replaceFocusedSuffix actually
         // starts, otherwise a failed stage leaves canReconvert permanently false.
         let currentBody = lastConverted.trimmingCharacters(in: .whitespaces)
@@ -1483,13 +1764,21 @@ final class TextConverter {
     ) {
         lastOriginal = reconversion.current
         lastConverted = reconversion.replacement
-        lastTransaction = transaction
+        if lastSelectionLocation != nil, let previous = lastTransaction {
+            lastTransaction = ConversionTransaction(
+                original: reconversion.current, replacement: reconversion.replacement,
+                boundary: .punctuation(""), focus: previous.focus,
+                sourceLayoutID: previous.targetLayoutID, targetLayoutID: previous.sourceLayoutID,
+                sequence: transaction.sequence, editRevision: transaction.editRevision, automatic: false
+            )
+        } else {
+            lastTransaction = transaction
+        }
         lastWasBuffer = true
-        isConverting = false
     }
 
     func cancelPendingReconversion() {
-        isConverting = false
+        operations.cancel()
     }
 
     func discardTransactionIfCurrent(_ transaction: ConversionTransaction) {
@@ -1498,10 +1787,11 @@ final class TextConverter {
     }
 
     func clearState() {
-        isConverting = false
+        operations.cancel()
         lastOriginal = ""
         lastConverted = ""
         lastWasBuffer = false
+        lastSelectionLocation = nil
         lastTransaction = nil
         lastLearningPair = nil
         lastManualTargetLayoutID = nil
@@ -1527,298 +1817,123 @@ final class TextConverter {
         )?.replacement ?? converted
     }
 
-    nonisolated private func selectedText(from lease: NativeAXElementLease) -> String? {
-        let read = lease.copyAttribute(kAXSelectedTextAttribute as CFString)
-        guard read.0 == .success else { return nil }
-        return read.1 as? String
-    }
-
-    nonisolated private func verifyReplacement(
-        _ replacement: String,
-        original: String,
-        originalRange: CFRange,
-        lease: NativeAXElementLease
-    ) -> ReplacementVerification {
-        var range = CFRange(location: originalRange.location, length: replacement.utf16.count)
-        guard let rangeValue = AXValueCreate(.cfRange, &range) else { return .unavailable }
-        let read = lease.copyParameterizedAttribute(
-            kAXStringForRangeParameterizedAttribute as CFString,
-            parameter: rangeValue
-        )
-        guard read.0 == .success, let actual = read.1 as? String else {
-            guard let selected = selectedText(from: lease) else { return .unavailable }
-            let normalized = selected.precomposedStringWithCanonicalMapping
-            if normalized == replacement.precomposedStringWithCanonicalMapping { return .match }
-            if normalized == original.precomposedStringWithCanonicalMapping { return .unchanged }
-            return .unavailable
-        }
-        let normalized = actual.precomposedStringWithCanonicalMapping
-        if normalized == replacement.precomposedStringWithCanonicalMapping { return .match }
-        if normalized == original.precomposedStringWithCanonicalMapping { return .unchanged }
-        return .mismatch
-    }
-
-    private func convertSelectionViaClipboardAsync(
-        selectionKnown: Bool,
-        snapshot: SelectionSnapshot?,
+    private func convertSelectionViaKeyboardAsync(
+        snapshot: SelectionSnapshot,
+        replacement: String,
+        sourceLayoutID: String?,
+        targetLayoutID: String?,
         completion: ManualCompletionBox
     ) {
-        let pasteboard = NSPasteboard.general
-        cancelClipboardRestore()
-        if savedClipboardItems == nil {
-            savedClipboardItems = snapshotPasteboard(pasteboard)
-        }
-        attemptClipboardCopy(
-            attempt: 0,
-            selectionKnown: selectionKnown,
-            snapshot: snapshot,
-            completion: completion
-        )
-    }
-
-    private func attemptClipboardCopy(
-        attempt: Int,
-        selectionKnown: Bool,
-        snapshot: SelectionSnapshot?,
-        completion: ManualCompletionBox
-    ) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        clipboardTemporaryChangeCount = pasteboard.changeCount
-        let clearedCount = pasteboard.changeCount
-        simKey(keyCode: KC.letterC, flags: .maskCommand)
-        pollClipboardCopy(
-            clearedCount: clearedCount,
-            deadline: Date().addingTimeInterval(attempt == 0 ? 0.08 : 0.12),
-            attempt: attempt,
-            selectionKnown: selectionKnown,
-            snapshot: snapshot,
-            completion: completion
-        )
-    }
-
-    private func pollClipboardCopy(
-        clearedCount: Int,
-        deadline: Date,
-        attempt: Int,
-        selectionKnown: Bool,
-        snapshot: SelectionSnapshot?,
-        completion: ManualCompletionBox
-    ) {
-        let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != clearedCount,
-           let text = pasteboard.string(forType: .string), !text.isEmpty,
-           let conversion = DynamicKeyMapping.convertSelectedText(text) {
-            markPasteboardTransient(pasteboard)
-            finishClipboardConversion(
-                text: text,
-                conversion: conversion,
-                snapshot: snapshot,
-                completion: completion
-            )
+        guard sourceLayoutID != nil, targetLayoutID != nil else {
+            finishSelection(.blocked(.unsupportedLayout), completion: completion)
             return
         }
-        if Date() < deadline {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
-                self?.pollClipboardCopy(
-                    clearedCount: clearedCount,
-                    deadline: deadline,
-                    attempt: attempt,
-                    selectionKnown: selectionKnown,
-                    snapshot: snapshot,
-                    completion: completion
-                )
+        if let reason = selectionRefusal(completion, checkRange: true, expectedText: snapshot.text) {
+            finishSelection(.blocked(reason), completion: completion)
+            return
+        }
+        // AX left the original selection intact. Typing over that exact span
+        // needs neither deletion events nor access to the user's pasteboard.
+        guard postUnicodeText(replacement, to: snapshot.processID) else {
+            finishSelection(.blocked(.deliveryFailed), completion: completion)
+            return
+        }
+        completion.attemptedEdit = true
+        pollSelectedTextReadback(snapshot: snapshot, replacement: replacement,
+            sourceLayoutID: sourceLayoutID, targetLayoutID: targetLayoutID,
+            deadline: DispatchTime.now().uptimeNanoseconds + 150_000_000, completion: completion)
+    }
+
+    private func pollSelectedTextReadback(
+        snapshot: SelectionSnapshot, replacement: String,
+        sourceLayoutID: String?, targetLayoutID: String?,
+        deadline: UInt64, completion: ManualCompletionBox
+    ) {
+        if let reason = basicSelectionRefusal(completion) {
+            finishSelection(.blocked(reason), completion: completion)
+            return
+        }
+        guard Self.selectedReadbackTimeoutMilliseconds(deadline: deadline,
+            now: DispatchTime.now().uptimeNanoseconds) != nil else {
+            finishSelectedTextReadback(.unavailable, snapshot: snapshot, replacement: replacement,
+                sourceLayoutID: sourceLayoutID, targetLayoutID: targetLayoutID, completion: completion)
+            return
+        }
+        let receive: @MainActor @Sendable (ReplacementVerification) -> Void = { [weak self] verification in
+            guard let self else { return }
+            if (verification == .unchanged || verification == .unavailable),
+               DispatchTime.now().uptimeNanoseconds < deadline {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
+                    self?.pollSelectedTextReadback(snapshot: snapshot, replacement: replacement,
+                        sourceLayoutID: sourceLayoutID, targetLayoutID: targetLayoutID,
+                        deadline: deadline, completion: completion)
+                }
+                return
             }
-            return
+            self.finishSelectedTextReadback(verification, snapshot: snapshot,
+                replacement: replacement, sourceLayoutID: sourceLayoutID,
+                targetLayoutID: targetLayoutID, completion: completion)
         }
-        if attempt < 2 {
-            attemptClipboardCopy(
-                attempt: attempt + 1,
-                selectionKnown: selectionKnown,
-                snapshot: snapshot,
-                completion: completion
-            )
+        if snapshot.processID == ProcessInfo.processInfo.processIdentifier {
+            receive(readSelectedTextReplacement(snapshot: snapshot, replacement: replacement, deadline: deadline))
         } else {
-            isConverting = false
-            restoreClipboardNow()
-            completion.callback(selectionKnown ? .failed : .none)
-        }
-    }
-
-    private func finishClipboardConversion(
-        text: String,
-        conversion: SelectedTextConversion,
-        snapshot: SelectionSnapshot?,
-        completion: ManualCompletionBox
-    ) {
-        let replacement = manualReplacement(
-            typed: text,
-            converted: conversion.converted,
-            targetLanguage: conversion.targetLanguage
-        )
-        let pasteboard = NSPasteboard.general
-        let item = transientPasteboardItem(text: replacement)
-        pasteboard.clearContents()
-        pasteboard.writeObjects([item])
-        clipboardTemporaryChangeCount = pasteboard.changeCount
-        simKey(keyCode: KC.letterV, flags: .maskCommand)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self else { return }
-            guard let snapshot else {
-                self.lastLearningPair = nil
-                self.lastManualTargetLayoutID = nil
-                self.isConverting = false
-                self.scheduleClipboardRestore()
-                completion.callback(.postedUnverified)
-                return
-            }
-            self.manualQueue.async { [weak self] in
+            manualQueue.async { [weak self] in
                 guard let self else { return }
-                let verified: ReplacementVerification
-                switch self.focusedElementResolver.withElement(
-                    processID: snapshot.processID,
-                    expectedIdentifier: snapshot.identifier,
-                    timeoutMilliseconds: 250,
-                    allowTreeSearch: true,
-                    operation: { lease in
-                        self.verifyReplacement(
-                            replacement,
-                            original: text,
-                            originalRange: snapshot.range,
-                            lease: lease
-                        )
-                    }
-                ) {
-                case let .value(result):
-                    verified = result
-                case .unavailable:
-                    verified = .unavailable
-                }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if verified == .match {
-                        self.lastManualTargetLayoutID = conversion.targetLayoutID
-                        self.lastLearningPair = (text, replacement)
-                        self.lastWasBuffer = false
-                        self.isConverting = false
-                        self.scheduleClipboardRestore()
-                        completion.callback(.converted)
-                    } else {
-                        self.lastLearningPair = nil
-                        self.lastManualTargetLayoutID = nil
-                        self.isConverting = false
-                        self.restoreClipboardNow()
-                        completion.callback(.failed)
-                    }
-                }
+                let verification = self.readSelectedTextReplacement(snapshot: snapshot, replacement: replacement,
+                    deadline: deadline)
+                Task { @MainActor in receive(verification) }
             }
         }
     }
 
-    private func markPasteboardTransient(_ pasteboard: NSPasteboard) {
-        pasteboard.addTypes([
-            Self.transientPasteboardType,
-            Self.concealedPasteboardType,
-        ], owner: nil)
-        pasteboard.setData(Data(), forType: Self.transientPasteboardType)
-        pasteboard.setData(Data(), forType: Self.concealedPasteboardType)
-        clipboardTemporaryChangeCount = pasteboard.changeCount
+    nonisolated static func selectedReadbackTimeoutMilliseconds(deadline: UInt64, now: UInt64) -> Int? {
+        guard now < deadline else { return nil }
+        let remaining = (deadline - now) / 1_000_000
+        return remaining > 0 ? Int(min(remaining, 150)) : nil
     }
 
-    private func transientPasteboardItem(text: String) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        item.setData(Data(), forType: Self.transientPasteboardType)
-        item.setData(Data(), forType: Self.concealedPasteboardType)
-        return item
+    nonisolated private func readSelectedTextReplacement(snapshot: SelectionSnapshot,
+                                                      replacement: String, deadline: UInt64) -> ReplacementVerification {
+        // Recompute after queueing: a retry must not acquire a fresh AX budget.
+        guard let timeout = Self.selectedReadbackTimeoutMilliseconds(deadline: deadline,
+            now: DispatchTime.now().uptimeNanoseconds) else { return .unavailable }
+        switch focusedElementResolver.withElement(
+            processID: snapshot.processID, expectedIdentifier: snapshot.identifier,
+            timeoutMilliseconds: timeout, allowTreeSearch: true,
+            operation: { lease in
+                self.verifyReplacement(replacement, evidence: snapshot.evidence, lease: lease)
+            }
+        ) {
+        case let .value(result):
+            if result == .match, DispatchTime.now().uptimeNanoseconds >= deadline { return .unavailable }
+            return result
+        case .unavailable(.identifierMismatch): return .mismatch
+        case .unavailable: return .unavailable
+        }
     }
 
-    /// Отменяет отложенное восстановление clipboard
-    private func cancelClipboardRestore() {
-        clipboardRestoreWork?.cancel()
-        clipboardRestoreWork = nil
-    }
-
-    /// Немедленно возвращает буфер обмена пользователю (для путей-неудач).
-    private func restoreClipboardNow() {
-        cancelClipboardRestore()
-        guard let saved = savedClipboardItems else { return }
-        let pasteboard = NSPasteboard.general
-        if let owned = clipboardTemporaryChangeCount,
-           pasteboard.changeCount != owned {
-            savedClipboardItems = nil
-            clipboardTemporaryChangeCount = nil
+    private func finishSelectedTextReadback(_ verification: ReplacementVerification,
+                                         snapshot: SelectionSnapshot, replacement: String,
+                                         sourceLayoutID: String?, targetLayoutID: String?,
+                                         completion: ManualCompletionBox) {
+        guard operations.owns(completion.operationID) else {
+            finishSelection(.blocked(.editorChanged), completion: completion)
             return
         }
-        pasteboard.clearContents()
-        if !saved.isEmpty { pasteboard.writeObjects(saved) }
-        savedClipboardItems = nil
-        clipboardTemporaryChangeCount = nil
-    }
-
-    /// Сбрасывает отложенное восстановление немедленно — вызывается перед
-    /// завершением приложения, чтобы не потерять буфер в 2-секундном окне.
-    func flushPendingClipboardRestore() {
-        guard clipboardRestoreWork != nil else { return }
-        restoreClipboardNow()
-    }
-
-    /// Планирует восстановление clipboard через 2 секунды
-    /// (если за это время придёт reconvert — отменится и перепланируется)
-    private func scheduleClipboardRestore(after delay: TimeInterval = 2.0) {
-        cancelClipboardRestore()
-        let saved = self.savedClipboardItems
-        let work = DispatchWorkItem { [weak self] in
-            let pasteboard = NSPasteboard.general
-            guard let self else { return }
-            guard let owned = self.clipboardTemporaryChangeCount,
-                  pasteboard.changeCount == owned else {
-                self.savedClipboardItems = nil
-                self.clipboardTemporaryChangeCount = nil
-                return
-            }
-            pasteboard.clearContents()
-            if let saved, !saved.isEmpty {
-                pasteboard.writeObjects(saved)
-            }
-            self.savedClipboardItems = nil
-            self.clipboardTemporaryChangeCount = nil
-            rslog("clipboard_restored")
+        if let reason = selectionRefusal(completion) {
+            finishSelection(reason == .fieldUnavailable ? .postedUnverified : .failed, completion: completion)
+            return
         }
-        clipboardRestoreWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
-    /// Делает глубокую копию всех pasteboard items (со всеми типами данных).
-    /// Это нужно потому, что NSPasteboardItem становится невалидным после
-    /// pasteboard.clearContents() — поэтому копируем data по каждому типу
-    /// в новые NSPasteboardItem.
-    private func snapshotPasteboard(_ pb: NSPasteboard) -> [NSPasteboardItem] {
-        guard let items = pb.pasteboardItems else { return [] }
-        return items.map { oldItem in
-            let newItem = NSPasteboardItem()
-            for type in oldItem.types {
-                if let data = oldItem.data(forType: type) {
-                    newItem.setData(data, forType: type)
-                }
-            }
-            return newItem
+        if verification == .match {
+            recordVerifiedSelection(ConversionTransaction(
+                original: snapshot.text, replacement: replacement, boundary: .punctuation(""),
+                focus: FocusedElementIdentity(processID: snapshot.processID,
+                    bundleID: snapshot.bundleID, identifier: snapshot.identifier),
+                sourceLayoutID: sourceLayoutID, targetLayoutID: targetLayoutID,
+                sequence: 0, automatic: false
+            ), selectionLocation: snapshot.range.location)
         }
-    }
-
-    /// Симулирует нажатие клавиши с маркером (чтобы наш monitor игнорировал)
-    nonisolated private func simKey(keyCode: UInt16, flags: CGEventFlags) {
-        guard let source = makeSource() else { return }
-
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
-        else { return }
-
-        keyDown.flags = flags
-        keyUp.flags = flags
-
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        finishSelection(.init(verification: verification), completion: completion)
     }
 }
 

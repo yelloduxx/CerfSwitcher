@@ -9,10 +9,11 @@ PREFIX="${1:-settings}"
 OUT="${2:-$ROOT/.build/settings-ui}"
 
 cd "$ROOT"
-swift build --product RuSwitcher -Xswiftc -warnings-as-errors >/dev/null
-BIN="$(swift build --product RuSwitcher --show-bin-path)/RuSwitcher"
+bash "$ROOT/scripts/build_test_host.sh" >/dev/null
+source "$ROOT/scripts/ruswitch_test_app.sh"
+ruswitch_validate_test_app "$ROOT"
 
 for lang in ru en; do
-    "$BIN" --render-settings-snapshots "$OUT" "$PREFIX-$lang" \
+    "$RUSWITCH_APP_EXEC" --render-settings-snapshots "$OUT" "$PREFIX-$lang" \
         -com.ruswitcher.interfaceLanguage "$lang"
 done

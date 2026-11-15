@@ -39,7 +39,7 @@ final class SelfAccessibilityTests: XCTestCase {
         completed.assertForOverFulfill = true
         let monitor = KeyboardMonitor(focusedElementResolver: NativeFocusedEditableResolver())
         try XCTSkipUnless(monitor.start {
-            converter.convertSelectedText(allowClipboardFallback: false) { _ in completed.fulfill() }
+            converter.convertSelectedText(requireReadableSelection: false) { _ in completed.fulfill() }
         }, "Native event tap unavailable")
         defer { monitor.stop() }
         for _ in 0..<3 {

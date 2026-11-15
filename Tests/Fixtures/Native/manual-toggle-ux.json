@@ -1,0 +1,826 @@
+{
+  "schemaVersion": 1,
+  "description": "Bounded native manual UX. Three two-toggle cases; the runner repeats only current-token with manual conversion disabled.",
+  "manualCases": [
+    {
+      "id": "current-token",
+      "editorSetup": {
+        "text": "left  right",
+        "selection": [
+          5,
+          0
+        ]
+      },
+      "stimulus": {
+        "version": 1,
+        "id": "current-token",
+        "layoutIDs": [
+          "com.apple.keylayout.US",
+          "com.apple.keylayout.RussianWin"
+        ],
+        "initialLayoutID": "com.apple.keylayout.US",
+        "keyboardType": 40,
+        "actions": [
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 100000,
+            "keyCode": 31
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 108000,
+            "keyCode": 31
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 160000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 168000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 220000,
+            "keyCode": 14
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 228000,
+            "keyCode": 14
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 280000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 288000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 340000,
+            "keyCode": 5
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 348000,
+            "keyCode": 5
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 400000,
+            "keyCode": 4
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 408000,
+            "keyCode": 4
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 460000,
+            "keyCode": 11
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 468000,
+            "keyCode": 11
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 520000,
+            "keyCode": 2
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 528000,
+            "keyCode": 2
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 580000,
+            "keyCode": 17
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 588000,
+            "keyCode": 17
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 640000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 648000,
+            "keyCode": 45
+          },
+          {
+            "kind": "checkpoint",
+            "id": "before",
+            "atMicroseconds": 1000000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1600000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1650000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1720000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1770000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "first",
+            "atMicroseconds": 2350000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2900000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2950000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3020000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3070000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "second",
+            "atMicroseconds": 3650000
+          }
+        ]
+      },
+      "oracle": {
+        "text": "left one ghbdtn right",
+        "selectedRange": [
+          15,
+          0
+        ],
+        "finalLayoutID": "com.apple.keylayout.US",
+        "transactions": 0,
+        "verifiedCompletions": 0,
+        "manualCheckpoints": [
+          {
+            "id": "before",
+            "text": "left one ghbdtn right",
+            "selection": [
+              15,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 0,
+            "feedback": "none",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false
+          },
+          {
+            "id": "first",
+            "text": "left one привет right",
+            "selection": [
+              15,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.RussianWin",
+            "attemptCount": 1,
+            "feedback": "converted",
+            "confirmedRuleCount": 1,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 1,
+            "learningUndoAvailable": true
+          },
+          {
+            "id": "second",
+            "text": "left one ghbdtn right",
+            "selection": [
+              15,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 2,
+            "feedback": "converted",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false
+          }
+        ],
+        "manualDisabled": {
+          "text": "left one ghbdtn right",
+          "selectedRange": [
+            15,
+            0
+          ],
+          "finalLayoutID": "com.apple.keylayout.US",
+          "transactions": 0,
+          "verifiedCompletions": 0,
+          "manualCheckpoints": [
+            {
+              "id": "before",
+              "text": "left one ghbdtn right",
+              "selection": [
+                15,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 0,
+              "feedback": "none",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "first",
+              "text": "left one ghbdtn right",
+              "selection": [
+                15,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 1,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "second",
+              "text": "left one ghbdtn right",
+              "selection": [
+                15,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 2,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "completed-token",
+      "editorSetup": {
+        "text": "left  right",
+        "selection": [
+          5,
+          0
+        ]
+      },
+      "stimulus": {
+        "version": 1,
+        "id": "completed-token",
+        "layoutIDs": [
+          "com.apple.keylayout.US",
+          "com.apple.keylayout.RussianWin"
+        ],
+        "initialLayoutID": "com.apple.keylayout.US",
+        "keyboardType": 40,
+        "actions": [
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 100000,
+            "keyCode": 31
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 108000,
+            "keyCode": 31
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 160000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 168000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 220000,
+            "keyCode": 14
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 228000,
+            "keyCode": 14
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 280000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 288000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 340000,
+            "keyCode": 5
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 348000,
+            "keyCode": 5
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 400000,
+            "keyCode": 4
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 408000,
+            "keyCode": 4
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 460000,
+            "keyCode": 11
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 468000,
+            "keyCode": 11
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 520000,
+            "keyCode": 2
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 528000,
+            "keyCode": 2
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 580000,
+            "keyCode": 17
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 588000,
+            "keyCode": 17
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 640000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 648000,
+            "keyCode": 45
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 700000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 708000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyDown",
+            "atMicroseconds": 760000,
+            "keyCode": 49
+          },
+          {
+            "kind": "keyUp",
+            "atMicroseconds": 768000,
+            "keyCode": 49
+          },
+          {
+            "kind": "checkpoint",
+            "id": "before",
+            "atMicroseconds": 1000000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1600000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1650000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1720000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1770000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "first",
+            "atMicroseconds": 2350000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2900000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2950000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3020000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3070000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "second",
+            "atMicroseconds": 3650000
+          }
+        ]
+      },
+      "oracle": {
+        "text": "left one ghbdtn   right",
+        "selectedRange": [
+          17,
+          0
+        ],
+        "finalLayoutID": "com.apple.keylayout.US",
+        "transactions": 0,
+        "verifiedCompletions": 0,
+        "manualCheckpoints": [
+          {
+            "id": "before",
+            "text": "left one ghbdtn   right",
+            "selection": [
+              17,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 0,
+            "feedback": "none",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false
+          },
+          {
+            "id": "first",
+            "text": "left one привет   right",
+            "selection": [
+              17,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.RussianWin",
+            "attemptCount": 1,
+            "feedback": "converted",
+            "confirmedRuleCount": 1,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 1,
+            "learningUndoAvailable": true
+          },
+          {
+            "id": "second",
+            "text": "left one ghbdtn   right",
+            "selection": [
+              17,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 2,
+            "feedback": "converted",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false
+          }
+        ],
+        "manualDisabled": {
+          "text": "left one ghbdtn   right",
+          "selectedRange": [
+            17,
+            0
+          ],
+          "finalLayoutID": "com.apple.keylayout.US",
+          "transactions": 0,
+          "verifiedCompletions": 0,
+          "manualCheckpoints": [
+            {
+              "id": "before",
+              "text": "left one ghbdtn   right",
+              "selection": [
+                17,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 0,
+              "feedback": "none",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "first",
+              "text": "left one ghbdtn   right",
+              "selection": [
+                17,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 1,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "second",
+              "text": "left one ghbdtn   right",
+              "selection": [
+                17,
+                0
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 2,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "selected-multiword",
+      "editorSetup": {
+        "text": "left ghbdtn vbh right",
+        "selection": [
+          5,
+          10
+        ],
+        "collapseSelectionAfterAXReplacement": true
+      },
+      "stimulus": {
+        "version": 1,
+        "id": "selected-multiword",
+        "layoutIDs": [
+          "com.apple.keylayout.US",
+          "com.apple.keylayout.RussianWin"
+        ],
+        "initialLayoutID": "com.apple.keylayout.US",
+        "keyboardType": 40,
+        "actions": [
+          {
+            "kind": "checkpoint",
+            "id": "before",
+            "atMicroseconds": 1000000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1600000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1650000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1720000,
+            "keyCode": 60,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 1770000,
+            "keyCode": 60,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "first",
+            "atMicroseconds": 2350000
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2900000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 2950000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3020000,
+            "keyCode": 56,
+            "shift": true
+          },
+          {
+            "kind": "flagsChanged",
+            "atMicroseconds": 3070000,
+            "keyCode": 56,
+            "shift": false
+          },
+          {
+            "kind": "checkpoint",
+            "id": "second",
+            "atMicroseconds": 3650000
+          }
+        ]
+      },
+      "oracle": {
+        "text": "left ghbdtn vbh right",
+        "selectedRange": [
+          15,
+          0
+        ],
+        "finalLayoutID": "com.apple.keylayout.US",
+        "transactions": 0,
+        "verifiedCompletions": 0,
+        "manualCheckpoints": [
+          {
+            "id": "before",
+            "text": "left ghbdtn vbh right",
+            "selection": [
+              5,
+              10
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 0,
+            "feedback": "none",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false
+          },
+          {
+            "id": "first",
+            "text": "left привет мир right",
+            "selection": [
+              15,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.RussianWin",
+            "attemptCount": 1,
+            "feedback": "converted",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false,
+            "minimumAXCollapseCount": 1
+          },
+          {
+            "id": "second",
+            "text": "left ghbdtn vbh right",
+            "selection": [
+              15,
+              0
+            ],
+            "layoutID": "com.apple.keylayout.US",
+            "attemptCount": 2,
+            "feedback": "converted",
+            "confirmedRuleCount": 0,
+            "applicationExceptionCount": 0,
+            "learnedEntryCount": 0,
+            "learningUndoAvailable": false,
+            "minimumAXCollapseCount": 1
+          }
+        ],
+        "manualDisabled": {
+          "text": "left ghbdtn vbh right",
+          "selectedRange": [
+            5,
+            10
+          ],
+          "finalLayoutID": "com.apple.keylayout.US",
+          "transactions": 0,
+          "verifiedCompletions": 0,
+          "manualCheckpoints": [
+            {
+              "id": "before",
+              "text": "left ghbdtn vbh right",
+              "selection": [
+                5,
+                10
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 0,
+              "feedback": "none",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "first",
+              "text": "left ghbdtn vbh right",
+              "selection": [
+                5,
+                10
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 1,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            },
+            {
+              "id": "second",
+              "text": "left ghbdtn vbh right",
+              "selection": [
+                5,
+                10
+              ],
+              "layoutID": "com.apple.keylayout.US",
+              "attemptCount": 2,
+              "feedback": "refused(disabled)",
+              "confirmedRuleCount": 0,
+              "applicationExceptionCount": 0,
+              "learnedEntryCount": 0,
+              "learningUndoAvailable": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

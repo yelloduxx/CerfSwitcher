@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Never inherit the diagnostic package configuration into a release bundle.
+export RUSWITCH_TEST_HOST=0
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Production product identity: Cerf Switcher.
 SPM_PRODUCT_NAME="RuSwitcher"
@@ -9,7 +12,7 @@ APP_EXECUTABLE="CerfSwitcher"
 APP_DISPLAY_NAME="Cerf Switcher"
 BUNDLE_ID="com.cerfswitcher.app"
 APP_BUNDLE="$PROJECT_DIR/$APP_NAME.app"
-BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME")
+BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 --product "$SPM_PRODUCT_NAME" --scratch-path "$PROJECT_DIR/.build/production")
 VERSION_JSON="$PROJECT_DIR/version.json"
 
 # version.json — единый источник правды. Значения в Info.plist в репо
@@ -62,6 +65,7 @@ if [[ "$ARCHS" != *"arm64"* || "$ARCHS" != *"x86_64"* ]]; then
     echo "ERROR: бинарь не universal (получено: $ARCHS)"; exit 1
 fi
 echo "→ Universal OK: $ARCHS"
+python3 "$PROJECT_DIR/scripts/verify_production_boundary.py" "$APP_BUNDLE/Contents/MacOS/$APP_EXECUTABLE"
 
 # 4. Копируем Info.plist и штампуем версию / identity из version.json
 cp "$PROJECT_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"

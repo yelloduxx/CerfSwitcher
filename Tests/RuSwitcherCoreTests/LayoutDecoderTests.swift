@@ -4,6 +4,21 @@ import XCTest
 final class LayoutDecoderTests: XCTestCase {
     private let model = LanguageModelStore.bundled!
 
+    func testManualOnlyPairOverridesConfirmedAndAlwaysConvertInBothLanguages() {
+        for excluded in ["here", "РУКУ"] {
+            for (typed, current, target) in [("here", "en", "ru"), ("руку", "ru", "en"),
+                                              ("Here,", "en", "ru"), ("Руку!", "ru", "en")] {
+                let result = LayoutDecoder.evaluate(typed: typed, converted: KeyMapping.convert(typed),
+                    currentLanguage: current, targetLanguage: target, capsLock: false,
+                    contextWords: ["вытяни", "правую"], languageBelief: .neutral,
+                    policy: AutoConvertPolicy(neverConvert: [excluded], alwaysConvert: [typed.lowercased()]),
+                    adaptiveBias: { _, _ in 100 }, isConfirmed: { _, _ in true }, model: model)
+                XCTAssertEqual(result.decision.verdict, .keep, typed)
+                XCTAssertEqual(result.decision.reason, .blockedNever, typed)
+            }
+        }
+    }
+
     private func evaluate(
         _ typed: String,
         converted: String? = nil,

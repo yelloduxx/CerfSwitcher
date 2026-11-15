@@ -67,7 +67,7 @@ public struct PersonalLexicon: Codable, Equatable, Sendable {
         let key = Self.key(word, language)
         if var entry = entries[key] {
             guard date.timeIntervalSince(entry.lastSeen) >= Self.occasionInterval else { return false }
-            entry.count += 1
+            entry.count = LearningCounter.incremented(entry.count)
             entry.lastSeen = date
             let promoting = !entry.promoted && entry.count >= Self.promotionCount
             if promoting {

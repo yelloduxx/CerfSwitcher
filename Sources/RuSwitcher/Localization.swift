@@ -1,7 +1,60 @@
 import Foundation
+import RuSwitcherAppSupport
 
 /// Локализация интерфейса на 16 языков (вкомпилированные строки)
 enum L10n {
+    static func conversionResult(_ result: ConversionAttemptResult) -> String {
+        switch result {
+        case .converted: return s("attempt.converted")
+        case .unverified: return s("attempt.unverified")
+        case .kept: return s("attempt.kept")
+        case .switchedOnly: return s("attempt.switchedOnly")
+        case let .refused(reason):
+            switch reason {
+            case .disabled: return s("attempt.disabled")
+            case .secureInput: return s("attempt.secureInput")
+            case .excludedApplication: return s("attempt.excludedApplication")
+            case .wordRule: return s("attempt.wordRule")
+            case .protectedText: return s("attempt.protectedText")
+            case .uncertain: return s("attempt.uncertain")
+            case .fieldUnavailable: return s("attempt.fieldUnavailable")
+            case .editorChanged: return s("attempt.editorChanged")
+            case .unsupportedLayout: return s("attempt.unsupportedLayout")
+            case .modelUnavailable: return s("attempt.modelUnavailable")
+            case .busy: return s("attempt.busy")
+            case .deliveryFailed: return s("attempt.deliveryFailed")
+            case .verificationFailed: return s("attempt.verificationFailed")
+            }
+        }
+    }
+
+    static var menuPause: String { s("menu.pause") }
+    static var menuResume: String { s("menu.resume") }
+    static var menuLayouts: String { s("menu.layouts") }
+    static var menuDictionary: String { s("menu.dictionary") }
+    static var menuDisableCurrentApp: String { s("menu.disableCurrentApp") }
+    static var menuEnableCurrentApp: String { s("menu.enableCurrentApp") }
+    static var menuNoCurrentApp: String { s("menu.noCurrentApp") }
+    static var menuNoAttempts: String { s("menu.noAttempts") }
+    static var menuLastManual: String { s("menu.lastManual") }
+    static var menuLastAutomatic: String { s("menu.lastAutomatic") }
+    static var learningSaved: String { s("learning.saved") }
+    static var learningExceptionSaved: String { s("learning.exceptionSaved") }
+    static var learningUndo: String { s("learning.undo") }
+    static var learningUndone: String { s("learning.undone") }
+    static var learningUndoConflict: String { s("learning.undoConflict") }
+    static var learningSaveFailed: String { s("learning.saveFailed") }
+    static var learningUndoFailed: String { s("learning.undoFailed") }
+    static var noticeClose: String { s("notice.close") }
+    static var noticeUndo: String { s("notice.undo") }
+    static var backupSave: String { s("backup.save") }
+    static var backupRestore: String { s("backup.restore") }
+    static var backupRestoreTitle: String { s("backup.restoreTitle") }
+    static var backupRestoreDetail: String { s("backup.restoreDetail") }
+    static var backupRestored: String { s("backup.restored") }
+    static var backupError: String { s("backup.error") }
+    static var dictionaryOtherFormats: String { s("dictionary.otherFormats") }
+    static var settingsAppearance: String { s("settings.appearance") }
     // MARK: - Меню
     static var menuAutoSwitch: String { s("menu.autoSwitch") }
     static var menuCheckPermissions: String { s("menu.checkPermissions") }
@@ -219,6 +272,48 @@ enum L10n {
     private static let strings: [String: [String: String]] = [
         // ========== ENGLISH ==========
         "en": [
+            "menu.pause": "Pause Cerf Switcher",
+            "menu.resume": "Resume Cerf Switcher",
+            "menu.layouts": "Keyboard Layouts",
+            "menu.dictionary": "Dictionary…",
+            "menu.disableCurrentApp": "Disable Auto-Conversion in %@",
+            "menu.enableCurrentApp": "Enable Auto-Conversion in %@",
+            "menu.noCurrentApp": "No Current Application",
+            "menu.noAttempts": "No conversion attempts yet",
+            "menu.lastManual": "Manual: %@",
+            "menu.lastAutomatic": "Automatic: %@",
+            "attempt.converted": "Text replaced",
+            "attempt.unverified": "Replacement sent, not confirmed",
+            "attempt.kept": "Text kept in its current layout",
+            "attempt.switchedOnly": "Only the keyboard layout changed",
+            "attempt.disabled": "Conversion is paused",
+            "attempt.secureInput": "Secure input is active",
+            "attempt.excludedApplication": "Application is excluded",
+            "attempt.wordRule": "Kept by a personal rule",
+            "attempt.protectedText": "Protected text left unchanged",
+            "attempt.uncertain": "Not confident enough to replace",
+            "attempt.fieldUnavailable": "Cannot read this text field",
+            "attempt.editorChanged": "Text or focus changed; replacement cancelled",
+            "attempt.unsupportedLayout": "The layout pair is unavailable",
+            "attempt.modelUnavailable": "The language model is unavailable",
+            "attempt.busy": "Previous replacement is still finishing",
+            "attempt.deliveryFailed": "Could not send the replacement",
+            "attempt.verificationFailed": "Could not confirm the replacement",
+            "learning.saved": "Replacement learned for all applications",
+            "learning.exceptionSaved": "Exception saved for this application",
+            "learning.undo": "Undo Learning",
+            "learning.undone": "Learning undone",
+            "learning.undoConflict": "Learning has changed; this save can no longer be undone",
+            "learning.saveFailed": "Could not finish saving the learned replacement",
+            "learning.undoFailed": "Could not fully undo learning",
+            "backup.save": "Back Up Dictionary…",
+            "backup.restore": "Restore Dictionary…",
+            "backup.restoreTitle": "Restore personal dictionary?",
+            "backup.restoreDetail": "This replaces your personal words, learned replacements, and word and application exceptions with the backup. General settings stay unchanged.",
+            "backup.restored": "Personal dictionary restored",
+            "backup.error": "The dictionary backup could not be read or saved.",
+            "dictionary.otherFormats": "Other Formats",
+            "settings.appearance": "Appearance and Sound",
             "menu.autoSwitch": "Enable Cerf Switcher",
             "menu.checkPermissions": "Check Permissions…",
             "menu.settings": "Settings…",
@@ -260,7 +355,7 @@ enum L10n {
             "onboard.autoConvert.text": "Cerf Switcher can fix the keyboard layout automatically as you type, including common short words and punctuation. It's off by default. The manual trigger (double Shift by default) always works and undoes a fix. Enable automatic conversion now?",
             "settings.remoteDesktop.hint": "For Apple Screen Sharing: run Cerf Switcher on the remote Mac too and enable this on both.",
             "settings.exceptions.apps": "Don’t auto-convert in these apps",
-            "settings.exceptions.never": "Never convert these words",
+            "settings.exceptions.never": "Manual conversion only",
             "settings.exceptions.always": "Always convert these words",
             "settings.exceptions.addWordPrompt": "Enter a word:",
             "settings.learning.clear": "Reset learned corrections",
@@ -300,7 +395,7 @@ enum L10n {
             "settings.card.diagnostics": "Diagnostics",
             "settings.card.updates": "Updates",
             "settings.exceptions.apps.hint": "Auto-conversion stays off in these apps. Password managers (grey) cannot be removed.",
-            "settings.exceptions.never.hint": "These words always stay as typed.",
+            "settings.exceptions.never.hint": "No automatic conversion or learning in either direction. Add either layout spelling.",
             "settings.exceptions.always.hint": "These words are always converted, even if the dictionary does not know them.",
             "settings.debugLog.hint": "The log records lengths and outcomes only, never the text you type.",
             "settings.learning.clearButton": "Reset…",
@@ -339,7 +434,9 @@ enum L10n {
             "settings.remembered.hint": "Words that no dictionary knows but you typed and kept on three separate occasions. They are not converted. A removed word comes back after three more occasions; move it to My Words to keep it for good.",
             "settings.remembered.empty": "No remembered words yet. A word you type and keep on three separate occasions appears here.",
             "settings.remembered.move": "Move to My Words",
-            "status.active": "Smart conversion is active",
+            "status.active": "Auto-conversion is enabled",
+            "notice.close": "Dismiss notification",
+            "notice.undo": "Undo",
             "status.disabled": "Automatic conversion is disabled",
             "status.secureInput": "Paused: secure input is active",
             "status.deniedApp": "Paused in this application",
@@ -386,6 +483,48 @@ enum L10n {
 
         // ========== РУССКИЙ ==========
         "ru": [
+            "menu.pause": "Приостановить Cerf Switcher",
+            "menu.resume": "Возобновить Cerf Switcher",
+            "menu.layouts": "Раскладки клавиатуры",
+            "menu.dictionary": "Словарь…",
+            "menu.disableCurrentApp": "Отключить автозамену в %@",
+            "menu.enableCurrentApp": "Включить автозамену в %@",
+            "menu.noCurrentApp": "Нет активного приложения",
+            "menu.noAttempts": "Попыток замены ещё не было",
+            "menu.lastManual": "Вручную: %@",
+            "menu.lastAutomatic": "Автоматически: %@",
+            "attempt.converted": "Текст заменён",
+            "attempt.unverified": "Замена отправлена, но не подтверждена",
+            "attempt.kept": "Текст оставлен в текущей раскладке",
+            "attempt.switchedOnly": "Изменилась только раскладка",
+            "attempt.disabled": "Замена приостановлена",
+            "attempt.secureInput": "Включён защищённый ввод",
+            "attempt.excludedApplication": "Приложение в исключениях",
+            "attempt.wordRule": "Текст оставлен по персональному правилу",
+            "attempt.protectedText": "Защищённый текст оставлен без изменений",
+            "attempt.uncertain": "Не уверен в замене",
+            "attempt.fieldUnavailable": "Не удалось прочитать поле",
+            "attempt.editorChanged": "Текст или поле изменились; замена отменена",
+            "attempt.unsupportedLayout": "Пара раскладок недоступна",
+            "attempt.modelUnavailable": "Языковая модель недоступна",
+            "attempt.busy": "Предыдущая замена ещё завершается",
+            "attempt.deliveryFailed": "Не удалось отправить замену",
+            "attempt.verificationFailed": "Не удалось подтвердить замену",
+            "learning.saved": "Замена запомнена для всех приложений",
+            "learning.exceptionSaved": "Исключение сохранено для этого приложения",
+            "learning.undo": "Отменить запоминание",
+            "learning.undone": "Запоминание отменено",
+            "learning.undoConflict": "Запоминание уже изменилось; отмена недоступна",
+            "learning.saveFailed": "Не удалось завершить сохранение замены",
+            "learning.undoFailed": "Не удалось полностью отменить запоминание",
+            "backup.save": "Сохранить словарь…",
+            "backup.restore": "Восстановить словарь…",
+            "backup.restoreTitle": "Восстановить персональный словарь?",
+            "backup.restoreDetail": "Копия заменит ваши слова, выученные замены и исключения для слов и приложений. Общие настройки не изменятся.",
+            "backup.restored": "Персональный словарь восстановлен",
+            "backup.error": "Не удалось прочитать или сохранить резервную копию словаря.",
+            "dictionary.otherFormats": "Другие форматы",
+            "settings.appearance": "Оформление и звук",
             "menu.autoSwitch": "Включить Cerf Switcher",
             "menu.checkPermissions": "Проверить разрешения…",
             "menu.settings": "Настройки…",
@@ -427,7 +566,7 @@ enum L10n {
             "onboard.autoConvert.text": "Cerf Switcher может исправлять раскладку автоматически по ходу набора, включая частые короткие слова и пунктуацию. По умолчанию выключено. Ручной триггер (по умолчанию double Shift) всегда работает — им же отменяется замена. Включить автозамену сейчас?",
             "settings.remoteDesktop.hint": "Для Apple Screen Sharing: запустите Cerf Switcher и на удалённом Mac, включив этот режим на обоих.",
             "settings.exceptions.apps": "Не конвертировать в этих приложениях",
-            "settings.exceptions.never": "Никогда не конвертировать эти слова",
+            "settings.exceptions.never": "Только ручное переключение",
             "settings.exceptions.always": "Всегда конвертировать эти слова",
             "settings.exceptions.addWordPrompt": "Введите слово:",
             "settings.learning.clear": "Сбросить выученные исправления",
@@ -467,7 +606,7 @@ enum L10n {
             "settings.card.diagnostics": "Диагностика",
             "settings.card.updates": "Обновления",
             "settings.exceptions.apps.hint": "В этих приложениях автоконверсия не работает. Менеджеры паролей (серые) удалить нельзя.",
-            "settings.exceptions.never.hint": "Эти слова всегда остаются как набраны.",
+            "settings.exceptions.never.hint": "Без автозамены и обучения в обе стороны. Достаточно добавить одно из двух написаний.",
             "settings.exceptions.always.hint": "Эти слова конвертируются всегда, даже если их нет в словаре.",
             "settings.debugLog.hint": "В лог попадают только длины и исходы, никогда не набранный текст.",
             "settings.learning.clearButton": "Сбросить…",
@@ -506,7 +645,9 @@ enum L10n {
             "settings.remembered.hint": "Слова, которых нет в словарях, но которые вы набрали и оставили как есть в трёх разных случаях. Они не конвертируются. Удалённое слово вернётся ещё через три случая; чтобы оставить его насовсем, перенесите его в «Мои слова».",
             "settings.remembered.empty": "Запомненных слов пока нет. Слово, которое вы наберёте и оставите как есть в трёх разных случаях, появится здесь.",
             "settings.remembered.move": "В мой словарь",
-            "status.active": "Умная конверсия работает",
+            "status.active": "Автоконверсия включена",
+            "notice.close": "Закрыть уведомление",
+            "notice.undo": "Отменить",
             "status.disabled": "Автоматическая конверсия выключена",
             "status.secureInput": "Приостановлено: защищённый ввод",
             "status.deniedApp": "Приостановлено в этом приложении",

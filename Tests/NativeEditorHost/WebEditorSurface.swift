@@ -18,6 +18,8 @@ struct WebEditorEvent: Codable, Equatable {
     let event: String
     let trusted: Bool
     let state: WebEditorState
+    var key: String?
+    var code: String?
 }
 
 @MainActor
@@ -26,8 +28,12 @@ final class WebEditorSurface: NSObject, WKScriptMessageHandler, WKNavigationDele
     var onEvent: ((WebEditorEvent) -> Void)?
     var onFailure: (() -> Void)?
     private(set) var state: WebEditorState?
+    private let initialText: String
+    private let initialSelection: [Int]
 
-    override init() {
+    init(initialText: String = "", initialSelection: [Int] = [0, 0]) {
+        self.initialText = initialText
+        self.initialSelection = initialSelection
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         view = WKWebView(frame: NSRect(x: 0, y: 0, width: 720, height: 360), configuration: configuration)
@@ -80,8 +86,10 @@ final class WebEditorSurface: NSObject, WKScriptMessageHandler, WKNavigationDele
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.evaluateJavaScript("window.startProbe()") { [weak self] _, error in
-            if error != nil { self?.onFailure?() }
+        webView.callAsyncJavaScript("window.startProbe(initialText, initialSelection)",
+                                   arguments: ["initialText": initialText, "initialSelection": initialSelection],
+                                   in: nil, in: .page) { [weak self] result in
+            if case .failure = result { self?.onFailure?() }
         }
     }
 
@@ -107,12 +115,13 @@ final class WebEditorSurface: NSObject, WKScriptMessageHandler, WKNavigationDele
         window.probeState = () => ({sequence, text: editor.value,
             selection: [editor.selectionStart, editor.selectionEnd - editor.selectionStart],
             focused: document.activeElement === editor && document.hasFocus()});
-        const report = (event, trusted) => {
+        const report = (event, trusted, original = null) => {
             sequence += 1;
-            window.webkit.messageHandlers.probe.postMessage({event, trusted, state: window.probeState()});
+            window.webkit.messageHandlers.probe.postMessage({event, trusted, state: window.probeState(),
+                key: original?.key ?? null, code: original?.code ?? null});
         };
         for (const name of ['keydown', 'keyup', 'input']) {
-            editor.addEventListener(name, event => { if (started) report(name, event.isTrusted); });
+            editor.addEventListener(name, event => { if (started) report(name, event.isTrusted, event); });
         }
         document.addEventListener('selectionchange', event => {
             if (started) report('selectionchange', event.isTrusted);
@@ -120,9 +129,13 @@ final class WebEditorSurface: NSObject, WKScriptMessageHandler, WKNavigationDele
         for (const name of ['copy', 'cut', 'paste', 'drop']) {
             editor.addEventListener(name, event => { event.preventDefault(); report('blocked', false); });
         }
-        window.startProbe = () => {
+        window.startProbe = (initialText, initialSelection) => {
+            if (started) return;
+            editor.value = initialText;
+            editor.setSelectionRange(initialSelection[0], initialSelection[0] + initialSelection[1]);
             editor.focus();
-            if (!started) { started = true; report('ready', true); }
+            started = true;
+            report('ready', true);
         };
     })();
     </script></body></html>

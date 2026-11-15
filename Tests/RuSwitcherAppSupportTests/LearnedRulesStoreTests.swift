@@ -20,6 +20,41 @@ final class LearnedRulesStoreTests: XCTestCase {
         defaults = nil
     }
 
+    func testManualOnlyWordDoesNotLearnEitherDirectionIncludingCaseAndPunctuation() throws {
+        let model = try XCTUnwrap(LanguageModelStore.bundled)
+        let store = LearnedRulesStore(defaults: defaults)
+        for listed in ["here", "руку"] {
+            defaults.set([listed], forKey: "com.ruswitcher.deniedWords")
+            for pair in [("here", "руку"), ("руку", "here"), ("Here, ", "Руку, "), ("Руку!", "Here!")] {
+                XCTAssertEqual(store.recordManualCorrection(original: pair.0, converted: pair.1,
+                    appBundleID: "editor.first", model: model), .ignore)
+                XCTAssertNil(defaults.data(forKey: LearnedRulesStore.storageKey))
+            }
+        }
+        let reloaded = LearnedRulesStore(defaults: try XCTUnwrap(UserDefaults(suiteName: domain)))
+        XCTAssertNil(try reloaded.saveManualCorrection(original: "руку", converted: "here",
+            appBundleID: "editor.second", model: model))
+    }
+
+    func testAddingManualOnlyWordFreezesExistingRulesUntilRemoved() throws {
+        let model = try XCTUnwrap(LanguageModelStore.bundled)
+        let store = LearnedRulesStore(defaults: defaults)
+        XCTAssertNotNil(try store.saveManualCorrection(original: "руку", converted: "here",
+            appBundleID: "editor.first", model: model))
+        let before = defaults.data(forKey: LearnedRulesStore.storageKey)
+        defaults.set(["here"], forKey: "com.ruswitcher.deniedWords")
+        XCTAssertNil(try store.saveManualCorrection(original: "here", converted: "руку",
+            appBundleID: "editor.second", model: model))
+        XCTAssertNil(try store.saveApplicationException(original: "руку", converted: "here", appBundleID: "editor.second"))
+        store.recordPositive(original: "руку", converted: "here")
+        store.recordNegative(original: "руку", converted: "here", appBundleID: "editor.second")
+        XCTAssertEqual(defaults.data(forKey: LearnedRulesStore.storageKey), before)
+        // The exclusion is read at save time, not cached when the store starts.
+        defaults.set([], forKey: "com.ruswitcher.deniedWords")
+        XCTAssertNotNil(try store.saveManualCorrection(original: "here", converted: "руку",
+            appBundleID: "editor.second", model: model))
+    }
+
     func testNewLabelChangesPhraseBehaviorAndSurvivesReloadExportResetAndImport() throws {
         let model = try XCTUnwrap(LanguageModelStore.bundled)
         let word = "qzvrtk"
@@ -100,8 +135,8 @@ final class LearnedRulesStoreTests: XCTestCase {
         XCTAssertFalse(writer.snapshot.isConfirmed(original: "ghbdtn", converted: "привет", appBundleID: nil))
     }
 
-    func testReadsExistingStorageFormatAndSerializesConcurrentUpdates() throws {
-        let book = AdaptiveRuleBook(rules: [.init(original: "cnhfybwf", converted: "страница", positiveCount: 1, confirmed: true)])
+    func testReadsExistingStorageFormatAndSerializesConcurrentWeakUpdates() throws {
+        let book = AdaptiveRuleBook(rules: [.init(original: "cnhfybwf", converted: "страница", positiveCount: 1, confirmed: false)])
         let data = try JSONEncoder().encode(book)
         defaults.set(data, forKey: "com.ruswitcher.adaptiveRules.v1")
         let store = LearnedRulesStore(defaults: defaults)

@@ -1,4 +1,5 @@
 import XCTest
+import RuSwitcherTestSupport
 import RuSwitcherAppSupport
 
 final class ExternalNativeProbeConfigurationTests: XCTestCase {

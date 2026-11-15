@@ -35,6 +35,7 @@ private struct InputRecord: Codable {
     let layoutReadNanoseconds: UInt64
     let preparationNanoseconds: UInt64
     let postNanoseconds: UInt64
+    var checkpointLayoutID: String? = nil
 }
 
 private struct DriverReport: Encodable {
@@ -54,8 +55,10 @@ private enum DriverError: Error, Equatable {
     case invalidFixture, unsupportedAction, blockedPermission, blockedLayout, interruptedFocus, eventAllocation, scheduleTooLate
 }
 
-private func validate(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration) throws {
-    guard stimulus.version == 1, !stimulus.actions.isEmpty,
+private func validate(_ native: NativeStimulus, config: ExternalNativeProbeConfiguration, manual: Bool, interaction: Bool) throws {
+    let stimulus = native.physical
+    guard stimulus.version == 1, !native.actions.isEmpty,
+          native.actions.count <= ExternalNativeProbeConfiguration.maximumActions,
           stimulus.actions.count <= ExternalNativeProbeConfiguration.maximumActions,
           stimulus.layoutIDs == config.layoutIDs, stimulus.layoutIDs.contains(stimulus.initialLayoutID),
           stimulus.timing == nil else { throw DriverError.invalidFixture }
@@ -87,6 +90,46 @@ private func validate(_ stimulus: PhysicalTypingStimulus, config: ExternalNative
         }
     }
     guard pressed.isEmpty else { throw DriverError.invalidFixture }
+    var shiftCode: UInt16?
+    var nativePressed = Set<UInt16>()
+    var shiftCount = 0
+    var checkpointIDs = Set<String>()
+    time = 0
+    for (index, action) in native.actions.enumerated() {
+        guard action.atMicroseconds >= time,
+              action.atMicroseconds < UInt64(config.timeoutSeconds * 1_000_000) else { throw DriverError.invalidFixture }
+        time = action.atMicroseconds
+        switch action {
+        case let .key(action):
+            guard shiftCode == nil else { throw DriverError.invalidFixture }
+            if let code = action.keyCode {
+                if action.kind == .keyDown { nativePressed.insert(code) }
+                if action.kind == .keyUp { nativePressed.remove(code) }
+            }
+        case let .shift(_, code, pressed):
+            guard manual, nativePressed.isEmpty, [56, 60].contains(code) else { throw DriverError.unsupportedAction }
+            shiftCount += 1
+            if pressed {
+                guard shiftCode == nil else { throw DriverError.invalidFixture }
+                shiftCode = code
+            } else {
+                guard shiftCode == code else { throw DriverError.invalidFixture }
+                shiftCode = nil
+            }
+        case let .checkpoint(_, id):
+            guard manual, shiftCode == nil, nativePressed.isEmpty, !id.isEmpty, id.count <= 64,
+                  checkpointIDs.insert(id).inserted, checkpointIDs.count <= 8,
+                  index + 1 == native.actions.count || native.actions[index + 1].atMicroseconds >= time + 500_000 else {
+                throw DriverError.invalidFixture
+            }
+        }
+    }
+    let validManualShape = interaction
+        ? native.actions.count <= 512 && checkpointIDs.count <= 8 && shiftCount % 4 == 0
+        : native.actions.count <= 256 && checkpointIDs.count == 3 && shiftCount == 8
+    guard shiftCode == nil, !manual || validManualShape else {
+        throw DriverError.invalidFixture
+    }
 }
 
 private func wait(until time: UInt64, cancelled: () -> Bool) throws {
@@ -133,6 +176,30 @@ private func prepareEvent(_ action: PhysicalTypingAction, index: Int, config: Ex
     return event
 }
 
+private func prepareShiftEvent(code: UInt16, pressed: Bool, index: Int,
+                               config: ExternalNativeProbeConfiguration, source: CGEventSource) throws -> CGEvent {
+    guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: pressed),
+          let marker = config.inputEventMarker(actionIndex: index) else { throw DriverError.eventAllocation }
+    event.type = .flagsChanged
+    event.flags = pressed ? .maskShift : []
+    event.setIntegerValueField(.eventSourceUserData, value: marker)
+    return event
+}
+
+private func checkShiftConstruction(config: ExternalNativeProbeConfiguration) throws {
+    guard let source = CGEventSource(stateID: .privateState) else { throw DriverError.eventAllocation }
+    for code in [UInt16(56), 60] {
+        for pressed in [true, false] {
+            let event = try prepareShiftEvent(code: code, pressed: pressed, index: 0, config: config, source: source)
+            guard event.type == .flagsChanged, event.flags.contains(.maskShift) == pressed,
+                  event.getIntegerValueField(.keyboardEventKeycode) == Int64(code),
+                  event.getIntegerValueField(.eventSourceUserData) == config.inputEventMarker(actionIndex: 0) else {
+                throw DriverError.invalidFixture
+            }
+        }
+    }
+}
+
 private func checkPreparationTiming(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration) throws {
     guard let source = CGEventSource(stateID: .hidSystemState),
           let index = stimulus.actions.firstIndex(where: { $0.kind == .keyDown }) else { throw DriverError.invalidFixture }
@@ -155,8 +222,12 @@ private func checkPreparationTiming(_ stimulus: PhysicalTypingStimulus, config: 
     FileHandle.standardOutput.write(Data("\n".utf8))
 }
 
-private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeProbeConfiguration,
-                     root: URL, hostPID: pid_t, report: inout DriverReport) throws {
+private func execute(_ native: NativeStimulus, config: ExternalNativeProbeConfiguration,
+                     root: URL, hostPID: pid_t, manual: Bool, interaction: Bool, report: inout DriverReport) throws {
+    let stimulus = native.physical
+    // Manual checks test editing outcomes at 60 ms/key, not high-rate delivery.
+    // Keep the continuous automatic-input gate strict.
+    let maximumLateness: UInt64 = manual && !interaction ? 25_000 : 10_000
     guard CGPreflightPostEventAccess() else { throw DriverError.blockedPermission }
     var sources: [String: TISInputSource] = [:]
     for id in stimulus.layoutIDs {
@@ -187,8 +258,9 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
                              source: eventSource, keyboardType: stimulus.keyboardType)
     }
     let began = DispatchTime.now().uptimeNanoseconds
-    for (index, action) in stimulus.actions.enumerated() {
-        let planned = began + action.atMicroseconds * 1_000
+    for (index, nativeAction) in native.actions.enumerated() {
+        let actionTime = nativeAction.atMicroseconds
+        let planned = began + actionTime * 1_000
         try wait(until: planned, cancelled: cancelled)
         let focusCheckStarted = DispatchTime.now().uptimeNanoseconds
         guard !FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path),
@@ -198,13 +270,26 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
         report.maximumLatenessMicroseconds = max(report.maximumLatenessMicroseconds, lateness)
         // Report an invalid timing run instead of silently slowing down a
         // supposedly independent high-rate input stream.
-        guard lateness <= 10_000 else { throw DriverError.scheduleTooLate }
+        guard lateness <= maximumLateness else { throw DriverError.scheduleTooLate }
         let layout = currentLayoutID()
         let layoutRead = DispatchTime.now().uptimeNanoseconds
         guard stimulus.layoutIDs.contains(layout) else { throw DriverError.blockedLayout }
         if index == 0, layout != stimulus.initialLayoutID { throw DriverError.blockedLayout }
         var prepared = layoutRead
-        switch action.kind {
+        var checkpoint = false
+        switch nativeAction {
+        case let .shift(_, code, pressed):
+            let event = try prepareShiftEvent(code: code, pressed: pressed, index: index, config: config, source: eventSource)
+            prepared = DispatchTime.now().uptimeNanoseconds
+            event.post(tap: .cghidEventTap)
+        case let .checkpoint(_, id):
+            checkpoint = true
+            let request: [String: Any] = ["runID": config.runID.uuidString, "actionIndex": index, "id": id,
+                                          "atNanoseconds": DispatchTime.now().uptimeNanoseconds]
+            try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
+                .write(to: root.appendingPathComponent("checkpoint-request.json"), options: .atomic)
+        case let .key(action):
+            switch action.kind {
         case .selectLayout:
             guard let id = action.layoutID, let source = sources[id], TISSelectInputSource(source) == noErr else {
                 throw DriverError.blockedLayout
@@ -215,6 +300,7 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
             prepared = DispatchTime.now().uptimeNanoseconds
             event.post(tap: .cghidEventTap)
         case .focusChange, .tapRecovery: throw DriverError.unsupportedAction
+            }
         }
         let posted = DispatchTime.now().uptimeNanoseconds
         report.records.append(.init(actionIndex: index, plannedNanoseconds: planned,
@@ -225,7 +311,17 @@ private func execute(_ stimulus: PhysicalTypingStimulus, config: ExternalNativeP
                                     postNanoseconds: posted - prepared))
         let postLateness = (posted - planned) / 1_000
         report.maximumLatenessMicroseconds = max(report.maximumLatenessMicroseconds, postLateness)
-        guard postLateness <= 10_000 else { throw DriverError.scheduleTooLate }
+        guard postLateness <= maximumLateness else { throw DriverError.scheduleTooLate }
+        if checkpoint {
+            let deadline = DispatchTime.now().uptimeNanoseconds + 400_000_000
+            while !["host", "app"].allSatisfy({
+                FileManager.default.fileExists(atPath: root.appendingPathComponent("checkpoint-\(index)-\($0).json").path)
+            }) {
+                guard DispatchTime.now().uptimeNanoseconds < deadline else { throw DriverError.invalidFixture }
+                try wait(until: DispatchTime.now().uptimeNanoseconds + 5_000_000, cancelled: cancelled)
+            }
+            report.records[report.records.count - 1].checkpointLayoutID = currentLayoutID()
+        }
     }
     // Only the end of the continuous phrase waits for observation, never a
     // word boundary or a decoder verdict.
@@ -239,15 +335,18 @@ do {
     let data = try Data(contentsOf: URL(fileURLWithPath: stimulusPath))
     guard data.count <= 2_000_000 else { exit(64) }
     // Input-only file: no oracle or expected decision enters the driver.
-    let stimulus = try JSONDecoder().decode(PhysicalTypingStimulus.self, from: data)
-    try validate(stimulus, config: config)
+    let stimulus = try JSONDecoder().decode(NativeStimulus.self, from: data)
+    let interaction = CommandLine.arguments.contains("--interaction")
+    let manual = CommandLine.arguments.contains("--manual-toggle") || interaction
+    try validate(stimulus, config: config, manual: manual, interaction: interaction)
     if CommandLine.arguments.contains("--self-check") {
         try checkWaitServicesRunLoop()
-        print("PASS: input/config valid; no application, window or events created")
+        if manual { try checkShiftConstruction(config: config) }
+        print("PASS: input/config valid; no application, window or events posted")
         exit(0)
     }
     if CommandLine.arguments.contains("--timing-check") {
-        try checkPreparationTiming(stimulus, config: config)
+        try checkPreparationTiming(stimulus.physical, config: config)
         exit(0)
     }
     if CommandLine.arguments.contains("--request-access"), !CGPreflightPostEventAccess() {
@@ -264,7 +363,8 @@ do {
     var report = DriverReport(runID: config.runID)
     var exitCode: Int32 = 0
     do {
-        try execute(stimulus, config: config, root: sessionURL.deletingLastPathComponent(), hostPID: hostPID, report: &report)
+        try execute(stimulus, config: config, root: sessionURL.deletingLastPathComponent(), hostPID: hostPID,
+                    manual: manual, interaction: interaction, report: &report)
         report.status = "complete"
     } catch {
         report.reason = String(describing: error)

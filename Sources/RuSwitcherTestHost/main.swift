@@ -1,5 +1,6 @@
 import AppKit
 import RuSwitcherAppSupport
+import RuSwitcherTestSupport
 
 if CommandLine.arguments.contains(RuntimePreferencesDomain.settingsSnapshotArgument) {
     SettingsSnapshotRenderer.run(arguments: CommandLine.arguments)
@@ -27,17 +28,6 @@ if CommandLine.arguments.contains(RuntimePreferencesDomain.settingsSnapshotArgum
         HIDIntegrationProbe.run(scenarioName: CommandLine.arguments[2], resultPath: resultPath)
     }
 } else {
-    // Before AppDelegate or SettingsManager read anything from the standard
-    // domain. Unbundled debug runs have another domain and must not copy.
-    if Bundle.main.bundleIdentifier == ProductIdentity.bundleIdentifier {
-        LegacyPreferencesMigration.run(
-            legacyDomain: ProductIdentity.legacyBundleIdentifier,
-            targetDomain: ProductIdentity.bundleIdentifier,
-            into: .standard
-        )
-    }
-    let app = NSApplication.shared
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.run()
+    print("Test host requires an explicit probe or snapshot mode.")
+    exit(64)
 }

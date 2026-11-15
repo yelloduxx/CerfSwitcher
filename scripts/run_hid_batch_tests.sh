@@ -5,27 +5,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=ruswitch_test_app.sh
 source "$ROOT/scripts/ruswitch_test_app.sh"
 ruswitch_validate_test_app "$ROOT"
+ruswitch_require_idle_desktop
 
 APP="$RUSWITCH_APP"
 BIN="$RUSWITCH_APP_EXEC"
 DEFAULT_FIXTURE="$ROOT/Tests/Fixtures/HID/mixed-layout-corpus-batch.json"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ruswitch-hid-batch.XXXXXX")"
-WAS_RUNNING=0
-
-if pgrep -f "$BIN" >/dev/null; then WAS_RUNNING=1; fi
 
 cleanup() {
     while read -r pid; do
         test -z "$pid" || kill "$pid" 2>/dev/null || true
     done < <(pgrep -f "$BIN" || true)
     rm -rf "$WORK_DIR"
-    if [ "$WAS_RUNNING" -eq 1 ]; then
-        open "$APP" >/dev/null
-        for _ in {1..30}; do
-            pgrep -f "$BIN" >/dev/null && break
-            sleep 0.1
-        done
-    fi
 }
 trap cleanup EXIT
 

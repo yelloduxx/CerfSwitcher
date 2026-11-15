@@ -38,6 +38,19 @@ final class ManualLearningPolicyTests: XCTestCase {
         ))
     }
 
+    func testManualOnlyPairIgnoresLearningEvenWhenReversingAConfirmedRule() {
+        var book = AdaptiveRuleBook()
+        book.recordConfirmed(original: "руку", converted: "here")
+        for excluded in ["here", "РУКУ"] {
+            for pair in [("here", "руку"), ("Руку, ", "Here, ")] {
+                XCTAssertEqual(ManualLearningPolicy.decision(original: pair.0, converted: pair.1,
+                    appBundleID: "editor.first", ruleBook: book, model: model, neverConvert: [excluded]), .ignore)
+            }
+        }
+        XCTAssertNotEqual(ManualLearningPolicy.decision(original: "ghbdtn", converted: "привет",
+            appBundleID: nil, ruleBook: book, model: model, neverConvert: ["here"]), .ignore)
+    }
+
     func testPlainUppercaseLayoutPairCanBeLearned() {
         XCTAssertTrue(ManualLearningPolicy.shouldPersist(
             original: "ЫУЩ",

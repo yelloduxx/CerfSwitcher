@@ -451,7 +451,7 @@ private final class PhysicalTypingSession {
         }
         let request: ReplacementRequest
         switch plan {
-        case let .keep(handling, _):
+        case let .keep(handling, _, _):
             editor.insert(boundary.text)
             input.applyTokenHandlingResult(handling, snapshot: snapshot)
             done()

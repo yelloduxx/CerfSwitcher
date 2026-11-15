@@ -1,5 +1,14 @@
 import Foundation
 
+public enum LearningCounter {
+    /// Shared by runtime counters and both archives, including the legacy format.
+    public static let maximum = 1_000_000
+
+    static func incremented(_ count: Int) -> Int {
+        count < maximum ? count + 1 : maximum
+    }
+}
+
 public struct AdaptiveRule: Codable, Equatable, Sendable {
     public let original: String
     public let converted: String
@@ -202,7 +211,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         }) {
             rules[index].confirmed = true
             rules[index].applicationException = false
-            rules[index].positiveCount += 1
+            rules[index].positiveCount = LearningCounter.incremented(rules[index].positiveCount)
             rules[index].lastUsed = Date()
         } else {
             rules.append(AdaptiveRule(
@@ -350,7 +359,7 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
         }) {
             rules[index].confirmed = false
             rules[index].applicationException = true
-            rules[index].negativeCount += 1
+            rules[index].negativeCount = LearningCounter.incremented(rules[index].negativeCount)
             rules[index].lastUsed = Date()
         } else {
             rules.append(AdaptiveRule(
@@ -371,9 +380,9 @@ public struct AdaptiveRuleBook: Codable, Equatable, Sendable {
                 && $0.appBundleID == appBundleID
         }) {
             if positive {
-                rules[index].positiveCount += 1
+                rules[index].positiveCount = LearningCounter.incremented(rules[index].positiveCount)
             } else {
-                rules[index].negativeCount += 1
+                rules[index].negativeCount = LearningCounter.incremented(rules[index].negativeCount)
                 rules[index].confirmed = false
             }
             rules[index].lastUsed = Date()

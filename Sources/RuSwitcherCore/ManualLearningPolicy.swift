@@ -21,8 +21,10 @@ public enum ManualLearningPolicy {
     /// proposal to teach the dictionary its opposite spelling.
     public static func decision(
         original: String, converted: String, appBundleID: String?,
-        ruleBook: AdaptiveRuleBook, model: LanguageModelStore?
+        ruleBook: AdaptiveRuleBook, model: LanguageModelStore?, neverConvert: Set<String> = []
     ) -> ManualLearningDecision {
+        guard !AutoConvertPolicy(neverConvert: neverConvert, alwaysConvert: [])
+            .excludes(original: original, converted: converted) else { return .ignore }
         let sourceText = original.trimmingCharacters(in: .whitespacesAndNewlines)
         let targetText = converted.trimmingCharacters(in: .whitespacesAndNewlines)
         let learnableShapes = (isLearnableTokenShape(sourceText) && isLearnableTokenShape(targetText))

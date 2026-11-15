@@ -17,21 +17,25 @@ final class SettingsWindowController {
     var onAutoConvertChanged: ((Bool) -> Void)?
     var onRemoteDesktopChanged: ((Bool) -> Void)?
     var onCaretFlagChanged: ((Bool) -> Void)?
+    var onAppearanceChanged: (() -> Void)?
     var onCheckPermissions: (() -> Void)?
     /// The user dictionary or the personal lexicon changed; the decoder's
     /// personalized model needs rebuilding.
     var onVocabularyChanged: (() -> Void)?
     var onLearnedRulesRemoved: (() -> Void)?
+    var onPersonalDataWillChange: (() -> Void)?
+    var onPersonalDataWillExport: (() -> Void)?
 
-    func showWindow(section: SettingsSection = .overview) {
+    func showWindow(section: SettingsSection? = nil) {
         if let window {
+            if let section { model?.section = section }
             model?.refresh()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let model = makeModel(section: section)
+        let model = makeModel(section: section ?? .overview)
         let win = Self.makeWindow(content: NSHostingView(rootView: SettingsRootView(model: model)))
         win.center()
         becomeKeyObserver = NotificationCenter.default.addObserver(
@@ -61,72 +65,15 @@ final class SettingsWindowController {
         return win
     }
 
-    /// Every settings page as a standalone view, for offscreen snapshots.
-    func snapshotPages() -> [(name: String, view: NSView)] {
-        var pages: [(name: String, view: NSView)] = SettingsSection.allCases.map { section in
-            (section.rawValue, NSHostingView(rootView: SettingsRootView(model: makeModel(section: section))))
-        }
-        let ready = makeModel(section: .overview)
-        ready.onChange = { _ in }
-        ready.permissions = PermissionStatus(accessibility: true, inputMonitoring: true)
-        ready.set(.autoConvert, true)
-        ready.set(.caretFlag, true)
-        pages.append(("overview-ready", NSHostingView(rootView: SettingsRootView(model: ready))))
-        let samples = Self.sampleDictionary()
-        for tab in DictionaryTab.allCases {
-            let model = makeModel(section: .dictionary)
-            model.onChange = { _ in }
-            model.dictionaryTab = tab
-            model.dictionaryCounts = [.mine: samples.words.count, .learned: samples.learned.count,
-                                      .remembered: samples.remembered.count]
-            model.dictionaryReport = Self.describe(UserDictionary.Report(added: 8, duplicates: 1, invalid: 2))
-            model.wordRows = tab == .mine ? samples.words : []
-            model.learnedRows = tab == .learned ? samples.learned : []
-            model.personalRows = tab == .remembered ? samples.remembered : []
-            let name = tab == .mine ? "dictionary-filled" : "dictionary-\(tab.rawValue)"
-            pages.append((name, NSHostingView(rootView: SettingsRootView(model: model))))
-        }
-        return pages
-    }
-
-    /// Made-up Dictionary contents for snapshots; never the user's own words.
-    private static func sampleDictionary() -> (words: [WordRow], learned: [LearnedRow], remembered: [PersonalRow]) {
-        let never: Set<String> = ["tesla", "ntcn", "деплой"]
-        let words = ["Figma", "Kubernetes", "Nuxt", "pstack", "Tesla", "вайб", "кринж", "Яндекс"].map {
-            WordRow(id: $0.lowercased(), word: $0, searchKey: $0.lowercased(), overridden: never.contains($0.lowercased()))
-        }
-        let entries = [
-            LearnedEntry(original: "ghbdtn", converted: "привет"),
-            LearnedEntry(original: "rjvgm.nth", converted: "компьютер"),
-            LearnedEntry(original: "ghbdtn", converted: "привет", exceptionAppBundleID: "sample.chat"),
-            LearnedEntry(original: "ntcn", converted: "тест"),
-            LearnedEntry(original: "ctujlyz", converted: "сегодня"),
-            LearnedEntry(original: "руддщ", converted: "hello"),
-            LearnedEntry(original: "dfqa", converted: "вайф", exceptionAppBundleID: "sample.notes"),
-            LearnedEntry(original: "pfdnhf", converted: "завтра"),
-            LearnedEntry(original: "кщфвьфз", converted: "roadmap"),
-            LearnedEntry(original: "yfcnhjqrb", converted: "настройки"),
-        ]
-        let learned = SettingsModel.learnedRows(
-            entries, never: never, always: ["вайф"],
-            appName: { ["sample.chat": "Telegram", "sample.notes": "Notes"][$0] ?? $0 }, isDeniedApp: { _ in false }
-        )
-        let remembered = [("деплой", "ru"), ("линтер", "ru"), ("ок", "ru"), ("pnpm", "en"), ("вайбкод", "ru"), ("zod", "en")]
-            .map { PersonalRow(id: PersonalWord(word: $0.0, language: $0.1), searchKey: $0.0, overridden: never.contains($0.0)) }
-        return (words, learned, remembered)
-    }
 
     /// Обновить состояние переключателя автопереключения извне
     func updateAutoSwitchState(_ enabled: Bool) {
         model?.refresh()
     }
 
-    /// Обновить переключатель «флаг у курсора» извне (когда переключили из меню)
-    func updateCaretFlagState(_ enabled: Bool) {
-        model?.refresh()
-    }
+    func refresh() { model?.refresh() }
 
-    private func makeModel(section: SettingsSection) -> SettingsModel {
+    func makeModel(section: SettingsSection) -> SettingsModel {
         let model = SettingsModel()
         model.section = section
         model.onChange = { [weak self] change in self?.apply(change) }
@@ -148,7 +95,8 @@ final class SettingsWindowController {
             case .perAppLayout: onPerAppLayoutChanged?(enabled)
             case .remoteDesktop: onRemoteDesktopChanged?(enabled)
             case .triggerRightOnly, .triggerDoubleTap: onTriggerChanged?()
-            case .launchAtLogin, .checkUpdates, .axlessConversion, .debugLog: break
+            case .monochromeIcon: onAppearanceChanged?()
+            case .launchAtLogin, .checkUpdates, .axlessConversion, .debugLog, .keySound: break
             }
         case let .triggerKey(key):
             settings.triggerKey = key
@@ -239,6 +187,8 @@ final class SettingsWindowController {
         case .importDictionary: importDictionary()
         case .exportDictionary: exportDictionary()
         case .clearDictionary: clearDictionary()
+        case .exportPersonalBackup: exportPersonalBackup()
+        case .restorePersonalBackup: restorePersonalBackup()
         case .openGitHub: openGitHub()
         }
     }
@@ -251,7 +201,10 @@ final class SettingsWindowController {
         alert.addButton(withTitle: L10n.settingsClearLearning)
         alert.addButton(withTitle: L10n.commonCancel)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        onPersonalDataWillChange?()
         SettingsManager.shared.clearAdaptiveRules()
+        onLearnedRulesRemoved?()
+        dictionaryChanged(report: nil)
         rslog("learn: adaptive rules cleared")
     }
 
@@ -282,7 +235,11 @@ final class SettingsWindowController {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            _ = try LearnedCorrectionsArchive.decode(data)
+            onPersonalDataWillChange?()
             let result = try SettingsManager.shared.importLearnedCorrections(data)
+            onLearnedRulesRemoved?()
+            model?.refresh()
             showLearningAlert(
                 title: L10n.settingsImportLearning,
                 detail: String(
@@ -299,6 +256,48 @@ final class SettingsWindowController {
     }
 
     private static let dictionaryFileLimit = 5 * 1024 * 1024
+
+    private func exportPersonalBackup() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "\(ProductIdentity.shortName)-Dictionary-\(Self.exportDateString()).json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            onPersonalDataWillExport?()
+            let data = try SettingsManager.shared.exportPersonalBackup()
+            try data.write(to: url, options: .atomic)
+        } catch {
+            showLearningAlert(title: L10n.settingsLearningFileError, detail: L10n.backupError)
+        }
+    }
+
+    private func restorePersonalBackup() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= PersonalDataArchive.maximumFileSize else { throw PersonalDataArchiveError.fileTooLarge }
+            let archive = try PersonalDataArchive.decode(Data(contentsOf: url, options: .mappedIfSafe))
+            let alert = NSAlert()
+            alert.messageText = L10n.backupRestoreTitle
+            alert.informativeText = L10n.backupRestoreDetail
+            alert.addButton(withTitle: L10n.backupRestore)
+            alert.addButton(withTitle: L10n.commonCancel)
+            alert.buttons.first?.hasDestructiveAction = true
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            onPersonalDataWillChange?()
+            try SettingsManager.shared.restorePersonalBackup(archive)
+            onLearnedRulesRemoved?()
+            dictionaryChanged(report: L10n.backupRestored)
+            rslog("personal_dictionary_restored")
+        } catch {
+            showLearningAlert(title: L10n.settingsLearningFileError, detail: L10n.backupError)
+        }
+    }
 
     private func importDictionary() {
         let panel = NSOpenPanel()

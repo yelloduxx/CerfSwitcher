@@ -1,6 +1,6 @@
 import Foundation
 
-/// An automatic switch can overtake keys already waiting in the system queue.
+/// A layout switch can overtake keys already waiting in the system queue.
 /// Bind those keys to the same layout used by the token session, without
 /// deleting, reposting, or waiting for any further input.
 public struct QueuedLayoutTransition {

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import RuSwitcherAppSupport
+import RuSwitcherTestSupport
 
 @MainActor
 enum ExternalNativeProbe {
@@ -52,6 +53,12 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
     private var callbackTimings: [[String: Any]] = []
     private var callbackTimingOverflow = false
     private var phaseMarks: [[String: Any]] = []
+    private var manualCheckpoints: [[String: Any]] = []
+    private let manual = CommandLine.arguments.contains("--manual-toggle")
+    private let manualDisabled = CommandLine.arguments.contains("--manual-disabled")
+    private var manualAttempt: ConversionFeedback.Attempt?
+    private var manualAttemptCount = 0
+    private var manualFeedback = "none"
 
     init(config: ExternalNativeProbeConfiguration, root: URL, hostPID: pid_t) {
         self.config = config
@@ -63,7 +70,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsManager.shared
         settings.layout1ID = config.layoutIDs[0]
         settings.layout2ID = config.layoutIDs[1]
-        settings.autoSwitchEnabled = true
+        settings.autoSwitchEnabled = !manualDisabled
         settings.autoConvert = config.automaticConversion
         settings.axlessConversion = false
         settings.perAppLayout = false
@@ -71,6 +78,21 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         settings.keySound = false
         settings.debugLogEnabled = false
         settings.remoteDesktopMode = false
+        settings.deniedWords = config.neverConvertWords ?? []
+        if manual {
+            settings.triggerKey = "shift"
+            settings.triggerRightOnly = false
+            settings.triggerDoubleTap = true
+            production.onProbeManualResult = { [weak self] result, attempt in
+                guard let self else { return }
+                if self.manualAttempt != attempt { self.manualAttemptCount += 1 }
+                self.manualAttempt = attempt
+                switch result {
+                case let .refused(reason): self.manualFeedback = "refused(\(reason))"
+                default: self.manualFeedback = String(describing: result)
+                }
+            }
+        }
         production.observeProbeCallbacks { [weak self] timing in
             MainActor.assumeIsolated { self?.recordCallback(timing) }
         }
@@ -88,7 +110,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func recordCallback(_ timing: KeyboardCallbackTiming) {
-        guard timing.eventType == .keyDown,
+        guard timing.eventType == .keyDown || (manual && timing.eventType == .flagsChanged),
               let index = config.inputActionIndex(eventMarker: timing.marker) else { return }
         guard callbackTimings.count < ExternalNativeProbeConfiguration.maximumActions else {
             callbackTimingOverflow = true
@@ -96,6 +118,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         }
         callbackTimings.append([
             "actionIndex": index, "keyCode": timing.keyCode,
+            "eventKind": timing.eventType == .flagsChanged ? "flagsChanged" : "keyDown",
             "startedNanoseconds": timing.startedNanoseconds,
             "finishedNanoseconds": timing.finishedNanoseconds,
             "consumed": timing.consumed,
@@ -107,6 +130,7 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
         let requestedStop = FileManager.default.fileExists(atPath: root.appendingPathComponent("stop").path)
         let timedOut = ProcessInfo.processInfo.systemUptime - started >= config.timeoutSeconds
         let stopping = requestedStop || timedOut || callbackTimingOverflow
+        if manual, !stopping { captureManualCheckpoint() }
         let snapshot: [String: Any] = [
             "schemaVersion": 2, "runID": config.runID.uuidString,
             "pid": ProcessInfo.processInfo.processIdentifier,
@@ -126,6 +150,8 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
             "callbackTimingSampleCount": callbackTimings.count,
             "callbackTimingOverflow": callbackTimingOverflow,
             "phaseMarks": stopping ? phaseMarks : [],
+            "manualMode": manual,
+            "manualCheckpoints": manualCheckpoints,
         ]
         do {
             let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
@@ -137,5 +163,32 @@ private final class ProbeDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
             }
         } catch { exit(74) }
+    }
+
+    private func captureManualCheckpoint() {
+        guard let data = try? Data(contentsOf: root.appendingPathComponent("checkpoint-request.json")),
+              let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              request["runID"] as? String == config.runID.uuidString,
+              let index = request["actionIndex"] as? Int, (0..<256).contains(index),
+              let id = request["id"] as? String, !id.isEmpty,
+              let requested = request["atNanoseconds"] as? UInt64,
+              !manualCheckpoints.contains(where: { $0["actionIndex"] as? Int == index }) else { return }
+        guard manualCheckpoints.count < 8 else { callbackTimingOverflow = true; return }
+        let rules = SettingsManager.shared.adaptiveRuleBook.rules
+        let snapshot: [String: Any] = [
+            "runID": config.runID.uuidString, "actionIndex": index, "id": id,
+            "requestNanoseconds": requested, "atNanoseconds": DispatchTime.now().uptimeNanoseconds,
+            "attemptCount": manualAttemptCount,
+            "feedback": manualFeedback,
+            "learningUndoAvailable": production.probeLearningUndoAvailable,
+            "confirmedRuleCount": rules.filter { $0.confirmed && $0.appBundleID == nil }.count,
+            "applicationExceptionCount": rules.filter { $0.applicationException }.count,
+            "learnedEntryCount": SettingsManager.shared.adaptiveRuleBook.learnedEntries.count,
+        ]
+        do {
+            try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
+                .write(to: root.appendingPathComponent("checkpoint-\(index)-app.json"), options: .atomic)
+            manualCheckpoints.append(snapshot)
+        } catch { callbackTimingOverflow = true }
     }
 }

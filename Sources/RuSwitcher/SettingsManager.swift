@@ -2,13 +2,16 @@ import Foundation
 import RuSwitcherAppSupport
 import RuSwitcherCore
 import ServiceManagement
+#if RUSWITCH_TEST_HOST
+import RuSwitcherTestSupport
+#endif
 
 /// Централизованное хранение настроек через UserDefaults
 /// Настройки приложения. Свойства thread-safe через UserDefaults.
 final class SettingsManager: @unchecked Sendable {
     typealias LearnedCorrectionsImportResult = LearnedRulesStore.ImportResult
 
-    static let shared = SettingsManager(defaults: makeDefaults())
+    static let shared = SettingsManager(defaults: makeDefaults(), migrateLegacyFiles: true)
 
     private let defaults: UserDefaults
     private let learnedRules: LearnedRulesStore
@@ -16,10 +19,17 @@ final class SettingsManager: @unchecked Sendable {
     /// Explicit words; "reset learned corrections" leaves them alone.
     let userDictionary: UserDictionaryStore
 
+    private static var isolatedSuiteName: String? {
+        #if RUSWITCH_TEST_HOST
+        RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments)
+        #else
+        nil
+        #endif
+    }
+
     private static func makeDefaults() -> UserDefaults {
-        guard let suiteName = RuntimePreferencesDomain.isolatedSuiteName(
-            arguments: CommandLine.arguments
-        ), let isolated = UserDefaults(suiteName: suiteName) else {
+        guard let suiteName = isolatedSuiteName,
+              let isolated = UserDefaults(suiteName: suiteName) else {
             return .standard
         }
         isolated.removePersistentDomain(forName: suiteName)
@@ -52,13 +62,13 @@ final class SettingsManager: @unchecked Sendable {
         static let monochromeIcon = "com.ruswitcher.monochromeIcon"
         static let deniedAppsAdded = "com.ruswitcher.deniedAppsAdded"
         static let deniedAppsRemoved = "com.ruswitcher.deniedAppsRemoved"
-        static let deniedWords = "com.ruswitcher.deniedWords"
+        static let deniedWords = LearnedRulesStore.neverConvertWordsKey
         static let alwaysConvertWords = "com.ruswitcher.alwaysConvertWords"
         static let adaptiveRules = LearnedRulesStore.storageKey
         static let personalLexiconEnabled = "com.ruswitcher.personalLexicon"
     }
 
-    private init(defaults: UserDefaults) {
+    init(defaults: UserDefaults, migrateLegacyFiles: Bool = false) {
         self.defaults = defaults
         self.learnedRules = LearnedRulesStore(defaults: defaults)
         self.personalLexicon = PersonalLexiconStore(defaults: defaults)
@@ -68,7 +78,7 @@ final class SettingsManager: @unchecked Sendable {
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV3")
         defaults.removeObject(forKey: "com.ruswitcher.smartEngineV4Mode")
         defaults.removeObject(forKey: "com.ruswitcher.personalizationAdapterV4")
-        if RuntimePreferencesDomain.isolatedSuiteName(arguments: CommandLine.arguments) == nil,
+        if migrateLegacyFiles, Self.isolatedSuiteName == nil,
            let support = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -271,7 +281,7 @@ final class SettingsManager: @unchecked Sendable {
         }
     }
 
-    /// Слова, которые авто-конверсия никогда не трогает.
+    /// Manual-only pairs: no automatic conversion or correction learning.
     var deniedWords: [String] {
         get { defaults.stringArray(forKey: Keys.deniedWords) ?? [] }
         set { defaults.set(newValue, forKey: Keys.deniedWords) }
@@ -284,6 +294,10 @@ final class SettingsManager: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Keys.alwaysConvertWords) }
     }
     var alwaysConvertWordsSet: Set<String> { Set(alwaysConvertWords.map { $0.lowercased() }) }
+
+    var wordConversionPolicy: AutoConvertPolicy {
+        AutoConvertPolicy(neverConvert: deniedWordsSet, alwaysConvert: alwaysConvertWordsSet)
+    }
 
     var adaptiveRuleBook: AdaptiveRuleBook {
         get { learnedRules.snapshot }
@@ -306,8 +320,24 @@ final class SettingsManager: @unchecked Sendable {
         learnedRules.recordNegative(original: original, converted: converted, appBundleID: appBundleID)
     }
 
-    func recordManualLearning(original: String, converted: String, appBundleID: String?, model: LanguageModelStore?) -> ManualLearningDecision {
-        learnedRules.recordManualCorrection(original: original, converted: converted, appBundleID: appBundleID, model: model)
+    func saveManualLearning(original: String, converted: String, appBundleID: String?,
+                            model: LanguageModelStore?) throws -> ManualLearningSave? {
+        try learnedRules.saveManualCorrection(original: original, converted: converted,
+                                              appBundleID: appBundleID, model: model)
+    }
+
+    func undoManualLearning(_ receipt: ManualLearningReceipt) throws -> PersonalDataUndoResult {
+        try learnedRules.undo(receipt)
+    }
+
+    func saveApplicationException(original: String, converted: String,
+                                  appBundleID: String) throws -> ManualLearningSave? {
+        try learnedRules.saveApplicationException(original: original, converted: converted,
+                                                   appBundleID: appBundleID)
+    }
+
+    func validateLearningUndo(_ receipt: ManualLearningReceipt) -> PersonalDataUndoResult? {
+        learnedRules.validateUndo(receipt)
     }
 
     func migrateAdaptiveRulesIfNeeded() {
@@ -343,6 +373,43 @@ final class SettingsManager: @unchecked Sendable {
 
     func importLearnedCorrections(_ data: Data) throws -> LearnedCorrectionsImportResult {
         try learnedRules.importRules(data)
+    }
+
+    func personalDataSnapshot() throws -> PersonalDataArchive.Payload {
+        try PersonalDataArchive.Payload(
+            adaptiveRules: learnedRules.snapshot,
+            personalLexicon: personalLexicon.snapshot,
+            userDictionary: userDictionary.snapshot,
+            alwaysConvertWords: alwaysConvertWords,
+            deniedWords: deniedWords,
+            deniedAppsAdded: defaults.stringArray(forKey: Keys.deniedAppsAdded) ?? [],
+            deniedAppsRemoved: defaults.stringArray(forKey: Keys.deniedAppsRemoved) ?? []
+        )
+    }
+
+    func exportPersonalBackup() throws -> Data {
+        try PersonalDataArchive(payload: personalDataSnapshot()).encoded()
+    }
+
+    func restorePersonalBackup(_ archive: PersonalDataArchive) throws {
+        let previous = try personalDataSnapshot()
+        do {
+            try applyPersonalData(archive.payload)
+        } catch {
+            try? applyPersonalData(previous)
+            throw error
+        }
+    }
+
+    private func applyPersonalData(_ data: PersonalDataArchive.Payload) throws {
+        try learnedRules.replace(with: data.adaptiveRules)
+        try personalLexicon.replace(with: data.personalLexicon)
+        try userDictionary.replace(with: data.userDictionary)
+        alwaysConvertWords = data.alwaysConvertWords
+        deniedWords = data.deniedWords
+        defaults.set(data.deniedAppsAdded, forKey: Keys.deniedAppsAdded)
+        defaults.set(data.deniedAppsRemoved, forKey: Keys.deniedAppsRemoved)
+        guard try personalDataSnapshot() == data else { throw PersonalDataStoreError.readBackFailed }
     }
 
     // MARK: - GitHub coordinates (единственный источник — чтобы при переименовании

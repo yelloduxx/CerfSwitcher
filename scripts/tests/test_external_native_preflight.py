@@ -38,12 +38,12 @@ class NativePreflightTests(unittest.TestCase):
                 SUITE.main([mode, "--sample-process"])
             self.assertEqual(caught.exception.code, 2)
 
-    def run_preflight(self, permission_exit):
+    def run_preflight(self, permission_exit, *, reject_bundle=False, source_changed=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             binaries = root / "bin"
             binaries.mkdir()
-            for name in ("RuSwitcher", "RuSwitcherNativeDriver", "RuSwitcherNativeEditorHost"):
+            for name in ("CerfSwitcherTestHost", "RuSwitcherNativeDriver", "RuSwitcherNativeEditorHost"):
                 (binaries / name).write_bytes(b"test binary; never executed")
             resources = root / "Sources/RuSwitcherCore/Resources"
             resources.mkdir(parents=True)
@@ -53,24 +53,54 @@ class NativePreflightTests(unittest.TestCase):
             (root / "Info.plist").write_bytes(plistlib.dumps({}))
             (root / "version.json").write_text('{"version":"4.0.0","build":130}')
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"stimulus": {"layoutIDs": ["en", "ru"]}}))
+            fixture.write_text(json.dumps({"stimulus": {"layoutIDs": ["en", "ru"]},
+                                           "oracle": {"text": "must not reach input process"}}))
             run_dir = root / "run"
             run_dir.mkdir()
             commands = []
 
             def run(command, **kwargs):
                 commands.append(command)
-                self.assertTrue(command[0] in ("swift", "codesign")
+                self.assertTrue(command[0] in ("swift", "codesign", "bash")
                                 or "--self-check" in command or "--preflight" in command)
+                if command[0] == "bash" and command[1].endswith("/build_test_host.sh"):
+                    self.assertEqual(command[2], str(run_dir))
+                    self.assertEqual(kwargs["env"]["RUSWITCH_TEST_HOST"], "1")
+                    SUITE.bundle(binaries / "CerfSwitcherTestHost", run_dir, "CerfSwitcherTestHost",
+                                 "com.cerfswitcher.testhost", {"RSTestHost": True})
+                if command[0] == "swift":
+                    self.assertEqual(kwargs["env"]["RUSWITCH_TEST_HOST"], "1")
+                    self.assertEqual(command[command.index("--scratch-path") + 1], str(root / ".build/test-host"))
+                    self.assertIn(command[command.index("--product") + 1],
+                                  ("RuSwitcherNativeDriver", "RuSwitcherNativeEditorHost"))
+                if command[:2] == ["bash", "-c"]:
+                    self.assertIn("ruswitch_validate_test_app", command[2])
+                    self.assertEqual(kwargs["env"]["RUSWITCH_APP"], str(run_dir / "CerfSwitcherTestHost.app"))
+                    self.assertEqual(kwargs["env"]["RUSWITCH_REFERENCE_APP"], kwargs["env"]["RUSWITCH_APP"])
+                    if reject_bundle:
+                        raise subprocess.CalledProcessError(1, command)
+                if "--self-check" in command or "--preflight" in command:
+                    self.assertNotIn("oracle", json.loads((run_dir / "session.json").read_text()))
+                    self.assertEqual(json.loads((run_dir / "stimulus.json").read_text()),
+                                     {"layoutIDs": ["en", "ru"]})
                 code = permission_exit if "--preflight" in command else 0
                 return subprocess.CompletedProcess(command, code, stdout="read-only access result\n", stderr="")
 
+            def check_output(command, **kwargs):
+                if command[0] == "swift":
+                    self.assertEqual(command[command.index("--product") + 1], "CerfSwitcherTestHost")
+                    self.assertEqual(command[command.index("--scratch-path") + 1], str(root / ".build/test-host"))
+                    self.assertEqual(kwargs["env"]["RUSWITCH_TEST_HOST"], "1")
+                    return str(binaries)
+                self.assertEqual(command, ["git", "rev-parse", "HEAD"])
+                return "commit-sha"
+
             with patch.dict(os.environ, {}, clear=True), \
                  patch("sys.stdout", new_callable=io.StringIO), \
-                 patch.object(SUITE, "source_digest", return_value="source-sha"), \
+                 patch.object(SUITE, "source_digest", side_effect=["source-sha", "changed" if source_changed else "source-sha"]), \
                  patch.object(SUITE.tempfile, "mkdtemp", return_value=str(run_dir)), \
                  patch.object(SUITE.subprocess, "run", side_effect=run), \
-                 patch.object(SUITE.subprocess, "check_output", side_effect=[str(binaries), "commit-sha"]), \
+                 patch.object(SUITE.subprocess, "check_output", side_effect=check_output), \
                  patch.object(SUITE, "running_switchers", side_effect=AssertionError("preflight enumerated apps")), \
                  patch.object(SUITE, "run_case", side_effect=AssertionError("preflight opened a host")), \
                  patch.object(SUITE, "restore_installed", side_effect=AssertionError("preflight restarted an app")), \
@@ -86,10 +116,29 @@ class NativePreflightTests(unittest.TestCase):
         self.assertEqual(summary["cases"], [])
         self.assertEqual(len(summary["preflights"]), 2)
         self.assertEqual(sum("--preflight" in command for command in commands), 2)
-        app_sign = next(command for command in commands if command[0] == "codesign" and "--sign" in command
-                        and command[-1].endswith("/CerfSwitcher.app"))
-        self.assertIn("runtime", app_sign)
-        self.assertIn("--entitlements", app_sign)
+        self.assertEqual(summary["testBundleID"], "com.cerfswitcher.testhost")
+        self.assertEqual(set(summary["binarySHA256"]),
+                         {"CerfSwitcherTestHost", "RuSwitcherNativeDriver", "RuSwitcherNativeEditorHost"})
+        self.assertEqual(set(summary["signedBinarySHA256"]), set(summary["binarySHA256"]))
+        builder = next(i for i, command in enumerate(commands)
+                       if command[0] == "bash" and command[1].endswith("/build_test_host.sh"))
+        validation = next(i for i, command in enumerate(commands) if command[:2] == ["bash", "-c"])
+        first_probe = next(i for i, command in enumerate(commands)
+                           if "--self-check" in command or "--preflight" in command)
+        self.assertLess(builder, validation)
+        self.assertLess(validation, first_probe)
+
+    def testLiveInputStillRequiresExplicitPermissionBeforeBuilding(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.dict(os.environ, {}, clear=True), \
+             patch("sys.stderr", new_callable=io.StringIO), \
+             patch.object(SUITE.subprocess, "run", side_effect=AssertionError("built or launched")), \
+             patch.object(SUITE, "running_switchers", side_effect=AssertionError("enumerated apps")):
+            root = Path(temporary)
+            self.assertEqual(SUITE.main([], root=root), 77)
+            summary = json.loads((root / ".build/external-native-last.json").read_text())
+            self.assertEqual(summary["status"], "blockedEnvironment")
+            self.assertEqual(summary["cases"], [])
 
     def testGrantedPreflightIsNotANativePassAndNeverStopsInstalledApp(self):
         code, summary, _ = self.run_preflight(0)
@@ -97,6 +146,35 @@ class NativePreflightTests(unittest.TestCase):
         self.assertEqual(summary["status"], "permissionsReadyNotRun")
         self.assertEqual(summary["cases"], [])
         self.assertNotIn("restoredInstalledApp", summary)
+
+    def testFailedBundleGateStopsBeforeAnyProbe(self):
+        code, summary, commands = self.run_preflight(0, reject_bundle=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(summary["status"], "invalidRun")
+        self.assertFalse(any("--self-check" in command or "--preflight" in command for command in commands))
+
+    def testSourceChangeStopsBeforeAnyProbe(self):
+        code, summary, commands = self.run_preflight(0, source_changed=True)
+        self.assertEqual(code, 1)
+        self.assertIn("source changed while building", summary["error"])
+        self.assertFalse(any("--self-check" in command or "--preflight" in command for command in commands))
+
+    def testSourceDigestIncludesTestEntrypointAndBundleScripts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            names = ("Package.swift", "Info.plist", "version.json", "RuSwitcher.entitlements",
+                     "scripts/run_external_native_suite.py", "scripts/build_test_host.sh",
+                     "scripts/ruswitch_test_app.sh", "Sources/RuSwitcherTestHost/main.swift")
+            for name in names:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            previous = SUITE.source_digest(root)
+            for name in names[-3:]:
+                (root / name).write_text("changed")
+                current = SUITE.source_digest(root)
+                self.assertNotEqual(previous, current, name)
+                previous = current
 
     def testReportsSurviveRuntimeCleanupWithoutArchivingApplications(self):
         with tempfile.TemporaryDirectory() as temporary:

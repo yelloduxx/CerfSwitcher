@@ -1,12 +1,18 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+let testHost = ProcessInfo.processInfo.environment["RUSWITCH_TEST_HOST"] == "1"
+let applicationEntry = testHost ? "RuSwitcherTestHost" : "RuSwitcherProduction"
+let applicationDependencies: [Target.Dependency] = ["RuSwitcherCore", "RuSwitcherAppSupport"]
+    + (testHost ? ["RuSwitcherTestSupport"] : [])
 
 let package = Package(
     name: "RuSwitcher",
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "RuSwitcherCore", targets: ["RuSwitcherCore"]),
-        .executable(name: "RuSwitcher", targets: ["RuSwitcher"]),
+        .executable(name: testHost ? "CerfSwitcherTestHost" : "RuSwitcher", targets: ["RuSwitcher"]),
         .executable(name: "RuSwitcherInputMethod", targets: ["RuSwitcherInputMethod"]),
         .executable(name: "RuSwitcherSimulator", targets: ["RuSwitcherSimulator"]),
         .executable(name: "RuSwitcherTypingSimulator", targets: ["RuSwitcherTypingSimulator"]),
@@ -29,8 +35,15 @@ let package = Package(
         ),
         .executableTarget(
             name: "RuSwitcher",
-            dependencies: ["RuSwitcherCore", "RuSwitcherAppSupport"],
-            path: "Sources/RuSwitcher",
+            dependencies: applicationDependencies,
+            path: "Sources",
+            exclude: [
+                "RuSwitcherCore", "RuSwitcherAppSupport", "RuSwitcherInputMethod",
+                "RuSwitcherSimulator", "RuSwitcherTypingSimulator",
+                testHost ? "RuSwitcherProduction" : "RuSwitcherTestHost",
+            ],
+            sources: ["RuSwitcher", applicationEntry],
+            swiftSettings: testHost ? [.define("RUSWITCH_TEST_HOST")] : [],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
@@ -66,7 +79,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RuSwitcherNativeEditorHost",
-            dependencies: ["RuSwitcherAppSupport", "RuSwitcherCore"],
+            dependencies: ["RuSwitcherAppSupport", "RuSwitcherCore", "RuSwitcherTestSupport"],
             path: "Tests/NativeEditorHost"
         ),
         .executableTarget(

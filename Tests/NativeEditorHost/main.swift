@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import WebKit
 import RuSwitcherAppSupport
+import RuSwitcherTestSupport
 
 private enum HostStatus: String, Codable {
     case ready, recording, complete, interrupted
@@ -13,6 +14,33 @@ private enum HostError: Error {
 
 private enum EditorKind: String {
     case nstextview, webkit
+}
+
+private struct EditorSetup: Decodable {
+    let text: String
+    let selection: [Int]
+    let collapseSelectionAfterAXReplacement: Bool?
+    let title: String?
+
+    var isValid: Bool {
+        text.utf16.count <= 512 && selection.count == 2 && selection.allSatisfy { $0 >= 0 }
+            && selection[0] <= text.utf16.count && selection[1] <= text.utf16.count - selection[0]
+    }
+}
+
+private struct ManualCheckpoint: Codable, Equatable {
+    let runID: String
+    let actionIndex: Int
+    let id: String
+    let requestNanoseconds: UInt64
+    let atNanoseconds: UInt64
+    let text: String
+    let selection: [Int]
+    let focused: Bool
+    let clipboardChangeCountDelta: Int
+    let forcedAXCollapseCount: Int
+    let domReadVerified: Bool
+    let domSequence: Int?
 }
 
 private struct HostEvent: Codable, Equatable {
@@ -30,6 +58,7 @@ private struct ReceivedEvent: Codable, Equatable {
     let keyCode: Int
     let marker: Int64
     let atNanoseconds: UInt64
+    var shift = false
 }
 
 private struct QuartzEvent: Codable, Equatable {
@@ -38,6 +67,7 @@ private struct QuartzEvent: Codable, Equatable {
     let marker: Int64
     let atNanoseconds: UInt64
     let eventTimestampNanoseconds: UInt64
+    var shift = false
 }
 
 private struct HostSnapshot: Codable, Equatable {
@@ -58,6 +88,9 @@ private struct HostSnapshot: Codable, Equatable {
     let editorKind: String
     let domEvents: [WebEditorEvent]
     let domFinalReadVerified: Bool
+    var clipboardChangeCountDelta = 0
+    var manualCheckpoints: [ManualCheckpoint] = []
+    var forcedAXCollapseCount = 0
 
     func write(to root: URL, final: Bool) throws {
         let encoder = JSONEncoder()
@@ -73,6 +106,16 @@ private struct HostSnapshot: Codable, Equatable {
 @MainActor
 private final class ProbeTextView: NSTextView {
     weak var host: NativeEditorHost?
+    var collapseSelectionAfterAXReplacement = false
+
+    override func setAccessibilitySelectedText(_ selectedText: String?) {
+        super.setAccessibilitySelectedText(selectedText)
+        if collapseSelectionAfterAXReplacement {
+            let range = selectedRange()
+            setSelectedRange(NSRange(location: range.location + range.length, length: 0))
+            host?.recordForcedAXCollapse()
+        }
+    }
 
     override func keyDown(with event: NSEvent) {
         guard host?.acceptKeyboard(event) == true else { return }
@@ -128,6 +171,7 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private let config: ExternalNativeProbeConfiguration
     private let root: URL
     private let editorKind: EditorKind
+    private let setup: EditorSetup?
     private let started = ProcessInfo.processInfo.systemUptime
     private var status = HostStatus.ready
     private var text = ""
@@ -149,14 +193,21 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private var timer: Timer?
     private var eventMonitor: Any?
     private var finished = false
+    private var clipboardStart = 0
+    private var manualMutationDeadline: TimeInterval = 0
+    private var manualCheckpoints: [ManualCheckpoint] = []
+    private var forcedAXCollapseCount = 0
+    private var checkpointReadPending = false
 
-    init(config: ExternalNativeProbeConfiguration, root: URL, editorKind: EditorKind) {
+    init(config: ExternalNativeProbeConfiguration, root: URL, editorKind: EditorKind, setup: EditorSetup?) {
         self.config = config
         self.root = root
         self.editorKind = editorKind
+        self.setup = setup
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        clipboardStart = NSPasteboard.general.changeCount
         guard startQuartzObservation() else {
             finish(.interrupted, terminate: false)
             exit(77)
@@ -167,13 +218,13 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             backing: .buffered,
             defer: false
         )
-        window.title = "RuSwitcher Native Editor"
+        window.title = setup?.title ?? "RuSwitcher Native Editor"
         window.delegate = self
         window.isReleasedWhenClosed = false
 
         self.window = window
         if editorKind == .webkit {
-            let surface = WebEditorSurface()
+            let surface = WebEditorSurface(initialText: setup?.text ?? "", initialSelection: setup?.selection ?? [0, 0])
             webEditor = surface
             surface.onEvent = { [weak self] in self?.recordDOM($0) }
             surface.onFailure = { [weak self] in self?.finish(.interrupted) }
@@ -198,6 +249,13 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             view.isAutomaticTextCompletionEnabled = false
             view.isContinuousSpellCheckingEnabled = false
             view.enabledTextCheckingTypes = 0
+            if let setup {
+                view.collapseSelectionAfterAXReplacement = setup.collapseSelectionAfterAXReplacement == true
+                view.string = setup.text
+                view.setSelectedRange(NSRange(location: setup.selection[0], length: setup.selection[1]))
+                text = setup.text
+                selection = setup.selection
+            }
             scrollView.documentView = view
             window.contentView = scrollView
             textView = view
@@ -306,12 +364,17 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         case .flagsChanged: kind = "flagsChanged"
         default: return
         }
+        if setup != nil, type == .flagsChanged, config.inputActionIndex(eventMarker: marker) != nil {
+            // AX selection replacement has no marked key event. Only a trusted
+            // manual gesture opens this bounded observation window.
+            manualMutationDeadline = ProcessInfo.processInfo.systemUptime + 1
+        }
         // Process-scoped, listen-only observation. Never read the key's text,
         // mutate an event, or touch files in the ordinary callback path.
         quartzEvents.append(.init(kind: kind,
                                   keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
                                   marker: marker, atNanoseconds: DispatchTime.now().uptimeNanoseconds,
-                                  eventTimestampNanoseconds: event.timestamp))
+                                  eventTimestampNanoseconds: event.timestamp, shift: event.flags.contains(.maskShift)))
     }
 
     func acceptKeyboard(_ event: NSEvent) -> Bool {
@@ -356,7 +419,8 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
     private func recordDOM(_ event: WebEditorEvent) {
         guard !finished else { return }
         guard domEvents.count < 10_000,
-              status == .recording || (event.state.text.isEmpty && event.state.selection == [0, 0]) else {
+              status == .recording || (event.state.text == (setup?.text ?? "")
+                                      && event.state.selection == (setup?.selection ?? [0, 0])) else {
             finish(.interrupted)
             return
         }
@@ -383,7 +447,8 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         // Arrival at the app is different from NSTextView choosing to handle it.
         receivedEvents.append(.init(kind: kind, keyCode: Int(event.keyCode),
                                      marker: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0,
-                                     atNanoseconds: DispatchTime.now().uptimeNanoseconds))
+                                     atNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                                     shift: event.modifierFlags.contains(.shift)))
     }
 
     func unexpectedInput() {
@@ -391,6 +456,15 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         guard status == .recording, !finished else { return }
         unexpectedInputCount += 1
         finish(.interrupted)
+    }
+
+    func recordForcedAXCollapse() {
+        guard setup != nil, status == .recording, !finished,
+              ProcessInfo.processInfo.systemUptime < manualMutationDeadline else {
+            unexpectedInput()
+            return
+        }
+        forcedAXCollapseCount += 1
     }
 
     private func checkControlFiles() {
@@ -423,7 +497,53 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             finish(.interrupted)
             return
         }
+        captureManualCheckpoint()
         write(final: false)
+    }
+
+    private func captureManualCheckpoint() {
+        guard setup != nil, status == .recording, !checkpointReadPending,
+              let data = try? Data(contentsOf: root.appendingPathComponent("checkpoint-request.json")),
+              let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              request["runID"] as? String == config.runID.uuidString,
+              let index = request["actionIndex"] as? Int, (0..<256).contains(index),
+              let id = request["id"] as? String, !id.isEmpty,
+              let requested = request["atNanoseconds"] as? UInt64,
+              !manualCheckpoints.contains(where: { $0.actionIndex == index }) else { return }
+        guard manualCheckpoints.count < 8 else { finish(.interrupted); return }
+        if let webEditor {
+            checkpointReadPending = true
+            webEditor.readState { [weak self] readback in
+                guard let self, !self.finished else { return }
+                self.checkpointReadPending = false
+                guard let readback, readback.focused, readback == webEditor.state,
+                      readback.text == self.text, readback.selection == self.selection else {
+                    self.finish(.interrupted)
+                    return
+                }
+                self.writeManualCheckpoint(index: index, id: id, requested: requested, domState: readback)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, self.checkpointReadPending, !self.finished else { return }
+                self.finish(.interrupted)
+            }
+        } else {
+            writeManualCheckpoint(index: index, id: id, requested: requested, domState: nil)
+        }
+    }
+
+    private func writeManualCheckpoint(index: Int, id: String, requested: UInt64, domState: WebEditorState?) {
+        let snapshot = ManualCheckpoint(runID: config.runID.uuidString, actionIndex: index, id: id,
+                                        requestNanoseconds: requested, atNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                                        text: text, selection: selection,
+                                        focused: NSApp.isActive && window?.isKeyWindow == true && editorFocused,
+                                        clipboardChangeCountDelta: NSPasteboard.general.changeCount - clipboardStart,
+                                        forcedAXCollapseCount: forcedAXCollapseCount,
+                                        domReadVerified: domState != nil, domSequence: domState?.sequence)
+        do {
+            try JSONEncoder().encode(snapshot).write(to: root.appendingPathComponent("checkpoint-\(index)-host.json"), options: .atomic)
+            manualCheckpoints.append(snapshot)
+        } catch { finish(.interrupted) }
     }
 
     private func editorMatchesSnapshot() -> Bool {
@@ -436,6 +556,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
         }
         guard let view = textView else { return false }
         let range = view.selectedRange()
+        if setup != nil, ProcessInfo.processInfo.systemUptime < manualMutationDeadline {
+            text = view.string
+            selection = [range.location, range.length]
+        }
         return view.string == text && [range.location, range.length] == selection
     }
 
@@ -456,7 +580,10 @@ private final class NativeEditorHost: NSObject, NSApplicationDelegate, NSWindowD
             quartzTapInterrupted: quartzTapInterrupted,
             editorKind: editorKind.rawValue,
             domEvents: final ? domEvents : [],
-            domFinalReadVerified: domFinalReadVerified
+            domFinalReadVerified: domFinalReadVerified,
+            clipboardChangeCountDelta: NSPasteboard.general.changeCount - clipboardStart,
+            manualCheckpoints: manualCheckpoints,
+            forcedAXCollapseCount: forcedAXCollapseCount
         )
         do {
             try snapshot.write(to: root, final: final)
@@ -567,6 +694,7 @@ private var editorKind = EditorKind.nstextview
 var editorArgumentSeen = false
 var index = 0
 var selfCheckCount = 0
+var editorSetupPath: String?
 while index < arguments.count {
     switch arguments[index] {
     case "--self-check":
@@ -582,6 +710,10 @@ while index < arguments.count {
               let kind = EditorKind(rawValue: arguments[index]) else { exit(64) }
         editorKind = kind
         editorArgumentSeen = true
+    case "--editor-setup":
+        index += 1
+        guard index < arguments.count, editorSetupPath == nil else { exit(64) }
+        editorSetupPath = arguments[index]
     default:
         exit(64)
     }
@@ -594,8 +726,16 @@ guard let sessionPath, sessionPath.hasPrefix("/") else {
 let sessionURL = URL(fileURLWithPath: sessionPath)
 let root = sessionURL.deletingLastPathComponent()
 let config: ExternalNativeProbeConfiguration
+private let editorSetup: EditorSetup?
 do {
     config = try ExternalNativeProbeConfiguration.load(from: sessionURL)
+    if let editorSetupPath {
+        let data = try Data(contentsOf: URL(fileURLWithPath: editorSetupPath))
+        guard data.count <= 16_384 else { exit(64) }
+        let setup = try JSONDecoder().decode(EditorSetup.self, from: data)
+        guard setup.isValid else { exit(64) }
+        editorSetup = setup
+    } else { editorSetup = nil }
 } catch {
     FileHandle.standardError.write(Data("invalid native editor configuration\n".utf8))
     exit(64)
@@ -616,7 +756,7 @@ textServiceOverrides["NSAutomaticPeriodSubstitutionEnabled"] = false
 textServiceOverrides["NSAutomaticCapitalizationEnabled"] = false
 UserDefaults.standard.setVolatileDomain(textServiceOverrides, forName: UserDefaults.argumentDomain)
 let app = NSApplication.shared
-private let host = NativeEditorHost(config: config, root: root, editorKind: editorKind)
+private let host = NativeEditorHost(config: config, root: root, editorKind: editorKind, setup: editorSetup)
 app.setActivationPolicy(.regular)
 app.delegate = host
 withExtendedLifetime(host) { app.run() }

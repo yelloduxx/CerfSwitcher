@@ -392,6 +392,15 @@ private struct DictionaryPage: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
+        HStack(spacing: 10) {
+            Button { model.onAction(.exportPersonalBackup) } label: {
+                Label(L10n.backupSave, systemImage: "square.and.arrow.up")
+            }
+            Button { model.onAction(.restorePersonalBackup) } label: {
+                Label(L10n.backupRestore, systemImage: "square.and.arrow.down")
+            }
+            Spacer(minLength: 0)
+        }
         Picker("", selection: $model.dictionaryTab) {
             ForEach(DictionaryTab.allCases) { tab in
                 Text(verbatim: "\(tab.title) (\(model.dictionaryCounts[tab] ?? 0))").tag(tab)
@@ -497,10 +506,20 @@ private struct LearnedPairsTab: View {
         DictionaryListCard(
             title: String(format: L10n.settingsLearnedCount, model.learnedRows.count),
             footer: L10n.settingsLearnedHint, empty: L10n.settingsLearnedEmpty,
-            rows: model.learnedRows, height: 330, selection: $selection,
+            rows: model.learnedRows, height: 280, selection: $selection,
             remove: { model.onChange(.removeLearnedEntries($0)) }
         ) {
-            EmptyView()
+            Menu {
+                Button(L10n.settingsImportLearning) { model.onAction(.importLearning) }
+                Button(L10n.settingsExportLearning) { model.onAction(.exportLearning) }
+                Divider()
+                Button(L10n.settingsClearLearning) { model.onAction(.clearLearning) }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(L10n.dictionaryOtherFormats)
         } row: { row in
             HStack(spacing: 6) {
                 Text(row.id.original)
@@ -527,7 +546,7 @@ private struct RememberedWordsTab: View {
         DictionaryListCard(
             title: String(format: L10n.settingsRememberedCount, model.personalRows.count),
             footer: L10n.settingsRememberedHint, empty: L10n.settingsRememberedEmpty,
-            rows: model.personalRows, height: 330, selection: $selection,
+            rows: model.personalRows, height: 280, selection: $selection,
             remove: { model.onChange(.removePersonalWords($0)) }
         ) {
             Button(L10n.settingsRememberedMove) {
@@ -613,6 +632,13 @@ private struct AdvancedPage: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
+        SettingsCard(title: L10n.settingsAppearance) {
+            ToggleRow(symbol: "speaker.wave.2", tint: .gray,
+                      title: L10n.menuKeySound, isOn: model.binding(.keySound))
+            RowDivider()
+            ToggleRow(symbol: "menubar.rectangle", tint: .gray,
+                      title: L10n.menuMonoIcon, isOn: model.binding(.monochromeIcon))
+        }
         SettingsCard(title: L10n.settingsCardSpecial) {
             ToggleRow(symbol: "terminal.fill", tint: .orange,
                       title: L10n.settingsAxlessConversion, hint: L10n.settingsAxlessConversionHint,
@@ -627,23 +653,6 @@ private struct AdvancedPage: View {
 
         SettingsCard(title: L10n.settingsCardLearning) {
             SettingRow(symbol: "brain", tint: .pink, title: engineDescription) { EmptyView() }
-            RowDivider()
-            HStack(spacing: 8) {
-                Button(L10n.settingsExportLearning) { model.onAction(.exportLearning) }
-                    .fixedSize()
-                Button(L10n.settingsImportLearning) { model.onAction(.importLearning) }
-                    .fixedSize()
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            RowDivider()
-            SettingRow(symbol: "arrow.counterclockwise", tint: .red, title: L10n.settingsClearLearning) {
-                Button { model.onAction(.clearLearning) } label: {
-                    Text(L10n.settingsClearLearningButton).foregroundColor(.red)
-                }
-                .fixedSize()
-            }
         }
 
         SettingsCard(title: L10n.settingsCardDiagnostics) {

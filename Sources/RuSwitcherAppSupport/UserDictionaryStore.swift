@@ -18,6 +18,19 @@ public final class UserDictionaryStore: @unchecked Sendable {
 
     public var words: [String] { locked { dictionary.words } }
 
+    public var snapshot: [String] { words }
+
+    public func replace(with words: [String]) throws {
+        try PersonalDataArchive.validateUserDictionary(words)
+        try locked {
+            defaults.set(words, forKey: Self.storageKey)
+            guard defaults.stringArray(forKey: Self.storageKey) == words else {
+                throw PersonalDataStoreError.readBackFailed
+            }
+            dictionary = UserDictionary(words: words)
+        }
+    }
+
     public func contains(_ word: String) -> Bool { locked { dictionary.contains(word) } }
 
     public var wordsByLanguage: [String: Set<String>] { locked { dictionary.wordsByLanguage } }
@@ -51,9 +64,9 @@ public final class UserDictionaryStore: @unchecked Sendable {
         defaults.set(dictionary.words, forKey: Self.storageKey)
     }
 
-    private func locked<T>(_ body: () -> T) -> T {
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
-        return body()
+        return try body()
     }
 }

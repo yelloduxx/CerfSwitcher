@@ -11,4 +11,7 @@ if [[ -z "$PID" ]]; then
 fi
 
 cd "$ROOT"
-swift run -c release RuSwitcher --ax-resolver-probe "$PID"
+bash "$ROOT/scripts/build_test_host.sh"
+source "$ROOT/scripts/ruswitch_test_app.sh"
+ruswitch_validate_test_app "$ROOT"
+"$RUSWITCH_APP_EXEC" --ax-resolver-probe "$PID"
